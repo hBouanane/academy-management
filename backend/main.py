@@ -4,6 +4,7 @@ Dev:  uvicorn main:app --reload --port 8000  (frontend runs on the Vite dev serv
 Prod: same command, but FastAPI also serves frontend/dist at /
 """
 
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -37,6 +38,10 @@ def list_students():
 
 # In production the built frontend is served by this same process.
 # Mounted last so /api routes take precedence.
-frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if getattr(sys, "frozen", False):
+    # PyInstaller bundle: dist/ is packed next to the code via --add-data
+    frontend_dist = Path(sys._MEIPASS) / "frontend" / "dist"
+else:
+    frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if frontend_dist.is_dir():
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
