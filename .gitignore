@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# Node
+node_modules/
+frontend/dist/
+
+# App data
+*.db
+*.db-journal
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
