@@ -57,4 +57,64 @@ def test_database_from_a_newer_app_version_is_refused(conn):
 
 
 def test_latest_version_matches_migration_files():
-    assert latest_version() >= 1
+    assert latest_version() >= 2
+
+
+def _v1_database_with_a_payment(conn):
+    """Simulate a client database created before migration 0002 existed."""
+    from pathlib import Path
+
+    import app.adapters.sqlite.migrations as m
+
+    conn.executescript(
+        Path(m.__file__).with_name("0001_initial.sql").read_text(encoding="utf-8")
+    )
+    conn.execute("PRAGMA user_version = 1")
+    academy = conn.execute("INSERT INTO academy (name) VALUES ('A')").lastrowid
+    level = conn.execute(
+        "INSERT INTO school_level (academy_id, name) VALUES (?, 'P')", (academy,)
+    ).lastrowid
+    student = conn.execute(
+        "INSERT INTO student (academy_id, level_id, name) VALUES (?, ?, 'S')",
+        (academy, level),
+    ).lastrowid
+    package = conn.execute(
+        "INSERT INTO package (academy_id, subject_count, monthly_price_centimes)"
+        " VALUES (?, 1, 100)",
+        (academy,),
+    ).lastrowid
+    enrollment = conn.execute(
+        "INSERT INTO enrollment (student_id, package_id, month, price_centimes)"
+        " VALUES (?, ?, '2026-09', 100)",
+        (student, package),
+    ).lastrowid
+    conn.execute(
+        "INSERT INTO payment (enrollment_id, amount_centimes) VALUES (?, 100)",
+        (enrollment,),
+    )
+    return enrollment
+
+
+def test_migration_0002_preserves_existing_payments(conn):
+    _v1_database_with_a_payment(conn)
+    migrate(conn)
+    row = conn.execute("SELECT * FROM payment").fetchone()
+    assert row["amount_centimes"] == 100
+    assert row["reversed_at"] is None
+
+
+def test_migration_0002_allows_repost_only_after_reversal(conn):
+    import sqlite3
+
+    enrollment = _v1_database_with_a_payment(conn)
+    migrate(conn)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO payment (enrollment_id, amount_centimes) VALUES (?, 100)",
+            (enrollment,),
+        )
+    conn.execute("UPDATE payment SET reversed_at = datetime('now')")
+    conn.execute(
+        "INSERT INTO payment (enrollment_id, amount_centimes) VALUES (?, 100)",
+        (enrollment,),
+    )
