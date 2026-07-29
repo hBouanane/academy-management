@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -18,9 +19,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { monthLabel, nextMonth } from "@/components/MonthNav"
+import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Package } from "@/lib/api"
-import { formatDH } from "@/lib/money"
+import { currentMonth, formatDH, previousMonth } from "@/lib/money"
 
 type Props = {
   studentId: number
@@ -28,11 +31,24 @@ type Props = {
   levelId: number
   month: string
   onDone: () => void
+  /** Called with the new enrollment id — used to chain into the pay dialog. */
+  onEnrolled?: (enrollmentId: number) => void
   /** Controlled mode: when provided, the dialog renders without a trigger
       button (used right after creating a student). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }
+
+const todayIso = () => {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  return `${now.getFullYear()}-${month}-${String(now.getDate()).padStart(2, "0")}`
+}
+
+// Enrolling for the running month starts today by default (the prorata rule);
+// a coming month starts empty, meaning full price.
+const defaultStart = (month: string) =>
+  month === currentMonth() ? todayIso() : ""
 
 export function EnrollDialog({
   studentId,
@@ -40,6 +56,7 @@ export function EnrollDialog({
   levelId,
   month,
   onDone,
+  onEnrolled,
   open: controlledOpen,
   onOpenChange,
 }: Props) {
@@ -50,27 +67,39 @@ export function EnrollDialog({
   const [packages, setPackages] = useState<Package[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
   const [proration, setProration] = useState<number[]>([10000, 6700, 3300])
+  const [selectedMonth, setSelectedMonth] = useState(month)
   const [packageId, setPackageId] = useState<string>("")
   const [selectedClasses, setSelectedClasses] = useState<number[]>([])
   const [arrival, setArrival] = useState("")
   const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
+    setSelectedMonth(month)
+    setArrival(defaultStart(month))
     apiGet<Package[]>("/api/packages").then(setPackages).catch(() => {})
     apiGet<ClassRow[]>("/api/classes").then(setClasses).catch(() => {})
     apiGet<{ proration_bp: number[] }[]>("/api/academies")
       .then(([academy]) => academy && setProration(academy.proration_bp))
       .catch(() => {})
-  }, [open])
+  }, [open, month])
 
   const reset = () => {
     setSelectedClasses([])
     setPackageId("")
-    setArrival("")
+    setArrival(defaultStart(month))
+    setSelectedMonth(month)
+    setNote(null)
     setError(null)
     setBusy(false)
+  }
+
+  const changeMonth = (target: string) => {
+    setSelectedMonth(target)
+    setArrival(defaultStart(target))
+    setNote(null)
   }
 
   // A Primaire student only sees Primaire classes and Primaire packages.
@@ -81,15 +110,15 @@ export function EnrollDialog({
   const chosenPackage = packages.find((p) => String(p.id) === packageId)
   const capacity = chosenPackage?.subject_count ?? 0
   const full = chosenPackage !== undefined && selectedClasses.length >= capacity
-  const ready = chosenPackage !== undefined && selectedClasses.length === capacity
 
   // Mirror of the backend proration formula, for the live price hint.
   const proratedHint = (() => {
-    if (!chosenPackage || !arrival || arrival.slice(0, 7) !== month) return null
+    if (!chosenPackage || !arrival || arrival.slice(0, 7) !== selectedMonth)
+      return null
     const day = Number(arrival.slice(8, 10))
     const daysInMonth = new Date(
-      Number(month.slice(0, 4)),
-      Number(month.slice(5, 7)),
+      Number(selectedMonth.slice(0, 4)),
+      Number(selectedMonth.slice(5, 7)),
       0,
     ).getDate()
     const index = Math.min(
@@ -108,20 +137,40 @@ export function EnrollDialog({
   }
 
   const submit = () => {
-    if (!chosenPackage) return
+    if (!chosenPackage) {
+      setNote("Aucun forfait choisi — sélectionnez-en un d'abord.")
+      return
+    }
+    if (selectedClasses.length !== capacity) {
+      setNote(
+        `Cochez ${capacity} matière(s) — il en manque ${
+          capacity - selectedClasses.length
+        }.`,
+      )
+      return
+    }
+    if (arrival && arrival.slice(0, 7) !== selectedMonth) {
+      setNote(
+        "La date de début doit être dans le mois d'inscription — changez de" +
+          " mois avec les flèches ou corrigez la date.",
+      )
+      return
+    }
+    setNote(null)
     setError(null)
     setBusy(true)
-    apiSend("POST", "/api/enrollments", {
+    apiSend<{ id: number }>("POST", "/api/enrollments", {
       student_id: studentId,
-      month,
+      month: selectedMonth,
       package_id: chosenPackage.id,
       class_ids: selectedClasses,
       arrival_date: arrival || null,
     })
-      .then(() => {
+      .then((created) => {
         setOpen(false)
         reset()
         onDone()
+        onEnrolled?.(created.id)
       })
       .catch((err: Error) => {
         setError(err.message)
@@ -146,11 +195,36 @@ export function EnrollDialog({
       )}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            Inscrire {studentName} — {month}
-          </DialogTitle>
+          <DialogTitle>Inscrire {studentName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="border-border flex items-center justify-between rounded-lg border p-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Mois précédent"
+              disabled={selectedMonth <= month}
+              onClick={() => changeMonth(previousMonth(selectedMonth))}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="text-sm font-medium capitalize">
+              {monthLabel(selectedMonth)}
+              {selectedMonth !== month && (
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  mois à venir
+                </span>
+              )}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Mois suivant"
+              onClick={() => changeMonth(nextMonth(selectedMonth))}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
           <div className="space-y-2">
             <Label>Forfait</Label>
             <Select
@@ -158,6 +232,7 @@ export function EnrollDialog({
               onValueChange={(value) => {
                 setPackageId(value)
                 setSelectedClasses([])
+                setNote(null)
               }}
             >
               <SelectTrigger className="w-full">
@@ -221,13 +296,13 @@ export function EnrollDialog({
           </div>
           <div className="space-y-2">
             <Label>
-              Arrivé en cours de mois ?{" "}
-              <span className="text-muted-foreground">(optionnel)</span>
+              Date de début{" "}
+              <span className="text-muted-foreground">(prorata)</span>
             </Label>
             <Input
               type="date"
-              min={`${month}-01`}
-              max={`${month}-31`}
+              min={`${selectedMonth}-01`}
+              max={`${selectedMonth}-31`}
               value={arrival}
               onChange={(event) => setArrival(event.target.value)}
             />
@@ -242,11 +317,17 @@ export function EnrollDialog({
                 </span>
               </p>
             )}
+            <p className="text-muted-foreground text-xs">
+              {selectedMonth === currentMonth()
+                ? "Aujourd'hui par défaut — changez la date si l'étudiant commence plus tard."
+                : "Laissez vide pour le tarif plein du mois."}
+            </p>
           </div>
-          {error && <p className="text-destructive text-sm">{error}</p>}
+          <Notice message={note} />
+          <Notice message={error} />
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!ready || busy}>
+          <Button onClick={submit} disabled={busy}>
             {busy ? "…" : "Inscrire"}
           </Button>
         </DialogFooter>

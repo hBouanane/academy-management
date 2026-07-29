@@ -4,6 +4,7 @@ import { Archive, ArchiveRestore, Pencil } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmButton } from "@/components/Confirm"
+import { Notice } from "@/components/Notice"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -135,11 +136,7 @@ export function EntityManager({
         <p className="text-muted-foreground text-sm">{description}</p>
       </header>
 
-      {error && (
-        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm">
-          {error}
-        </p>
-      )}
+      <Notice message={error} />
 
       <div className="surface-card space-y-3 p-5">
         <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">

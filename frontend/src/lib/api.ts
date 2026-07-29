@@ -64,6 +64,7 @@ export type EnrollmentClass = {
 export type OverviewEnrollment = {
   id: number
   price_centimes: number
+  arrival_date: string | null
   net_centimes: number
   paid: boolean
   payment_id: number | null
@@ -149,7 +150,9 @@ function detailMessage(body: unknown, status: number): string {
   if (typeof detail === "string") return detail
   if (Array.isArray(detail)) {
     const messages = detail
-      .map((item) => (item as { msg?: string }).msg)
+      .map((item) =>
+        (item as { msg?: string }).msg?.replace(/^Value error, /, ""),
+      )
       .filter(Boolean)
     if (messages.length) return messages.join(" ; ")
   }

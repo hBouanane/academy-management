@@ -28,8 +28,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { EnrollDialog } from "@/components/EnrollDialog"
+import { Notice } from "@/components/Notice"
+import { PayDialog } from "@/components/PayDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Student } from "@/lib/api"
+
+const phoneDigits = (phone: string) => phone.replace(/[\s.-]/g, "")
+const phoneInvalid = (phone: string) =>
+  phone !== "" && !/^\d{10}$/.test(phoneDigits(phone))
 
 type Props = { month: string }
 
@@ -51,6 +57,10 @@ export function Students({ month }: Props) {
     name: string
     levelId: number
   } | null>(null)
+  // A fresh enrollment chains straight into its pay dialog (réductions incluses).
+  const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
+    null,
+  )
 
   const reload = useCallback(() => {
     apiGet<Student[]>(
@@ -75,33 +85,43 @@ export function Students({ month }: Props) {
   }
 
   const addStudent = () => {
+    if (phoneInvalid(phone)) {
+      setError("Le téléphone doit contenir exactement 10 chiffres.")
+      return
+    }
     setError(null)
     setBusy(true)
     apiSend<{ id: number }>("POST", "/api/students", {
       name,
       level_id: Number(levelId),
-      phone: phone || null,
+      phone: phoneDigits(phone) || null,
     })
       .then((created) => {
         setJustCreated({ id: created.id, name, levelId: Number(levelId) })
         setName("")
         setPhone("")
+        setLevelId("")
         reload()
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false))
   }
 
-  const saveEdit = () =>
+  const saveEdit = () => {
+    if (phoneInvalid(editValues.phone)) {
+      setError("Le téléphone doit contenir exactement 10 chiffres.")
+      return
+    }
     run(async () => {
       if (!editing) return
       await apiSend("PATCH", `/api/students/${editing.id}`, {
         name: editValues.name,
-        phone: editValues.phone,  // "" means "clear it" (normalized server-side)
+        phone: phoneDigits(editValues.phone), // "" means "clear it"
         level_id: Number(editValues.level_id),
       })
       setEditing(null)
     })
+  }
 
   const setActive = (student: Student, active: boolean) =>
     run(() => apiSend("PATCH", `/api/students/${student.id}`, { is_active: active }))
@@ -115,11 +135,7 @@ export function Students({ month }: Props) {
         </p>
       </header>
 
-      {error && (
-        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm">
-          {error}
-        </p>
-      )}
+      <Notice message={error} />
 
       <div className="surface-card space-y-3 p-5">
         <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
@@ -213,6 +229,9 @@ export function Students({ month }: Props) {
                       levelId={student.level_id}
                       month={month}
                       onDone={reload}
+                      onEnrolled={(id) =>
+                        setPayTarget({ id, name: student.name })
+                      }
                     />
                   ) : null}
                   <Button
@@ -270,6 +289,22 @@ export function Students({ month }: Props) {
           }}
           onDone={() => {
             setJustCreated(null)
+            reload()
+          }}
+          onEnrolled={(id) => setPayTarget({ id, name: justCreated.name })}
+        />
+      )}
+
+      {payTarget && (
+        <PayDialog
+          enrollmentId={payTarget.id}
+          studentName={payTarget.name}
+          open
+          onOpenChange={(next) => {
+            if (!next) setPayTarget(null)
+          }}
+          onDone={() => {
+            setPayTarget(null)
             reload()
           }}
         />

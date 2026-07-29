@@ -9,6 +9,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { ConfirmButton } from "@/components/Confirm"
+import { Notice } from "@/components/Notice"
 import { useMotifs } from "@/components/MotifInput"
 import { ReductionForm } from "@/components/ReductionForm"
 import type { ReductionPayload } from "@/components/ReductionForm"
@@ -16,7 +17,15 @@ import { ApiError, apiGet, apiSend } from "@/lib/api"
 import type { PaymentPreview, PreviewAdjustment, PreviewLine } from "@/lib/api"
 import { formatDH } from "@/lib/money"
 
-type Props = { enrollmentId: number; studentName: string; onDone: () => void }
+type Props = {
+  enrollmentId: number
+  studentName: string
+  onDone: () => void
+  /** Controlled mode: when provided, no trigger button renders (used to
+      chain straight from a fresh enrollment). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
 
 const CATEGORY_LABEL: Record<string, string> = {
   discount: "Réduction",
@@ -24,8 +33,16 @@ const CATEGORY_LABEL: Record<string, string> = {
   gift: "Mois offert",
 }
 
-export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
-  const [open, setOpen] = useState(false)
+export function PayDialog({
+  enrollmentId,
+  studentName,
+  onDone,
+  open: controlledOpen,
+  onOpenChange,
+}: Props) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = onOpenChange ?? setInternalOpen
   const [preview, setPreview] = useState<PaymentPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,9 +138,11 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
         }
       }}
     >
-      <DialogTrigger asChild>
-        <Button size="sm">Encaisser</Button>
-      </DialogTrigger>
+      {controlledOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button size="sm">Encaisser</Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Encaisser — {studentName}</DialogTitle>
@@ -225,9 +244,7 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
               )}
             </section>
 
-            {error && (
-              <p className="text-destructive text-sm break-words">{error}</p>
-            )}
+            <Notice message={error} />
 
             <footer className="border-border flex items-center justify-between border-t pt-4">
               <div>

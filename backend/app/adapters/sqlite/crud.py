@@ -514,7 +514,7 @@ def month_overview(
         f"""
         SELECT s.id AS student_id, s.name AS student_name, s.level_id,
                sl.name AS level_name,
-               e.id AS enrollment_id, e.price_centimes,
+               e.id AS enrollment_id, e.price_centimes, e.arrival_date,
                p.id AS payment_id,
                EXISTS(
                  SELECT 1 FROM enrollment prior
@@ -629,6 +629,7 @@ def _overview_row(conn, store, row) -> dict:
         "enrollment": {
             "id": row["enrollment_id"],
             "price_centimes": row["price_centimes"],
+            "arrival_date": row["arrival_date"],
             "net_centimes": safe_net(
                 store, row["enrollment_id"], row["price_centimes"]
             ),

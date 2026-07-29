@@ -15,6 +15,7 @@ import { CashBars, CollectionRing } from "@/components/charts"
 import { ConfirmButton } from "@/components/Confirm"
 import { EnrollDialog } from "@/components/EnrollDialog"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
+import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
 import { ReverseDialog } from "@/components/ReverseDialog"
 import { apiGet, apiSend } from "@/lib/api"
@@ -30,6 +31,10 @@ export function Dashboard({ month, setMonth }: Props) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [search, setSearch] = useState("")
   const [error, setError] = useState<string | null>(null)
+  // A fresh enrollment chains straight into its pay dialog.
+  const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
+    null,
+  )
 
   const locked = month < currentMonth()
   const future = month > currentMonth()
@@ -85,11 +90,7 @@ export function Dashboard({ month, setMonth }: Props) {
         <MonthNav month={month} setMonth={setMonth} />
       </header>
 
-      {error && (
-        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-xl border p-3 text-sm">
-          {error}
-        </p>
-      )}
+      <Notice message={error} />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="surface-card orb-backdrop p-5">
@@ -155,6 +156,9 @@ export function Dashboard({ month, setMonth }: Props) {
                   month={month}
                   locked={locked}
                   onDone={reload}
+                  onEnrolled={(id) =>
+                    setPayTarget({ id, name: row.student_name })
+                  }
                 />
               ))}
               {filtered.length === 0 && (
@@ -171,6 +175,21 @@ export function Dashboard({ month, setMonth }: Props) {
           </Table>
         </div>
       </div>
+
+      {payTarget && (
+        <PayDialog
+          enrollmentId={payTarget.id}
+          studentName={payTarget.name}
+          open
+          onOpenChange={(next) => {
+            if (!next) setPayTarget(null)
+          }}
+          onDone={() => {
+            setPayTarget(null)
+            reload()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -209,12 +228,14 @@ function StudentRow({
   month,
   locked,
   onDone,
+  onEnrolled,
 }: {
   row: OverviewRow
   index: number
   month: string
   locked: boolean
   onDone: () => void
+  onEnrolled: (enrollmentId: number) => void
 }) {
   const enrollment = row.enrollment
   const reduced =
@@ -264,18 +285,28 @@ function StudentRow({
       </TableCell>
       <TableCell className="text-right">
         {enrollment ? (
-          reduced ? (
-            <span>
-              <span className="text-muted-foreground mr-2 text-xs line-through">
-                {formatDH(enrollment.price_centimes)}
+          <>
+            {reduced ? (
+              <span>
+                <span className="text-muted-foreground mr-2 text-xs line-through">
+                  {formatDH(enrollment.price_centimes)}
+                </span>
+                <span className="font-medium">
+                  {formatDH(enrollment.net_centimes)}
+                </span>
               </span>
-              <span className="font-medium">
-                {formatDH(enrollment.net_centimes)}
-              </span>
-            </span>
-          ) : (
-            formatDH(enrollment.net_centimes)
-          )
+            ) : (
+              formatDH(enrollment.net_centimes)
+            )}
+            {enrollment.arrival_date && (
+              <p className="text-muted-foreground text-xs">
+                prorata — début le{" "}
+                {new Date(
+                  `${enrollment.arrival_date}T00:00:00`,
+                ).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+              </p>
+            )}
+          </>
         ) : (
           "—"
         )}
@@ -297,6 +328,7 @@ function StudentRow({
             levelId={row.level_id}
             month={month}
             onDone={onDone}
+            onEnrolled={onEnrolled}
           />
         )}
         {enrollment && unpaid && (

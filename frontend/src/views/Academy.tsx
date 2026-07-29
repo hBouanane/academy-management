@@ -2,8 +2,16 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Academy as AcademyType } from "@/lib/api"
+
+// Even prorata ladder: 3 tranches -> 100/67/33, 4 -> 100/75/50/25 — the
+// automatic default whenever a tranche is added or removed, editable after.
+const ladder = (count: number) =>
+  Array.from({ length: count }, (_, index) =>
+    String(Math.round(((count - index) / count) * 100)),
+  )
 
 export function Academy() {
   const [academy, setAcademy] = useState<AcademyType | null>(null)
@@ -78,11 +86,7 @@ export function Academy() {
         </p>
       </header>
 
-      {error && (
-        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm">
-          {error}
-        </p>
-      )}
+      <Notice message={error} />
 
       <div className="surface-card space-y-5 p-6">
         <div className="space-y-2">
@@ -117,11 +121,13 @@ export function Academy() {
             </div>
           </div>
         </div>
-        {!splitValid && (
-          <p className="text-destructive text-sm">
-            Les pourcentages doivent être positifs et leur somme au plus 100.
-          </p>
-        )}
+        <Notice
+          message={
+            splitValid
+              ? null
+              : "Les pourcentages doivent être positifs et leur somme au plus 100."
+          }
+        />
 
         <div className="border-border space-y-3 border-t pt-5">
           <div>
@@ -157,11 +163,7 @@ export function Academy() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() =>
-                        setSegments((current) =>
-                          current.filter((_, i) => i !== index),
-                        )
-                      }
+                      onClick={() => setSegments(ladder(segments.length - 1))}
                     >
                       ×
                     </Button>
@@ -172,16 +174,16 @@ export function Academy() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setSegments((current) => [...current, "33"])}
+              onClick={() => setSegments(ladder(segments.length + 1))}
             >
               + Tranche
             </Button>
           </div>
-          {!segmentsValid && (
-            <p className="text-destructive text-sm">
-              Chaque tranche doit être entre 0 et 100%.
-            </p>
-          )}
+          <Notice
+            message={
+              segmentsValid ? null : "Chaque tranche doit être entre 0 et 100%."
+            }
+          />
         </div>
 
         <div className="flex items-center gap-3">

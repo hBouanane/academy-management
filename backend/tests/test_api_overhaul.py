@@ -109,7 +109,7 @@ class TestPaymentPreview:
 
     def test_clearing_a_phone_actually_clears_it(self, client):
         teacher = client.post(
-            "/api/teachers", json={"name": "Ahmed", "phone": "0600"}
+            "/api/teachers", json={"name": "Ahmed", "phone": "0600112233"}
         ).json()["id"]
         client.patch(f"/api/teachers/{teacher}", json={"phone": ""})
         (row,) = client.get("/api/teachers").json()
@@ -121,7 +121,11 @@ class TestEntityLifecycle:
         ("collection", "create_body", "patch_body"),
         [
             ("subjects", {"name": "Math"}, {"name": "Mathématiques"}),
-            ("teachers", {"name": "Ahmed"}, {"name": "Ahmed B.", "phone": "0600"}),
+            (
+                "teachers",
+                {"name": "Ahmed"},
+                {"name": "Ahmed B.", "phone": "0600112233"},
+            ),
             (
                 "packages",
                 {"subject_count": 1, "monthly_price_centimes": 100},

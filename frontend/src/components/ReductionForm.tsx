@@ -1,5 +1,6 @@
-// The sponsors model: one total, then who covers it — each part in DH or %,
-// with a live red note while the parts don't sum to the total.
+// The sponsors model: one total, then who covers it — every part in the SAME
+// unit (one DH/% switch for the whole list), with live red notes while the
+// parts don't sum to the total.
 
 import { useState } from "react"
 import { Plus, X } from "lucide-react"
@@ -13,10 +14,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { MotifInput } from "@/components/MotifInput"
+import { Notice } from "@/components/Notice"
 import type { PaymentPreview, PreviewAdjustment } from "@/lib/api"
 import { dhToCentimes, formatDH } from "@/lib/money"
 
-type SponsorRow = { target: string; mode: "amount" | "percent"; value: string }
+type SponsorRow = { target: string; value: string }
+type Unit = "amount" | "percent"
 
 export type ReductionPayload = {
   kind: "percent" | "amount"
@@ -51,7 +54,7 @@ export function ReductionForm({
   // Subject-scoped rows resolve % against the subject share, not the price —
   // editing them stays in DH to keep the displayed math truthful.
   const subjectScoped = initial?.scope === "subject"
-  const [totalMode, setTotalMode] = useState<"amount" | "percent">(
+  const [totalMode, setTotalMode] = useState<Unit>(
     initial?.kind === "percent" && !subjectScoped ? "percent" : "amount",
   )
   const [totalValue, setTotalValue] = useState(
@@ -62,22 +65,23 @@ export function ReductionForm({
       : "",
   )
   const [reason, setReason] = useState(initial?.reason ?? "")
+  // One unit for every sponsor part — mixing % and DH rows confused everyone.
+  const initialPercent =
+    !initial ||
+    initial.bearers.length === 0 ||
+    initial.bearers.every((bearer) => bearer.share_bp !== null)
+  const [sponsorMode, setSponsorMode] = useState<Unit>(
+    initialPercent ? "percent" : "amount",
+  )
   const [sponsors, setSponsors] = useState<SponsorRow[]>(
     initial && initial.bearers.length
-      ? initial.bearers.map((bearer) =>
-          bearer.share_bp !== null
-            ? {
-                target: `${bearer.kind}-${bearer.ref_id}`,
-                mode: "percent" as const,
-                value: String(bearer.share_bp / 100),
-              }
-            : {
-                target: `${bearer.kind}-${bearer.ref_id}`,
-                mode: "amount" as const,
-                value: String((bearer.share_centimes ?? 0) / 100),
-              },
-        )
-      : [{ target: "owner-default", mode: "percent", value: "100" }],
+      ? initial.bearers.map((bearer) => ({
+          target: `${bearer.kind}-${bearer.ref_id}`,
+          value: initialPercent
+            ? String((bearer.share_bp ?? 0) / 100)
+            : String(bearer.share_centimes / 100),
+        }))
+      : [{ target: "owner-default", value: "100" }],
   )
 
   const ownerLine = preview.lines.find((line) => line.kind === "owner")
@@ -98,19 +102,20 @@ export function ReductionForm({
     const raw = sponsors.map((sponsor) => {
       const value = Number(sponsor.value.replace(",", "."))
       if (!Number.isFinite(value)) return 0
-      return sponsor.mode === "amount"
+      return sponsorMode === "amount"
         ? dhToCentimes(sponsor.value)
         : Math.floor((value * 100 * totalCentimes) / 10000)
     })
-    const percentIndexes = sponsors
-      .map((sponsor, index) => ({ sponsor, index }))
-      .filter(({ sponsor }) => sponsor.mode === "percent")
-      .sort((a, b) => raw[b.index] - raw[a.index])
-      .map(({ index }) => index)
-    let difference = totalCentimes - raw.reduce((sum, value) => sum + value, 0)
-    if (difference > 0 && percentIndexes.length && difference <= percentIndexes.length) {
-      for (let offset = 0; difference > 0; offset++, difference--) {
-        raw[percentIndexes[offset % percentIndexes.length]] += 1
+    if (sponsorMode === "percent") {
+      const order = raw
+        .map((value, index) => ({ value, index }))
+        .sort((a, b) => b.value - a.value)
+        .map(({ index }) => index)
+      let difference = totalCentimes - raw.reduce((sum, v) => sum + v, 0)
+      if (difference > 0 && order.length && difference <= order.length) {
+        for (let offset = 0; difference > 0; offset++, difference--) {
+          raw[order[offset % order.length]] += 1
+        }
       }
     }
     return raw
@@ -118,15 +123,31 @@ export function ReductionForm({
   const sponsorsSum = sponsorCentimes.reduce((sum, value) => sum + value, 0)
   const mismatch = totalCentimes > 0 && sponsorsSum !== totalCentimes
 
-  // The owner's zero-floor rule: a share can be reduced to zero, never below.
+  // Flipping the unit converts the numbers so the parts keep their meaning.
+  const switchUnit = (unit: Unit) => {
+    if (unit === sponsorMode) return
+    setSponsors((current) =>
+      current.map((row, index) => {
+        const centimes = sponsorCentimes[index] ?? 0
+        if (unit === "amount") return { ...row, value: String(centimes / 100) }
+        if (totalCentimes <= 0) return row
+        return {
+          ...row,
+          value: String(Math.round((centimes * 10000) / totalCentimes) / 100),
+        }
+      }),
+    )
+    setSponsorMode(unit)
+  }
+
+  // The zero-floor rule: a share can be reduced to zero, never below.
   // When editing, this adjustment's own current cut comes back first.
   const capFor = (target: string) => {
     const line = resolveTarget(target)
     if (!line) return 0
     const previousCut =
       initial?.bearers.find(
-        (bearer) =>
-          bearer.kind === line.kind && bearer.ref_id === line.ref_id,
+        (bearer) => bearer.kind === line.kind && bearer.ref_id === line.ref_id,
       )?.share_centimes ?? 0
     return line.final_centimes + previousCut
   }
@@ -158,12 +179,14 @@ export function ReductionForm({
       reason: reason || null,
       bearers: sponsors.map((sponsor, index) => {
         const line = resolveTarget(sponsor.target)!
-        return sponsor.mode === "percent"
+        return sponsorMode === "percent"
           ? {
               kind: line.kind,
               ref_id: line.ref_id,
               share_centimes: null,
-              share_bp: Math.round(Number(sponsor.value.replace(",", ".")) * 100),
+              share_bp: Math.round(
+                Number(sponsor.value.replace(",", ".")) * 100,
+              ),
             }
           : {
               kind: line.kind,
@@ -192,7 +215,7 @@ export function ReductionForm({
         />
         <Select
           value={totalMode}
-          onValueChange={(mode) => setTotalMode(mode as "amount" | "percent")}
+          onValueChange={(mode) => setTotalMode(mode as Unit)}
           disabled={subjectScoped}
         >
           <SelectTrigger className="w-20">
@@ -211,9 +234,23 @@ export function ReductionForm({
       </div>
       <MotifInput value={reason} onChange={setReason} motifs={motifs} />
 
-      <p className="text-muted-foreground text-xs font-medium uppercase">
-        Sponsors — qui couvre cette réduction
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-muted-foreground text-xs font-medium uppercase">
+          Sponsors — qui couvre cette réduction
+        </p>
+        <Select
+          value={sponsorMode}
+          onValueChange={(unit) => switchUnit(unit as Unit)}
+        >
+          <SelectTrigger size="sm" className="w-18">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="amount">DH</SelectItem>
+            <SelectItem value="percent">%</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       {sponsors.map((sponsor, index) => (
         <div key={index} className="flex flex-wrap items-center gap-2">
           <Select
@@ -242,23 +279,11 @@ export function ReductionForm({
             type="number"
             min="0"
             value={sponsor.value}
-            onChange={(event) => updateSponsor(index, { value: event.target.value })}
+            onChange={(event) =>
+              updateSponsor(index, { value: event.target.value })
+            }
             className="w-24"
           />
-          <Select
-            value={sponsor.mode}
-            onValueChange={(mode) =>
-              updateSponsor(index, { mode: mode as "amount" | "percent" })
-            }
-          >
-            <SelectTrigger className="w-20">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="amount">DH</SelectItem>
-              <SelectItem value="percent">%</SelectItem>
-            </SelectContent>
-          </Select>
           <span className="text-muted-foreground w-20 text-right text-xs">
             {formatDH(sponsorCentimes[index] ?? 0)}
           </span>
@@ -279,32 +304,36 @@ export function ReductionForm({
         size="sm"
         variant="ghost"
         onClick={() =>
-          setSponsors((current) => [
-            ...current,
-            { target: "", mode: "amount", value: "" },
-          ])
+          setSponsors((current) => [...current, { target: "", value: "" }])
         }
       >
         <Plus className="size-4" /> Ajouter un sponsor
       </Button>
 
-      {mismatch && (
-        <p className="text-destructive text-xs font-medium">
-          Les parts ({formatDH(sponsorsSum)}) n'égalent pas la réduction (
-          {formatDH(totalCentimes)}) —{" "}
-          {sponsorsSum < totalCentimes
-            ? `il manque ${formatDH(totalCentimes - sponsorsSum)}`
-            : `${formatDH(sponsorsSum - totalCentimes)} en trop`}
-          .
-        </p>
-      )}
-      {overCapIndex !== -1 && (
-        <p className="text-destructive text-xs font-medium">
-          Maximum pour {resolveTarget(sponsors[overCapIndex].target)?.name} :{" "}
-          {formatDH(capFor(sponsors[overCapIndex].target))} — une part ne peut
-          pas devenir négative.
-        </p>
-      )}
+      <Notice
+        message={
+          mismatch
+            ? `Les parts (${formatDH(sponsorsSum)}) n'égalent pas la réduction (${formatDH(
+                totalCentimes,
+              )}) — ${
+                sponsorsSum < totalCentimes
+                  ? `il manque ${formatDH(totalCentimes - sponsorsSum)}`
+                  : `${formatDH(sponsorsSum - totalCentimes)} en trop`
+              }.`
+            : null
+        }
+      />
+      <Notice
+        message={
+          overCapIndex !== -1
+            ? `Maximum pour ${
+                resolveTarget(sponsors[overCapIndex].target)?.name
+              } : ${formatDH(
+                capFor(sponsors[overCapIndex].target),
+              )} — une part ne peut pas devenir négative.`
+            : null
+        }
+      />
 
       <div className="flex gap-2">
         <Button size="sm" onClick={submit} disabled={!valid || busy}>

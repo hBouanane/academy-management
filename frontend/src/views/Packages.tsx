@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ConfirmButton } from "@/components/Confirm"
+import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Package } from "@/lib/api"
 import { dhToCentimes, formatDH } from "@/lib/money"
@@ -96,11 +97,7 @@ export function Packages() {
         </p>
       </header>
 
-      {error && (
-        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-xl border p-3 text-sm">
-          {error}
-        </p>
-      )}
+      <Notice message={error} />
 
       <div className="surface-card space-y-3 p-5">
         <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">

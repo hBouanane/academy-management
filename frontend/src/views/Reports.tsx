@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table"
 import { CashBars } from "@/components/charts"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
+import { Notice } from "@/components/Notice"
 import { apiGet } from "@/lib/api"
 import type {
   ArrearsEntry,
@@ -72,11 +73,7 @@ export function Reports({ month, setMonth }: Props) {
         </div>
       </header>
 
-      {error && (
-        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-xl border p-3 text-sm">
-          {error}
-        </p>
-      )}
+      <Notice message={error} />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <StatCard

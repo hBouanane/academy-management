@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Notice } from "@/components/Notice"
 import { apiSend } from "@/lib/api"
 
 type Props = { paymentId: number; onDone: () => void }
@@ -72,7 +73,7 @@ export function ReverseDialog({ paymentId, onDone }: Props) {
             placeholder="Chèque refusé…"
           />
         </div>
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        <Notice message={error} />
         <DialogFooter>
           <Button variant="destructive" onClick={submit} disabled={busy}>
             {busy ? "…" : "Contre-passer"}

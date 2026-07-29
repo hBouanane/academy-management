@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from app.adapters.sqlite import crud
 from app.adapters.sqlite.db import connect
@@ -117,9 +117,26 @@ def levels(conn: Conn) -> list[dict]:
     return crud.list_levels(conn, default_academy_id(conn))
 
 
-class NamedCreate(BaseModel):
-    name: str
+class PhoneField(BaseModel):
+    """Phones are normalized to digits and must hold exactly 10 of them.
+
+    None or "" pass through: "" downstream means "clear the stored phone"."""
+
     phone: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def _ten_digits(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return value
+        digits = value.replace(" ", "").replace("-", "").replace(".", "")
+        if not (digits.isdigit() and len(digits) == 10):
+            raise ValueError("le téléphone doit contenir exactement 10 chiffres")
+        return digits
+
+
+class NamedCreate(PhoneField):
+    name: str
 
 
 class SubjectPatch(BaseModel):
@@ -127,9 +144,8 @@ class SubjectPatch(BaseModel):
     is_active: bool | None = None
 
 
-class LifecyclePatch(BaseModel):
+class LifecyclePatch(PhoneField):
     name: str | None = None
-    phone: str | None = None
     is_active: bool | None = None
 
 
@@ -313,16 +329,14 @@ def patch_package(package_id: int, patch: PackagePatch, conn: Conn) -> dict:
 # --- students ------------------------------------------------------------
 
 
-class StudentCreate(BaseModel):
+class StudentCreate(PhoneField):
     name: str
     level_id: int
-    phone: str | None = None
 
 
-class StudentPatch(BaseModel):
+class StudentPatch(PhoneField):
     name: str | None = None
     level_id: int | None = None
-    phone: str | None = None
     is_active: bool | None = None
 
 
