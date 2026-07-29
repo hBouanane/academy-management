@@ -85,6 +85,21 @@ class TestMonthlyReport:
         assert primaire["Ahmed"] == 180 * DH
         assert "Sara" not in primaire
 
+    def test_reversed_payment_zeroes_the_monthly_report(self, scenario):
+        from app.services.payments import reverse_payment
+
+        math = scenario.add_class("Math", "Ahmed", "Primaire")
+        sami = scenario.add_student("Sami", "Primaire")
+        enrollment = scenario.enroll(sami, "2026-09", [math], 300)
+        store = SqlitePaymentStore(scenario.conn)
+        payment_id = post_payment(store, enrollment).payment_id
+        reverse_payment(store, payment_id, reason="bounced")
+
+        report = monthly_report(scenario.conn, scenario.academy_id, "2026-09")
+
+        assert report.cash_in == 0
+        assert sum(t.total for t in report.totals) == report.cash_in
+
     def test_empty_month_reports_zero(self, scenario):
         report = monthly_report(scenario.conn, scenario.academy_id, "2026-01")
         assert report.cash_in == 0

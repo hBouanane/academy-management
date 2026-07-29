@@ -88,9 +88,14 @@ def _v1_database_with_a_payment(conn):
         " VALUES (?, ?, '2026-09', 100)",
         (student, package),
     ).lastrowid
-    conn.execute(
+    payment = conn.execute(
         "INSERT INTO payment (enrollment_id, amount_centimes) VALUES (?, 100)",
         (enrollment,),
+    ).lastrowid
+    conn.execute(
+        "INSERT INTO ledger_entry (academy_id, month, entry_type, amount_centimes,"
+        " payment_id) VALUES (?, '2026-09', 'payment_in', 100, ?)",
+        (academy, payment),
     )
     return enrollment
 
@@ -101,6 +106,25 @@ def test_migration_0002_preserves_existing_payments(conn):
     row = conn.execute("SELECT * FROM payment").fetchone()
     assert row["amount_centimes"] == 100
     assert row["reversed_at"] is None
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    ledger = conn.execute("SELECT payment_id FROM ledger_entry").fetchone()
+    assert ledger["payment_id"] == row["id"]
+
+
+def test_migration_0002_rebuild_is_transactional():
+    from pathlib import Path
+
+    import app.adapters.sqlite.migrations as m
+
+    script = (
+        Path(m.__file__)
+        .with_name("0002_reversible_payments.sql")
+        .read_text(encoding="utf-8")
+    )
+    # Crash-safety recipe: the rebuild must be one explicit transaction.
+    assert "BEGIN;" in script and "COMMIT;" in script
+    assert script.index("BEGIN;") < script.index("DROP TABLE payment")
+    assert script.index("DROP TABLE payment") < script.index("COMMIT;")
 
 
 def test_migration_0002_allows_repost_only_after_reversal(conn):

@@ -75,9 +75,12 @@ def arrears(
 
 
 def _cash_in(conn: sqlite3.Connection, academy_id: int, month: str) -> Centimes:
+    # Cash lines have no beneficiary: payment_in plus its reversal mirrors,
+    # so a reversed month nets back to zero here too.
     row = conn.execute(
         "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
-        " WHERE academy_id = ? AND month = ? AND entry_type = 'payment_in'",
+        " WHERE academy_id = ? AND month = ? AND beneficiary_kind IS NULL"
+        " AND entry_type IN ('payment_in', 'reversal')",
         (academy_id, month),
     ).fetchone()
     return row[0]

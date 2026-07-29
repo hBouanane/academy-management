@@ -12,8 +12,7 @@ from tests.support import DH, Scenario
 @pytest.fixture
 def scenario():
     conn = connect(":memory:")
-    init_conn = conn
-    init_db(init_conn)
+    init_db(conn)
     yield Scenario(conn)
     conn.close()
 
