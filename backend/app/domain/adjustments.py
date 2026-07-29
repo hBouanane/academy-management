@@ -6,7 +6,7 @@ lines. A bearer's share may go negative — the ledger shows reality.
 
 from dataclasses import dataclass
 
-from .money import Centimes, split_equally
+from .money import FULL_SHARE_BP, Centimes, percent_of, split_equally
 from .splitting import Allocation, Beneficiary
 
 
@@ -14,6 +14,44 @@ from .splitting import Allocation, Beneficiary
 class Adjustment:
     reduction: Centimes  # positive amount taken off the student's price
     borne_by: tuple[Beneficiary, ...]  # default policy upstream: (owner,)
+
+
+@dataclass(frozen=True)
+class AdjustmentSpec:
+    """A client-configured reduction, before it is resolved to centimes."""
+
+    kind: str  # 'percent' | 'amount'
+    value: int  # basis points or centimes
+    scope: str  # 'package' | 'subject'
+    subject_index: int | None = None  # position in the enrollment's subject order
+
+
+def resolve_reduction(
+    spec: AdjustmentSpec, *, price: Centimes, subject_count: int
+) -> Centimes:
+    base = _reduction_base(spec, price, subject_count)
+    reduction = _reduction_amount(spec, base)
+    if reduction > base:
+        raise ValueError(f"reduction {reduction} exceeds its base {base}")
+    return reduction
+
+
+def _reduction_base(
+    spec: AdjustmentSpec, price: Centimes, subject_count: int
+) -> Centimes:
+    if spec.scope == "package":
+        return price
+    if spec.subject_index is None:
+        raise ValueError("subject-scoped adjustment needs a subject_index")
+    return split_equally(price, subject_count)[spec.subject_index]
+
+
+def _reduction_amount(spec: AdjustmentSpec, base: Centimes) -> Centimes:
+    if spec.kind == "amount":
+        return spec.value
+    if spec.value > FULL_SHARE_BP:
+        raise ValueError(f"percentage {spec.value} is over 100%")
+    return percent_of(base, spec.value)
 
 
 def apply_adjustments(
