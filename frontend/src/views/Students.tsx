@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react"
+import { Pencil, UserMinus, UserPlus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -24,17 +27,30 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { EnrollDialog } from "@/components/EnrollDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Student } from "@/lib/api"
 
-export function Students() {
+type Props = { month: string }
+
+export function Students({ month }: Props) {
   const [students, setStudents] = useState<Student[]>([])
   const [levels, setLevels] = useState<Level[]>([])
   const [showInactive, setShowInactive] = useState(false)
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [levelId, setLevelId] = useState<string>("")
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Student | null>(null)
+  const [editValues, setEditValues] = useState({ name: "", phone: "", level_id: "" })
+  // Right after creating a student, we open enrollment directly — the natural
+  // next step is always "subscribe him for this month".
+  const [justCreated, setJustCreated] = useState<{
+    id: number
+    name: string
+    levelId: number
+  } | null>(null)
 
   const reload = useCallback(() => {
     apiGet<Student[]>(`/api/students?include_inactive=${showInactive}`)
@@ -47,50 +63,73 @@ export function Students() {
   }, [])
   useEffect(reload, [reload])
 
+  const run = (action: () => Promise<unknown>) => {
+    setError(null)
+    setBusy(true)
+    action()
+      .then(reload)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false))
+  }
+
   const addStudent = () => {
     setError(null)
-    apiSend("POST", "/api/students", {
+    setBusy(true)
+    apiSend<{ id: number }>("POST", "/api/students", {
       name,
       level_id: Number(levelId),
       phone: phone || null,
     })
-      .then(() => {
+      .then((created) => {
+        setJustCreated({ id: created.id, name, levelId: Number(levelId) })
         setName("")
         setPhone("")
         reload()
       })
       .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false))
   }
 
-  const setActive = (student: Student, active: boolean) => {
-    apiSend("PATCH", `/api/students/${student.id}`, { is_active: active })
-      .then(reload)
-      .catch((err: Error) => setError(err.message))
-  }
+  const saveEdit = () =>
+    run(async () => {
+      if (!editing) return
+      await apiSend("PATCH", `/api/students/${editing.id}`, {
+        name: editValues.name,
+        phone: editValues.phone || null,
+        level_id: Number(editValues.level_id),
+      })
+      setEditing(null)
+    })
+
+  const setActive = (student: Student, active: boolean) =>
+    run(() => apiSend("PATCH", `/api/students/${student.id}`, { is_active: active }))
 
   return (
-    <div className="space-y-6">
+    <div className="view-enter space-y-6">
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">Étudiants</h2>
         <p className="text-muted-foreground text-sm">
-          Les étudiants sont désactivés, jamais supprimés — l'historique reste.
+          Après création, l'inscription du mois s'ouvre directement
         </p>
       </header>
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && (
+        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm">
+          {error}
+        </p>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Ajouter un étudiant</CardTitle>
-        </CardHeader>
-        <div className="flex flex-wrap items-end gap-3 px-6 pb-6">
-          <div className="w-56">
-            <Input
-              placeholder="Nom complet"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
+      <div className="surface-card space-y-3 p-5">
+        <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          Nouvel étudiant
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <Input
+            placeholder="Nom complet"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="w-56"
+          />
           <Select value={levelId} onValueChange={setLevelId}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Niveau" />
@@ -103,71 +142,175 @@ export function Students() {
               ))}
             </SelectContent>
           </Select>
-          <div className="w-44">
-            <Input
-              placeholder="Téléphone (optionnel)"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-            />
-          </div>
-          <Button onClick={addStudent} disabled={!name || !levelId}>
-            Ajouter
+          <Input
+            placeholder="Téléphone (optionnel)"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            className="w-44"
+          />
+          <Button onClick={addStudent} disabled={!name || !levelId || busy}>
+            <UserPlus className="size-4" /> Créer et inscrire
           </Button>
         </div>
-      </Card>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Liste</CardTitle>
-          <CardDescription>
-            <label className="flex items-center gap-2">
-              <Checkbox
-                checked={showInactive}
-                onCheckedChange={(checked) => setShowInactive(checked === true)}
-              />
-              Afficher les étudiants désactivés
-            </label>
-          </CardDescription>
-        </CardHeader>
-        <div className="px-6 pb-6">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nom</TableHead>
-                <TableHead>Niveau</TableHead>
-                <TableHead>Téléphone</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {students.map((student) => (
-                <TableRow key={student.id}>
-                  <TableCell className="font-medium">{student.name}</TableCell>
-                  <TableCell>{student.level_name}</TableCell>
-                  <TableCell>{student.phone ?? "—"}</TableCell>
-                  <TableCell>
+      <div className="surface-card p-5">
+        <label className="text-muted-foreground mb-4 flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={showInactive}
+            onCheckedChange={(checked) => setShowInactive(checked === true)}
+          />
+          Afficher les étudiants désactivés
+        </label>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nom</TableHead>
+              <TableHead>Niveau</TableHead>
+              <TableHead>Téléphone</TableHead>
+              <TableHead>Statut</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {students.map((student) => (
+              <TableRow key={student.id}>
+                <TableCell className="font-medium">{student.name}</TableCell>
+                <TableCell>{student.level_name}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {student.phone ?? "—"}
+                </TableCell>
+                <TableCell>
+                  {student.is_active ? (
+                    <Badge className="bg-success/15 text-success border-success/20 border">
+                      Actif
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Désactivé</Badge>
+                  )}
+                </TableCell>
+                <TableCell className="space-x-1 text-right">
+                  {student.is_active ? (
+                    <EnrollDialog
+                      studentId={student.id}
+                      studentName={student.name}
+                      levelId={student.level_id}
+                      month={month}
+                      onDone={reload}
+                    />
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    title="Modifier"
+                    onClick={() => {
+                      setEditing(student)
+                      setEditValues({
+                        name: student.name,
+                        phone: student.phone ?? "",
+                        level_id: String(student.level_id),
+                      })
+                    }}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    title={
+                      student.is_active
+                        ? "Désactiver (l'historique reste)"
+                        : "Réactiver"
+                    }
+                    onClick={() => setActive(student, !student.is_active)}
+                  >
                     {student.is_active ? (
-                      <Badge>Actif</Badge>
+                      <UserMinus className="size-4" />
                     ) : (
-                      <Badge variant="outline">Désactivé</Badge>
+                      <UserPlus className="size-4" />
                     )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setActive(student, !student.is_active)}
-                    >
-                      {student.is_active ? "Désactiver" : "Réactiver"}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <p className="text-muted-foreground mt-3 text-xs">
+          Un étudiant n'est jamais supprimé : désactivé, il disparaît des listes
+          mais tout son historique de paiements reste.
+        </p>
+      </div>
+
+      {justCreated && (
+        <EnrollDialog
+          studentId={justCreated.id}
+          studentName={justCreated.name}
+          levelId={justCreated.levelId}
+          month={month}
+          open={justCreated !== null}
+          onOpenChange={(open) => {
+            if (!open) setJustCreated(null)
+          }}
+          onDone={() => {
+            setJustCreated(null)
+            reload()
+          }}
+        />
+      )}
+
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier {editing?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nom</Label>
+              <Input
+                value={editValues.name}
+                onChange={(event) =>
+                  setEditValues((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Niveau</Label>
+              <Select
+                value={editValues.level_id}
+                onValueChange={(value) =>
+                  setEditValues((current) => ({ ...current, level_id: value }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {levels.map((level) => (
+                    <SelectItem key={level.id} value={String(level.id)}>
+                      {level.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Téléphone</Label>
+              <Input
+                value={editValues.phone}
+                onChange={(event) =>
+                  setEditValues((current) => ({ ...current, phone: event.target.value }))
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={saveEdit} disabled={busy}>
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
