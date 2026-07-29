@@ -4,7 +4,7 @@ import sqlite3
 from collections.abc import Iterator
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from pydantic import BaseModel, StringConstraints
 
 from app.adapters.sqlite import crud
@@ -321,6 +321,20 @@ def report_monthly(month: MonthQuery, conn: Conn) -> dict:
             for level in report.by_level
         ],
     }
+
+
+@router.get("/export/monthly.xlsx")
+def export_monthly(month: MonthQuery, conn: Conn) -> Response:
+    from app.adapters.excel.monthly_workbook import monthly_workbook
+
+    content = monthly_workbook(conn, default_academy_id(conn), month)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="paiements-{month}.xlsx"'
+        },
+    )
 
 
 @router.get("/reports/arrears")

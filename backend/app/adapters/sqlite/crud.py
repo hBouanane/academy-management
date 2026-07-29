@@ -256,10 +256,18 @@ def delete_adjustment(conn: sqlite3.Connection, adjustment_id: int) -> None:
         conn.execute("DELETE FROM adjustment WHERE id = ?", (adjustment_id,))
 
 
-def month_overview(conn: sqlite3.Connection, academy_id: int, month: str) -> list[dict]:
+def month_overview(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    month: str,
+    include_inactive: bool = False,
+) -> list[dict]:
+    """include_inactive matters for archival exports: a student deactivated in
+    October must still appear on September's record."""
+    active_filter = "" if include_inactive else " AND s.is_active = 1"
     students = _rows(
         conn,
-        """
+        f"""
         SELECT s.id AS student_id, s.name AS student_name, sl.name AS level_name,
                e.id AS enrollment_id, e.price_centimes,
                p.id AS payment_id
@@ -267,7 +275,7 @@ def month_overview(conn: sqlite3.Connection, academy_id: int, month: str) -> lis
         JOIN school_level sl ON sl.id = s.level_id
         LEFT JOIN enrollment e ON e.student_id = s.id AND e.month = ?
         LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
-        WHERE s.academy_id = ? AND s.is_active = 1
+        WHERE s.academy_id = ?{active_filter}
         ORDER BY s.name
         """,
         (month, academy_id),
