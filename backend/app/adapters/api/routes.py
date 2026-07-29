@@ -628,7 +628,7 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
         row["id"]: row
         for row in conn.execute(
             "SELECT id, kind, value, category, scope, reason FROM adjustment"
-            " WHERE enrollment_id = ?",
+            " WHERE enrollment_id = ? AND is_active = 1",
             (enrollment_id,),
         )
     }

@@ -124,7 +124,7 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
       <DialogTrigger asChild>
         <Button size="sm">Encaisser</Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90svh] max-w-xl overflow-y-auto">
+      <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Encaisser — {studentName}</DialogTitle>
         </DialogHeader>
@@ -167,6 +167,7 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
                           size="sm"
                           variant="outline"
                           confirmLabel="Offrir ce mois ?"
+                          description="Le mois passe à 0 DH — l'académie prend le coût en charge pour ne pas pénaliser les professeurs."
                           onConfirm={giftMonth}
                           disabled={busy}
                         >
@@ -224,7 +225,9 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
               )}
             </section>
 
-            {error && <p className="text-destructive text-sm">{error}</p>}
+            {error && (
+              <p className="text-destructive text-sm break-words">{error}</p>
+            )}
 
             <footer className="border-border flex items-center justify-between border-t pt-4">
               <div>
@@ -293,7 +296,7 @@ function AdjustmentRow({
   onDelete: () => void
 }) {
   return (
-    <div className="border-border flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 text-sm">
+    <div className="border-border flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-2.5 text-sm">
       <div className="min-w-0">
         <p className="truncate">
           {CATEGORY_LABEL[adjustment.category] ?? adjustment.category}
@@ -319,6 +322,8 @@ function AdjustmentRow({
           size="sm"
           variant="ghost"
           title="Retirer"
+          confirmLabel="Retirer cette réduction ?"
+          description="Elle sera retirée de cette inscription — le tarif plein revient."
           disabled={busy}
           onConfirm={onDelete}
         >

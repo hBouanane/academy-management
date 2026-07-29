@@ -205,9 +205,10 @@ export function Packages() {
                         disabled={busy}
                         confirmLabel={
                           (pack as unknown as { is_active: number }).is_active
-                            ? "Archiver ?"
-                            : "Restaurer ?"
+                            ? "Archiver ce forfait ?"
+                            : "Restaurer ce forfait ?"
                         }
+                        description="Réversible — l'historique financier reste intact."
                         onConfirm={() =>
                           run(() =>
                             apiSend("PATCH", `/api/packages/${pack.id}`, {
@@ -271,9 +272,9 @@ export function Packages() {
             </div>
           </div>
           <DialogFooter>
-            <ConfirmButton
+            <Button
               disabled={busy}
-              onConfirm={() =>
+              onClick={() =>
                 run(() =>
                   apiSend("PATCH", `/api/packages/${editing!.id}`, {
                     subject_count: Number(editCount),
@@ -283,7 +284,7 @@ export function Packages() {
               }
             >
               Enregistrer
-            </ConfirmButton>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

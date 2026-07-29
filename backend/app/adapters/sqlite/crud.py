@@ -408,7 +408,7 @@ def add_adjustment(conn: sqlite3.Connection, enrollment_id: int, fields: dict) -
 
 def adjustment_row(conn: sqlite3.Connection, adjustment_id: int) -> dict | None:
     row = conn.execute(
-        "SELECT * FROM adjustment WHERE id = ?", (adjustment_id,)
+        "SELECT * FROM adjustment WHERE id = ? AND is_active = 1", (adjustment_id,)
     ).fetchone()
     return dict(row) if row else None
 
@@ -475,7 +475,10 @@ def update_adjustment(
 
 
 def delete_adjustment(conn: sqlite3.Connection, adjustment_id: int) -> None:
-    """Remove a configured adjustment — only while its enrollment is unpaid."""
+    """Deactivate a configured adjustment — only while its enrollment is unpaid.
+
+    Soft delete: after a reversed payment, ledger lines still reference the
+    adjustment, so removing the row would break the ledger's foreign keys."""
     from app.ports.payments import AlreadyPaidError
 
     row = conn.execute(
@@ -493,9 +496,8 @@ def delete_adjustment(conn: sqlite3.Connection, adjustment_id: int) -> None:
         )
     with _transaction(conn):
         conn.execute(
-            "DELETE FROM adjustment_bearer WHERE adjustment_id = ?", (adjustment_id,)
+            "UPDATE adjustment SET is_active = 0 WHERE id = ?", (adjustment_id,)
         )
-        conn.execute("DELETE FROM adjustment WHERE id = ?", (adjustment_id,))
 
 
 def month_overview(

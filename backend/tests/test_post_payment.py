@@ -10,7 +10,11 @@ from app.ports.payments import (
     EnrollmentContext,
     UnknownEnrollmentError,
 )
-from app.services.payments import ReductionsExceedPriceError, post_payment
+from app.services.payments import (
+    ReductionsExceedPriceError,
+    ShareBelowZeroError,
+    post_payment,
+)
 
 DH = 100
 
@@ -135,6 +139,20 @@ def test_unknown_enrollment_is_refused():
     store = FakeStore(context())
     with pytest.raises(UnknownEnrollmentError):
         post_payment(store, 404)
+
+
+def test_explicit_sponsor_share_may_not_overdraw_its_bearer():
+    # A declared sponsor part is a promise bounded by what they receive —
+    # unlike gifts, where the bearer-less owner knowingly absorbs everything.
+    discount = ConfiguredAdjustment(
+        adjustment_id=8,
+        spec=AdjustmentSpec(kind="amount", value=70 * DH, scope="package"),
+        bearers=(OWNER, Beneficiary("teacher", 7)),
+        shares_spec=((50 * DH, None), (20 * DH, None)),
+    )
+    store = FakeStore(context(adjustments=[discount]))
+    with pytest.raises(ShareBelowZeroError):
+        post_payment(store, 11)
 
 
 def test_reductions_beyond_the_price_are_refused():

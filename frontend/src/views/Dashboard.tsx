@@ -250,8 +250,8 @@ function StudentRow({
             <span
               key={`${chip.kind}-${chip.ref_id}`}
               className={`rounded-full px-2 py-0.5 text-xs ${
-                chip.kind === "teacher"
-                  ? "bg-muted text-muted-foreground"
+                chip.final_centimes < 0
+                  ? "bg-destructive/10 text-destructive"
                   : "bg-secondary text-secondary-foreground"
               }`}
               title={`${chip.name} reçoit ${formatDH(chip.final_centimes)}`}
@@ -311,7 +311,8 @@ function StudentRow({
                 size="sm"
                 variant="ghost"
                 title="Désinscrire ce mois (aucun paiement enregistré)"
-                confirmLabel="Désinscrire ?"
+                confirmLabel="Désinscrire ce mois ?"
+                description="Aucun paiement n'a été enregistré — la ligne de ce mois sera retirée."
                 onConfirm={() =>
                   apiSend("DELETE", `/api/enrollments/${enrollment.id}`)
                     .then(onDone)

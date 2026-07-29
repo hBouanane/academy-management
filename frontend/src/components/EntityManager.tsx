@@ -217,6 +217,7 @@ export function EntityManager({
                     disabled={busy}
                     onConfirm={() => setActive(row, !row.is_active)}
                     confirmLabel={row.is_active ? "Archiver ?" : "Restaurer ?"}
+                    description="Réversible — l'élément quitte les listes, l'historique financier reste intact."
                     title={row.is_active ? "Archiver (réversible)" : "Restaurer"}
                   >
                     {row.is_active ? (
@@ -268,9 +269,9 @@ export function EntityManager({
             ))}
           </div>
           <DialogFooter>
-            <ConfirmButton onConfirm={saveEdit} disabled={busy}>
+            <Button onClick={saveEdit} disabled={busy}>
               Enregistrer
-            </ConfirmButton>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

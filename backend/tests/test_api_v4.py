@@ -1,5 +1,7 @@
 """Sponsors, proration and table aggregates — written first (TDD)."""
 
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -118,13 +120,14 @@ class TestSponsorShares:
 class TestReviewFixes:
     def test_percent_thirds_land_exactly_on_the_reduction(self, client):
         # Flooring loss is given back to the largest % shares — thirds work.
+        # 89,99 DH keeps every third under its bearer's cap (owner gets 30 DH).
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         response = client.post(
             f"/api/enrollments/{enrollment}/adjustments",
             json={
                 "kind": "amount",
-                "value": 9999,  # 99,99 DH
+                "value": 8999,  # 89,99 DH
                 "bearers": [
                     {"kind": "owner", "ref_id": 1, "share_bp": 3333},
                     {"kind": "venue", "ref_id": 1, "share_bp": 3333},
@@ -136,7 +139,7 @@ class TestReviewFixes:
         (adjustment,) = client.get(f"/api/enrollments/{enrollment}/preview").json()[
             "adjustments"
         ]
-        assert sum(b["share_centimes"] for b in adjustment["bearers"]) == 9999
+        assert sum(b["share_centimes"] for b in adjustment["bearers"]) == 8999
 
     def test_duplicate_sponsors_are_refused_in_french(self, client):
         level, class_id, _, package = setup_base(client)
@@ -206,6 +209,114 @@ class TestReviewFixes:
         client.post("/api/months/2026-10/ensure")
         (row,) = client.get("/api/months/2026-10/overview").json()
         assert row["enrollment"]["price_centimes"] == 300 * DH  # full again
+
+
+class TestSponsorCaps:
+    def test_sponsor_part_beyond_their_share_is_refused(self, client):
+        # The owner receives 30 DH of a 300 DH package — they cannot cover 50.
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        response = client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 70 * DH,
+                "bearers": [
+                    {"kind": "owner", "ref_id": 1, "share_centimes": 50 * DH},
+                    {"kind": "teacher", "ref_id": teacher, "share_centimes": 20 * DH},
+                ],
+            },
+        )
+        assert response.status_code == 422
+        assert "négative" in response.json()["detail"]
+
+    def test_stacked_sponsor_parts_cannot_cross_zero(self, client):
+        level, class_id, _, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+
+        def cover(amount):
+            return client.post(
+                f"/api/enrollments/{enrollment}/adjustments",
+                json={
+                    "kind": "amount",
+                    "value": amount,
+                    "bearers": [
+                        {"kind": "owner", "ref_id": 1, "share_centimes": amount}
+                    ],
+                },
+            )
+
+        assert cover(20 * DH).status_code == 201  # owner: 30 -> 10
+        assert cover(20 * DH).status_code == 422  # 10 - 20 would go below zero
+
+    def test_gift_month_still_lets_the_owner_fund_everyone(self, client):
+        # « Mois offert » sends no explicit parts: the owner absorbs the whole
+        # price so teachers and the venue still get paid — by design.
+        level, class_id, _, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        gift = client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={"kind": "percent", "value": 10_000, "category": "gift"},
+        )
+        assert gift.status_code == 201, gift.text
+        paid = client.post("/api/payments", json={"enrollment_id": enrollment})
+        assert paid.status_code == 201, paid.text
+
+    def test_legacy_over_cap_share_previews_but_refuses_to_post(self, client):
+        # Rows created before the cap existed must still render in the dialog
+        # (that is the repair path) yet refuse to move money.
+        level, class_id, _, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        legacy = sqlite3.connect(client.app.state.db_path)
+        with legacy:
+            adjustment_id = legacy.execute(
+                "INSERT INTO adjustment (enrollment_id, scope, kind, value,"
+                " category) VALUES (?, 'package', 'amount', ?, 'discount')",
+                (enrollment, 50 * DH),
+            ).lastrowid
+            legacy.execute(
+                "INSERT INTO adjustment_bearer (adjustment_id, bearer_kind,"
+                " bearer_id, share_centimes) VALUES (?, 'owner', 1, ?)",
+                (adjustment_id, 50 * DH),
+            )
+        legacy.close()
+        preview = client.get(f"/api/enrollments/{enrollment}/preview")
+        assert preview.status_code == 200
+        owner = next(
+            line for line in preview.json()["lines"] if line["kind"] == "owner"
+        )
+        assert owner["final_centimes"] == -20 * DH
+        paid = client.post("/api/payments", json={"enrollment_id": enrollment})
+        assert paid.status_code == 422
+        assert "négative" in paid.json()["detail"]
+
+
+class TestAdjustmentLifecycle:
+    def test_reduction_removable_after_a_reversed_payment(self, client):
+        # Reverse-then-fix: ledger lines keep referencing the adjustment, so
+        # removal must be a soft delete — not the FOREIGN KEY crash it was.
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        adjustment = client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 20 * DH,
+                "bearers": [
+                    {"kind": "teacher", "ref_id": teacher, "share_centimes": 20 * DH}
+                ],
+            },
+        ).json()["id"]
+        payment = client.post(
+            "/api/payments", json={"enrollment_id": enrollment}
+        ).json()["payment_id"]
+        reversal = client.post(f"/api/payments/{payment}/reverse", json={})
+        assert reversal.status_code == 200, reversal.text
+        deleted = client.delete(f"/api/adjustments/{adjustment}")
+        assert deleted.status_code == 200, deleted.text
+        preview = client.get(f"/api/enrollments/{enrollment}/preview").json()
+        assert preview["adjustments"] == []
+        assert preview["net_centimes"] == 300 * DH
 
 
 class TestProration:

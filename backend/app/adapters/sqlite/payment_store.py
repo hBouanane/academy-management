@@ -172,7 +172,7 @@ class SqlitePaymentStore:
     ) -> tuple[ConfiguredAdjustment, ...]:
         rows = self._conn.execute(
             "SELECT id, scope, class_id, kind, value FROM adjustment"
-            " WHERE enrollment_id = ?",
+            " WHERE enrollment_id = ? AND is_active = 1",
             (enrollment_id,),
         ).fetchall()
         return tuple(self._configured(row, class_ids) for row in rows)
