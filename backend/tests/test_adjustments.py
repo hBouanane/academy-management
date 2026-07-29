@@ -25,7 +25,9 @@ def test_discount_borne_by_owner_only_by_default():
         base_allocations(), [Adjustment(reduction=50 * DH, borne_by=(OWNER,))]
     )
     amounts = amounts_by_beneficiary(adjusted)
-    assert amounts[OWNER] == -20 * DH  # 30 - 50: the ledger shows reality, even negative
+    assert (
+        amounts[OWNER] == -20 * DH
+    )  # 30 - 50: the ledger shows reality, even negative
     assert amounts[VENUE] == 90 * DH  # others untouched
     assert amounts[Beneficiary("teacher", 7)] == 90 * DH
 
