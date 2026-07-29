@@ -2,7 +2,11 @@
 -- with "one ACTIVE payment per enrollment" (partial unique index), and add
 -- reversed_at. SQLite cannot alter constraints, so the table is rebuilt.
 
+-- The rebuild is one explicit transaction: a crash mid-migration must leave
+-- the database exactly at version 1, never in a half-rebuilt state.
+-- (foreign_keys pragmas must sit outside the transaction to take effect.)
 PRAGMA foreign_keys = OFF;
+BEGIN;
 
 CREATE TABLE payment_v2 (
     id INTEGER PRIMARY KEY,
@@ -21,4 +25,6 @@ ALTER TABLE payment_v2 RENAME TO payment;
 CREATE UNIQUE INDEX idx_payment_active_enrollment
     ON payment (enrollment_id) WHERE reversed_at IS NULL;
 
+COMMIT;
+PRAGMA user_version = 2;
 PRAGMA foreign_keys = ON;
