@@ -17,6 +17,14 @@ class AlreadyPaidError(RuntimeError):
     pass
 
 
+class UnknownPaymentError(LookupError):
+    pass
+
+
+class AlreadyReversedError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class ConfiguredAdjustment:
     adjustment_id: int
@@ -46,6 +54,16 @@ class LedgerLine:
     adjustment_id: int | None = None
 
 
+@dataclass(frozen=True)
+class PaymentRecord:
+    payment_id: int
+    enrollment_id: int
+    academy_id: int
+    month: str
+    reversed: bool
+    lines: tuple[LedgerLine, ...]  # the payment's original (non-reversal) lines
+
+
 class PaymentStore(Protocol):
     def enrollment_context(self, enrollment_id: int) -> EnrollmentContext | None: ...
 
@@ -56,3 +74,14 @@ class PaymentStore(Protocol):
         lines: Sequence[LedgerLine],
         paid_on: str | None,
     ) -> int: ...
+
+
+class ReversalStore(Protocol):
+    def payment_record(self, payment_id: int) -> PaymentRecord | None: ...
+
+    def record_reversal(
+        self,
+        payment_record: PaymentRecord,
+        lines: Sequence[LedgerLine],
+        reason: str | None,
+    ) -> None: ...

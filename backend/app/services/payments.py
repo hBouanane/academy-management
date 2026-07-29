@@ -16,11 +16,15 @@ from app.domain.splitting import (
     split_payment,
 )
 from app.ports.payments import (
+    AlreadyReversedError,
     ConfiguredAdjustment,
     EnrollmentContext,
     LedgerLine,
+    PaymentRecord,
     PaymentStore,
+    ReversalStore,
     UnknownEnrollmentError,
+    UnknownPaymentError,
 )
 
 
@@ -51,6 +55,43 @@ def post_payment(
 def net_price(context: EnrollmentContext) -> Centimes:
     """What the student actually owes for this enrollment, after adjustments."""
     return _net_amount(context, _resolved_adjustments(context))
+
+
+@dataclass(frozen=True)
+class ReversedPayment:
+    payment_id: int
+    lines: tuple[LedgerLine, ...]
+
+
+def reverse_payment(
+    store: ReversalStore, payment_id: int, reason: str | None = None
+) -> ReversedPayment:
+    """Un-post the append-only way: mirror every line, never edit history."""
+    record = _record_or_raise(store, payment_id)
+    if record.reversed:
+        raise AlreadyReversedError(f"payment {payment_id} is already reversed")
+    lines = _mirror_lines(record)
+    store.record_reversal(record, lines, reason)
+    return ReversedPayment(payment_id, lines)
+
+
+def _record_or_raise(store: ReversalStore, payment_id: int) -> PaymentRecord:
+    record = store.payment_record(payment_id)
+    if record is None:
+        raise UnknownPaymentError(f"no payment {payment_id}")
+    return record
+
+
+def _mirror_lines(record: PaymentRecord) -> tuple[LedgerLine, ...]:
+    return tuple(
+        LedgerLine(
+            "reversal",
+            -line.amount,
+            beneficiary=line.beneficiary,
+            adjustment_id=line.adjustment_id,
+        )
+        for line in record.lines
+    )
 
 
 def _context_or_raise(store: PaymentStore, enrollment_id: int) -> EnrollmentContext:
