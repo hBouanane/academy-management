@@ -2,7 +2,12 @@
 
 import pytest
 
-from app.domain.adjustments import Adjustment, apply_adjustments
+from app.domain.adjustments import (
+    Adjustment,
+    AdjustmentSpec,
+    apply_adjustments,
+    resolve_reduction,
+)
 from app.domain.splitting import Beneficiary, SplitPolicy, split_payment
 
 DH = 100  # centimes per dirham
@@ -13,7 +18,9 @@ OWNER = Beneficiary("owner", 1)
 
 def base_allocations():
     policy = SplitPolicy(venue_bp=3000, owner_bp=1000)
-    return split_payment(300 * DH, policy, venue_id=1, owner_id=1, teacher_ids=[7, 8])
+    return split_payment(
+        300 * DH, policy, venue_id=1, owner_id=1, subject_teachers=[7, 8]
+    )
 
 
 def amounts_by_beneficiary(allocations):
@@ -69,6 +76,48 @@ def test_bearer_must_hold_an_allocation():
         apply_adjustments(
             base_allocations(), [Adjustment(reduction=10, borne_by=(stranger,))]
         )
+
+
+def test_resolve_percent_of_package():
+    spec = AdjustmentSpec(kind="percent", value=5000, scope="package")
+    assert resolve_reduction(spec, price=300 * DH, subject_count=3) == 150 * DH
+
+
+def test_resolve_amount_off_package():
+    spec = AdjustmentSpec(kind="amount", value=50 * DH, scope="package")
+    assert resolve_reduction(spec, price=300 * DH, subject_count=3) == 50 * DH
+
+
+def test_resolve_percent_of_one_subject():
+    # 300 DH over 3 subjects -> subject base 100 DH; 50% of it = 50 DH.
+    spec = AdjustmentSpec(kind="percent", value=5000, scope="subject", subject_index=1)
+    assert resolve_reduction(spec, price=300 * DH, subject_count=3) == 50 * DH
+
+
+def test_resolve_subject_base_uses_deterministic_slices():
+    # 100 centimes over 3 subjects -> slices 34/33/33; full gift of subject 0 = 34.
+    spec = AdjustmentSpec(kind="percent", value=10000, scope="subject", subject_index=0)
+    assert resolve_reduction(spec, price=100, subject_count=3) == 34
+
+
+def test_resolve_refuses_reduction_beyond_its_base():
+    spec = AdjustmentSpec(
+        kind="amount", value=150 * DH, scope="subject", subject_index=0
+    )
+    with pytest.raises(ValueError):
+        resolve_reduction(spec, price=300 * DH, subject_count=3)
+
+
+def test_resolve_refuses_percent_over_100():
+    spec = AdjustmentSpec(kind="percent", value=10001, scope="package")
+    with pytest.raises(ValueError):
+        resolve_reduction(spec, price=300 * DH, subject_count=3)
+
+
+def test_resolve_subject_scope_requires_index():
+    spec = AdjustmentSpec(kind="percent", value=1000, scope="subject")
+    with pytest.raises(ValueError):
+        resolve_reduction(spec, price=300 * DH, subject_count=3)
 
 
 def test_adjustment_preserves_total_minus_reduction():
