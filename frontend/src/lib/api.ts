@@ -91,6 +91,7 @@ export type PreviewAdjustment = {
   kind: string
   value: number
   category: string
+  scope: string
   reason: string | null
   bearers: PreviewBeneficiary[]
 }

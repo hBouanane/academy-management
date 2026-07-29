@@ -1,4 +1,7 @@
 -- Motifs become reusable data; packages belong to a school level.
+-- One transaction: a crash mid-migration must leave the database at v2.
+
+BEGIN;
 
 CREATE TABLE motif (
     id INTEGER PRIMARY KEY,
@@ -11,4 +14,5 @@ CREATE TABLE motif (
 -- NULL level_id = legacy "all levels" packages keep working.
 ALTER TABLE package ADD COLUMN level_id INTEGER REFERENCES school_level(id);
 
+COMMIT;
 PRAGMA user_version = 3;

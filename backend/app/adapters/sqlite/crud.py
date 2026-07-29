@@ -186,6 +186,11 @@ def list_packages(
     )
 
 
+def package_row(conn: sqlite3.Connection, package_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM package WHERE id = ?", (package_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def update_package(conn: sqlite3.Connection, package_id: int, fields: dict) -> None:
     _update(
         conn,
@@ -431,6 +436,45 @@ def month_overview(
     )
     store = SqlitePaymentStore(conn)
     return [_overview_row(conn, store, row) for row in students]
+
+
+def enrollment_has_payment_history(
+    conn: sqlite3.Connection, enrollment_id: int
+) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM payment WHERE enrollment_id = ?", (enrollment_id,)
+    ).fetchone()
+    return row is not None
+
+
+def delete_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:
+    """Un-enroll: only for enrollments with NO payment history at all —
+    anything the ledger has ever referenced stays forever."""
+    with _transaction(conn):
+        conn.execute(
+            "DELETE FROM adjustment_bearer WHERE adjustment_id IN"
+            " (SELECT id FROM adjustment WHERE enrollment_id = ?)",
+            (enrollment_id,),
+        )
+        conn.execute("DELETE FROM adjustment WHERE enrollment_id = ?", (enrollment_id,))
+        conn.execute(
+            "DELETE FROM enrollment_class WHERE enrollment_id = ?", (enrollment_id,)
+        )
+        conn.execute("DELETE FROM enrollment WHERE id = ?", (enrollment_id,))
+
+
+def latest_enrolled_month_before(
+    conn: sqlite3.Connection, academy_id: int, month: str
+) -> str | None:
+    row = conn.execute(
+        """
+        SELECT MAX(e.month) FROM enrollment e
+        JOIN student s ON s.id = e.student_id
+        WHERE s.academy_id = ? AND e.month < ?
+        """,
+        (academy_id, month),
+    ).fetchone()
+    return row[0]
 
 
 def copy_month(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { ChevronLeft, ChevronRight, Lock } from "lucide-react"
+import { ChevronLeft, ChevronRight, Lock, UserRoundX } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CashBars, CollectionRing } from "@/components/charts"
+import { ConfirmButton } from "@/components/Confirm"
 import { DiscountDialog } from "@/components/DiscountDialog"
 import { EnrollDialog } from "@/components/EnrollDialog"
 import { PayDialog } from "@/components/PayDialog"
@@ -43,6 +44,7 @@ export function Dashboard({ month, setMonth }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   const locked = month < currentMonth()
+  const future = month > currentMonth()
 
   const reload = useCallback(() => {
     setError(null)
@@ -57,8 +59,9 @@ export function Dashboard({ month, setMonth }: Props) {
         .then(setHistory)
         .catch(() => setHistory([]))
     }
-    // Agenda model: entering an open month silently extends the previous one.
-    if (month >= currentMonth()) {
+    // Agenda model: only the CURRENT month extends itself silently. Future
+    // months are prepared explicitly - browsing ahead must not create data.
+    if (month === currentMonth()) {
       apiSend("POST", `/api/months/${month}/ensure`)
         .catch(() => {})
         .finally(load)
@@ -66,6 +69,13 @@ export function Dashboard({ month, setMonth }: Props) {
       load()
     }
   }, [month])
+
+  const prepareMonth = () => {
+    setError(null)
+    apiSend("POST", `/api/months/${month}/ensure`)
+      .then(reload)
+      .catch((err: Error) => setError(err.message))
+  }
 
   useEffect(reload, [reload])
 
@@ -147,12 +157,19 @@ export function Dashboard({ month, setMonth }: Props) {
                 : "Inscrire, encaisser, ajuster — l'aperçu montre qui reçoit quoi"}
             </p>
           </div>
-          <Input
-            placeholder="Rechercher…"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="w-56"
-          />
+          <div className="flex items-center gap-2">
+            {future && (
+              <Button variant="outline" size="sm" onClick={prepareMonth}>
+                Préparer ce mois
+              </Button>
+            )}
+            <Input
+              placeholder="Rechercher…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="w-56"
+            />
+          </div>
         </div>
         <Table>
           <TableHeader>
@@ -302,14 +319,27 @@ function StudentRow({
         )}
         {enrollment && !enrollment.paid && (
           <>
-            {!locked && (
-              <DiscountDialog enrollmentId={enrollment.id} onDone={onDone} />
-            )}
+            <DiscountDialog enrollmentId={enrollment.id} onDone={onDone} />
             <PayDialog
               enrollmentId={enrollment.id}
               studentName={row.student_name}
               onDone={onDone}
             />
+            {!locked && (
+              <ConfirmButton
+                size="sm"
+                variant="ghost"
+                title="Désinscrire ce mois (aucun paiement enregistré)"
+                confirmLabel="Désinscrire ?"
+                onConfirm={() =>
+                  apiSend("DELETE", `/api/enrollments/${enrollment.id}`)
+                    .then(onDone)
+                    .catch(() => onDone())
+                }
+              >
+                <UserRoundX className="size-4" />
+              </ConfirmButton>
+            )}
           </>
         )}
         {enrollment?.paid && enrollment.payment_id && (

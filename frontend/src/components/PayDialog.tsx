@@ -51,7 +51,10 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
     if (open) reload()
   }, [open, reload])
 
-  const run = (action: () => Promise<unknown>, closeAfter = false) => {
+  const run = (
+    action: () => Promise<unknown>,
+    { closeAfter = false, isPayment = false } = {},
+  ) => {
     setError(null)
     setBusy(true)
     action()
@@ -65,7 +68,9 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
         }
       })
       .catch((err: Error) => {
-        if (err instanceof ApiError && err.status === 409) {
+        // Only a conflicting PAYMENT means "already collected" — any other
+        // 409 (locked month, paid guard) shows the API's own explanation.
+        if (isPayment && err instanceof ApiError && err.status === 409) {
           setError("Ce mois est déjà encaissé — la liste va se mettre à jour.")
           setTimeout(() => {
             setOpen(false)
@@ -79,7 +84,10 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
   }
 
   const pay = () =>
-    run(() => apiSend("POST", "/api/payments", { enrollment_id: enrollmentId }), true)
+    run(() => apiSend("POST", "/api/payments", { enrollment_id: enrollmentId }), {
+      closeAfter: true,
+      isPayment: true,
+    })
 
   return (
     <Dialog
@@ -419,11 +427,23 @@ function AdjustmentEditor({
     (line) => `${line.kind}-${line.ref_id}` === bearer,
   )
   const numeric = Number(value.replace(",", "."))
+  const subjectScoped = adjustment.scope === "subject"
   const resolved =
     mode === "amount"
       ? Math.round(numeric * 100)
       : Math.round((numeric / 100) * preview.price_centimes)
-  const valid = value !== "" && Number.isFinite(resolved) && resolved > 0
+  // Same zero-floor cap as ManualReduction: the bearer's current share plus
+  // what THIS adjustment already takes from them (its cut comes back on edit).
+  const keepsBearer = adjustment.bearers.some(
+    (candidate) => `${candidate.kind}-${candidate.ref_id}` === bearer,
+  )
+  const ownCut = keepsBearer
+    ? Math.floor(adjustment.resolved_centimes / adjustment.bearers.length)
+    : 0
+  const cap = bearerLine ? bearerLine.final_centimes + ownCut : 0
+  const overCap = !subjectScoped && Number.isFinite(resolved) && resolved > cap
+  const valid =
+    value !== "" && Number.isFinite(resolved) && resolved > 0 && !overCap
 
   const save = async () => {
     await ensureMotif(reason)
@@ -477,9 +497,20 @@ function AdjustmentEditor({
         />
       </div>
       <MotifInput value={reason} onChange={setReason} motifs={motifs} />
-      <p className="text-muted-foreground text-xs">
-        Aperçu : −{formatDH(Number.isFinite(resolved) ? Math.max(resolved, 0) : 0)}
-      </p>
+      {subjectScoped && mode === "percent" ? (
+        <p className="text-muted-foreground text-xs">
+          Pourcentage calculé sur la part de la matière concernée.
+        </p>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          Aperçu : −{formatDH(Number.isFinite(resolved) ? Math.max(resolved, 0) : 0)}
+        </p>
+      )}
+      {overCap && bearerLine && (
+        <p className="text-destructive text-xs">
+          Maximum pour {bearerLine.name} : {formatDH(cap)}.
+        </p>
+      )}
       <div className="flex gap-2">
         <Button size="sm" onClick={save} disabled={!valid || busy}>
           Enregistrer

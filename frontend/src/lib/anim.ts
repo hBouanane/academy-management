@@ -6,23 +6,27 @@ import gsap from "gsap"
 /** Animates the element's text from 0 to `value`, formatted by `format`. */
 export function useCountUp(value: number, format: (n: number) => string) {
   const ref = useRef<HTMLSpanElement>(null)
+  // Keep the formatter out of the effect deps: a fresh arrow function on each
+  // parent render must not restart the animation (e.g. while typing a search).
+  const formatRef = useRef(format)
+  formatRef.current = format
   useEffect(() => {
     const element = ref.current
     if (!element) return
-    element.textContent = format(0)  // visible even before the first rAF tick
+    element.textContent = formatRef.current(0) // visible before the first rAF tick
     const state = { n: 0 }
     const tween = gsap.to(state, {
       n: value,
       duration: 0.8,
       ease: "power2.out",
       onUpdate: () => {
-        element.textContent = format(state.n)
+        element.textContent = formatRef.current(state.n)
       },
     })
     return () => {
       tween.kill()
     }
-  }, [value, format])
+  }, [value])
   return ref
 }
 

@@ -230,6 +230,7 @@ class PackageCreate(BaseModel):
 class PackagePatch(BaseModel):
     subject_count: int | None = None
     monthly_price_centimes: int | None = None
+    level_id: int | None = None
     is_active: bool | None = None
 
 
@@ -267,6 +268,15 @@ def _check_package_fits_level(
 
 @router.patch("/packages/{package_id}")
 def patch_package(package_id: int, patch: PackagePatch, conn: Conn) -> dict:
+    row = crud.package_row(conn, package_id)
+    if row is None:
+        raise LookupError(f"no package {package_id}")
+    effective_level = patch.level_id if patch.level_id is not None else row["level_id"]
+    effective_count = (
+        patch.subject_count if patch.subject_count is not None else row["subject_count"]
+    )
+    if effective_level is not None:
+        _check_package_fits_level(conn, effective_level, effective_count)
     crud.update_package(conn, package_id, _lifecycle_fields(patch))
     return {"id": package_id}
 
@@ -333,11 +343,6 @@ class AdjustmentCreate(BaseModel):
     bearers: list[BearerIn] = []
 
 
-class CopyMonth(BaseModel):
-    from_month: Month
-    to_month: Month
-
-
 @router.get("/months/{month}/overview")
 def overview(month: MonthPath, conn: Conn) -> list[dict]:
     return crud.month_overview(conn, default_academy_id(conn), month)
@@ -357,9 +362,42 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
     return {"id": enrollment_id}
 
 
+@router.delete("/enrollments/{enrollment_id}")
+def delete_enrollment(enrollment_id: int, conn: Conn) -> dict:
+    """Un-enroll a student from an open month — the escape hatch for a
+    browsed-ahead future month or a cancellation before any money moved."""
+    month = crud.enrollment_month(conn, enrollment_id)
+    if month is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    _require_open_month(month)
+    if crud.enrollment_has_payment_history(conn, enrollment_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Cette inscription a un historique de paiement — elle ne"
+            " peut plus être supprimée (contre-passez plutôt le paiement).",
+        )
+    crud.delete_enrollment(conn, enrollment_id)
+    return {"deleted": enrollment_id}
+
+
+def _require_unpaid_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:
+    """Reductions follow the enrollment's payment state, not the calendar:
+    an UNPAID month — even a past one — can still be negotiated (that is how
+    arrears get settled, and how reverse-then-fix corrections work). A paid
+    month must be reversed first."""
+    if crud.enrollment_month(conn, enrollment_id) is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    if crud.enrollment_is_paid(conn, enrollment_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Mois déjà encaissé — contre-passez le paiement avant de"
+            " modifier les réductions.",
+        )
+
+
 @router.post("/enrollments/{enrollment_id}/adjustments", status_code=201)
 def create_adjustment(enrollment_id: int, body: AdjustmentCreate, conn: Conn) -> dict:
-    _require_open_enrollment_month(conn, enrollment_id)
+    _require_unpaid_enrollment(conn, enrollment_id)
     _check_adjustment_is_postable(conn, enrollment_id, body)
     adjustment_id = crud.add_adjustment(conn, enrollment_id, body.model_dump())
     return {"id": adjustment_id}
@@ -392,7 +430,7 @@ def delete_adjustment(adjustment_id: int, conn: Conn) -> dict:
     row = crud.adjustment_row(conn, adjustment_id)
     if row is None:
         raise LookupError(f"no adjustment {adjustment_id}")
-    _require_open_enrollment_month(conn, row["enrollment_id"])
+    _require_unpaid_enrollment(conn, row["enrollment_id"])
     crud.delete_adjustment(conn, adjustment_id)
     return {"deleted": adjustment_id}
 
@@ -411,12 +449,12 @@ def patch_adjustment(adjustment_id: int, body: AdjustmentPatch, conn: Conn) -> d
     row = crud.adjustment_row(conn, adjustment_id)
     if row is None:
         raise LookupError(f"no adjustment {adjustment_id}")
-    _require_open_enrollment_month(conn, row["enrollment_id"])
-    if crud.enrollment_is_paid(conn, row["enrollment_id"]):
+    _require_unpaid_enrollment(conn, row["enrollment_id"])
+    if body.kind is not None and body.kind != row["kind"] and body.value is None:
         raise HTTPException(
-            status_code=409,
-            detail="Mois déjà encaissé — contre-passez le paiement avant de"
-            " modifier les réductions.",
+            status_code=422,
+            detail="Changer l'unité (DH ↔ %) exige aussi la nouvelle valeur —"
+            " sinon les centimes seraient relus comme des pourcentages.",
         )
     _validate_adjustment_edit(conn, row, body)
     fields = body.model_dump(exclude_none=True, exclude={"bearers"})
@@ -481,7 +519,7 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
     stored = {
         row["id"]: row
         for row in conn.execute(
-            "SELECT id, kind, value, category, reason FROM adjustment"
+            "SELECT id, kind, value, category, scope, reason FROM adjustment"
             " WHERE enrollment_id = ?",
             (enrollment_id,),
         )
@@ -513,6 +551,7 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
                 "kind": stored[adjustment.adjustment_id]["kind"],
                 "value": stored[adjustment.adjustment_id]["value"],
                 "category": stored[adjustment.adjustment_id]["category"],
+                "scope": stored[adjustment.adjustment_id]["scope"],
                 "reason": stored[adjustment.adjustment_id]["reason"],
                 "bearers": [named(bearer) for bearer in adjustment.bearers],
             }
@@ -523,31 +562,21 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
 
 @router.post("/months/{month}/ensure")
 def ensure_month(month: MonthPath, conn: Conn) -> dict:
-    """Agenda model: entering a current/future month silently extends the
-    previous month's enrollments (idempotent; reductions are NOT carried)."""
+    """Agenda model: entering an open month extends the latest enrolled month
+    before it (idempotent; one-off reductions are deliberately NOT carried —
+    they are per-month decisions). Walking back over skipped months means a
+    summer break does not empty the agenda in September."""
     if month < clock.current_month():
         raise HTTPException(
             status_code=409,
             detail="Les mois passés sont verrouillés — rien ne s'y ajoute.",
         )
     academy_id = default_academy_id(conn)
-    year, month_number = int(month[:4]), int(month[5:7])
-    total = year * 12 + (month_number - 1) - 1
-    previous = f"{total // 12:04d}-{total % 12 + 1:02d}"
-    extended = crud.copy_month(conn, academy_id, previous, month)
-    return {"extended": extended, "from_month": previous}
-
-
-@router.post("/months/copy")
-def copy_month(body: CopyMonth, conn: Conn) -> dict:
-    """Copies enrollments (not one-off adjustments) into an empty month slot.
-
-    Adjustments are deliberately NOT copied: discounts and gifts are per-month
-    decisions; auto-perpetuating them would silently leak money.
-    """
-    academy_id = default_academy_id(conn)
-    copied = crud.copy_month(conn, academy_id, body.from_month, body.to_month)
-    return {"copied": copied, "adjustments_copied": False}
+    source = crud.latest_enrolled_month_before(conn, academy_id, month)
+    if source is None:
+        return {"extended": 0, "from_month": None}
+    extended = crud.copy_month(conn, academy_id, source, month)
+    return {"extended": extended, "from_month": source}
 
 
 # --- payments ------------------------------------------------------------

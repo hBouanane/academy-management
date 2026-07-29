@@ -129,15 +129,56 @@ class TestAgendaMonths:
             },
         )
         assert blocked.status_code == 409
-        # Adjustments on a past month -> locked.
-        blocked_adj = client.post(
+        # Negotiating an UNPAID past month down -> allowed (that's how arrears
+        # get settled, and how reverse-then-fix works).
+        negotiated = client.post(
             f"/api/enrollments/{enrollment}/adjustments",
             json={"kind": "amount", "value": 10 * DH},
         )
-        assert blocked_adj.status_code == 409
+        assert negotiated.status_code == 201
         # Collecting the old debt -> allowed.
         paid = client.post("/api/payments", json={"enrollment_id": enrollment})
         assert paid.status_code == 201
+        # Once paid, reductions are frozen behind reversal.
+        frozen = client.patch(
+            f"/api/adjustments/{negotiated.json()['id']}", json={"value": 5 * DH}
+        )
+        assert frozen.status_code == 409
+        # The legacy unguarded copy route is gone entirely.
+        assert (
+            client.post(
+                "/api/months/copy",
+                json={"from_month": "2026-08", "to_month": "2020-01"},
+            ).status_code
+            == 404
+        )
+
+    def test_ensure_walks_back_over_skipped_months(self, client, monkeypatch):
+        level, class_id, _ = setup_level_class(client)
+        enroll_student(client, level, [class_id], month="2026-09")
+        # October never opened; November arrives.
+        monkeypatch.setattr(clock, "current_month", lambda: "2026-11")
+        response = client.post("/api/months/2026-11/ensure").json()
+        assert response == {"extended": 1, "from_month": "2026-09"}
+        (row,) = client.get("/api/months/2026-11/overview").json()
+        assert row["enrollment"] is not None
+
+    def test_unpaid_open_enrollment_can_be_deleted(self, client):
+        level, class_id, _ = setup_level_class(client)
+        _, _, enrollment = enroll_student(client, level, [class_id])
+        assert client.delete(f"/api/enrollments/{enrollment}").status_code == 200
+        (row,) = client.get("/api/months/2026-09/overview").json()
+        assert row["enrollment"] is None
+
+    def test_enrollment_with_payment_history_cannot_be_deleted(self, client):
+        level, class_id, _ = setup_level_class(client)
+        _, _, enrollment = enroll_student(client, level, [class_id])
+        payment = client.post(
+            "/api/payments", json={"enrollment_id": enrollment}
+        ).json()["payment_id"]
+        client.post(f"/api/payments/{payment}/reverse", json={})
+        # Even reversed history pins the enrollment forever.
+        assert client.delete(f"/api/enrollments/{enrollment}").status_code == 409
 
 
 class TestAdjustmentEdit:
@@ -177,6 +218,36 @@ class TestAdjustmentEdit:
         assert refused.status_code == 422
         preview = client.get(f"/api/enrollments/{enrollment}/preview").json()
         assert preview["net_centimes"] == 250 * DH  # unchanged
+
+    def test_changing_unit_without_value_is_refused(self, client):
+        # kind and value are a unit pair: 5000 centimes reread as 5000 bp
+        # would triple the reduction silently.
+        level, class_id, _ = setup_level_class(client)
+        _, _, enrollment = enroll_student(client, level, [class_id])
+        adjustment = client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={"kind": "amount", "value": 50 * DH},
+        ).json()["id"]
+        refused = client.patch(
+            f"/api/adjustments/{adjustment}", json={"kind": "percent"}
+        )
+        assert refused.status_code == 422
+        preview = client.get(f"/api/enrollments/{enrollment}/preview").json()
+        assert preview["net_centimes"] == 250 * DH  # unchanged
+
+    def test_package_patch_respects_level_capacity(self, client):
+        level, _, _ = setup_level_class(client)  # 1 subject at Primaire
+        package = client.post(
+            "/api/packages",
+            json={"subject_count": 1, "monthly_price_centimes": 100, "level_id": level},
+        ).json()["id"]
+        refused = client.patch(f"/api/packages/{package}", json={"subject_count": 4})
+        assert refused.status_code == 422
+        # And the level itself is editable now.
+        levels = client.get("/api/levels").json()
+        college = next(lv["id"] for lv in levels if lv["name"] == "Collège")
+        blocked = client.patch(f"/api/packages/{package}", json={"level_id": college})
+        assert blocked.status_code == 422  # no subjects taught there yet
 
     def test_editing_on_a_paid_enrollment_is_refused(self, client):
         level, class_id, _ = setup_level_class(client)
