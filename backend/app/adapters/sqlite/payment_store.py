@@ -8,9 +8,11 @@ from app.domain.money import Centimes
 from app.domain.splitting import Beneficiary
 from app.ports.payments import (
     AlreadyPaidError,
+    AlreadyReversedError,
     ConfiguredAdjustment,
     EnrollmentContext,
     LedgerLine,
+    PaymentRecord,
 )
 
 
@@ -58,7 +60,7 @@ class SqlitePaymentStore:
             payment_id = self._insert_payment(
                 context.enrollment_id, net_amount, paid_on
             )
-            self._insert_lines(context, payment_id, lines)
+            self._insert_lines(context.academy_id, context.month, payment_id, lines)
         except sqlite3.IntegrityError as error:
             self._conn.rollback()
             raise AlreadyPaidError(
@@ -69,6 +71,81 @@ class SqlitePaymentStore:
             raise
         self._conn.commit()
         return payment_id
+
+    def payment_record(self, payment_id: int) -> PaymentRecord | None:
+        row = self._conn.execute(
+            """
+            SELECT p.id, p.enrollment_id, p.reversed_at, e.month, s.academy_id
+            FROM payment p
+            JOIN enrollment e ON e.id = p.enrollment_id
+            JOIN student s ON s.id = e.student_id
+            WHERE p.id = ?
+            """,
+            (payment_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return PaymentRecord(
+            payment_id=row["id"],
+            enrollment_id=row["enrollment_id"],
+            academy_id=row["academy_id"],
+            month=row["month"],
+            reversed=row["reversed_at"] is not None,
+            lines=self._payment_lines(payment_id),
+        )
+
+    def record_reversal(
+        self,
+        payment_record: PaymentRecord,
+        lines: Sequence[LedgerLine],
+        reason: str | None,
+    ) -> None:
+        try:
+            updated = self._conn.execute(
+                "UPDATE payment SET reversed_at = datetime('now')"
+                " WHERE id = ? AND reversed_at IS NULL",
+                (payment_record.payment_id,),
+            ).rowcount
+            if updated != 1:
+                raise AlreadyReversedError(
+                    f"payment {payment_record.payment_id} is already reversed"
+                )
+            self._insert_lines(
+                payment_record.academy_id,
+                payment_record.month,
+                payment_record.payment_id,
+                lines,
+                note=reason,
+            )
+        except Exception:
+            self._conn.rollback()
+            raise
+        self._conn.commit()
+
+    def _payment_lines(self, payment_id: int) -> tuple[LedgerLine, ...]:
+        rows = self._conn.execute(
+            """
+            SELECT entry_type, amount_centimes, beneficiary_kind, beneficiary_id,
+                   adjustment_id
+            FROM ledger_entry
+            WHERE payment_id = ? AND entry_type != 'reversal'
+            ORDER BY id
+            """,
+            (payment_id,),
+        )
+        return tuple(
+            LedgerLine(
+                entry_type=row["entry_type"],
+                amount=row["amount_centimes"],
+                beneficiary=(
+                    Beneficiary(row["beneficiary_kind"], row["beneficiary_id"])
+                    if row["beneficiary_kind"]
+                    else None
+                ),
+                adjustment_id=row["adjustment_id"],
+            )
+            for row in rows
+        )
 
     def _enrolled_classes(self, enrollment_id: int) -> list[tuple[int, int]]:
         rows = self._conn.execute(
@@ -134,22 +211,28 @@ class SqlitePaymentStore:
         ).lastrowid
 
     def _insert_lines(
-        self, context: EnrollmentContext, payment_id: int, lines: Sequence[LedgerLine]
+        self,
+        academy_id: int,
+        month: str,
+        payment_id: int,
+        lines: Sequence[LedgerLine],
+        note: str | None = None,
     ) -> None:
         self._conn.executemany(
             "INSERT INTO ledger_entry (academy_id, month, entry_type,"
             " beneficiary_kind, beneficiary_id, amount_centimes, payment_id,"
-            " adjustment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " adjustment_id, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
-                    context.academy_id,
-                    context.month,
+                    academy_id,
+                    month,
                     line.entry_type,
                     line.beneficiary.kind if line.beneficiary else None,
                     line.beneficiary.ref_id if line.beneficiary else None,
                     line.amount,
                     payment_id,
                     line.adjustment_id,
+                    note,
                 )
                 for line in lines
             ],
