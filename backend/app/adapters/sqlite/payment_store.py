@@ -189,17 +189,31 @@ class SqlitePaymentStore:
             scope=row["scope"],
             subject_index=subject_index,
         )
+        bearers, shares_spec = self._bearers(row["id"])
         return ConfiguredAdjustment(
-            adjustment_id=row["id"], spec=spec, bearers=self._bearers(row["id"])
+            adjustment_id=row["id"],
+            spec=spec,
+            bearers=bearers,
+            shares_spec=shares_spec,
         )
 
-    def _bearers(self, adjustment_id: int) -> tuple[Beneficiary, ...]:
+    def _bearers(
+        self, adjustment_id: int
+    ) -> tuple[
+        tuple[Beneficiary, ...], tuple[tuple[int | None, int | None], ...] | None
+    ]:
         rows = self._conn.execute(
-            "SELECT bearer_kind, bearer_id FROM adjustment_bearer"
-            " WHERE adjustment_id = ?",
+            "SELECT bearer_kind, bearer_id, share_centimes, share_bp"
+            " FROM adjustment_bearer WHERE adjustment_id = ?",
             (adjustment_id,),
+        ).fetchall()
+        bearers = tuple(
+            Beneficiary(row["bearer_kind"], row["bearer_id"]) for row in rows
         )
-        return tuple(Beneficiary(row["bearer_kind"], row["bearer_id"]) for row in rows)
+        spec = tuple((row["share_centimes"], row["share_bp"]) for row in rows)
+        if all(centimes is None and bp is None for centimes, bp in spec):
+            return bearers, None
+        return bearers, spec
 
     def _insert_payment(
         self, enrollment_id: int, amount: Centimes, paid_on: str | None

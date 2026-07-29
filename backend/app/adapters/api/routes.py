@@ -21,6 +21,7 @@ from app.services.payments import (
     reverse_payment,
     validate_adjustment,
 )
+from app.services.proration import prorated_price
 
 router = APIRouter()
 
@@ -79,6 +80,7 @@ class AcademyPatch(BaseModel):
     name: str | None = None
     venue_bp: int | None = None
     owner_bp: int | None = None
+    proration_bp: list[int] | None = None  # month segments, e.g. [10000, 6700, 3300]
 
 
 @router.get("/academies")
@@ -88,7 +90,20 @@ def academies(conn: Conn) -> list[dict]:
 
 @router.patch("/academies/{academy_id}")
 def patch_academy(academy_id: int, patch: AcademyPatch, conn: Conn) -> dict:
-    crud.update_academy(conn, academy_id, patch.model_dump(exclude_none=True))
+    fields = patch.model_dump(exclude_none=True)
+    if "proration_bp" in fields:
+        segments = fields.pop("proration_bp")
+        if not (1 <= len(segments) <= 12) or any(
+            not 0 <= bp <= 10_000 for bp in segments
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Prorata : entre 1 et 12 tranches, chacune entre 0 et 100%.",
+            )
+        import json
+
+        fields["proration_json"] = json.dumps(segments)
+    crud.update_academy(conn, academy_id, fields)
     updated = next(
         (a for a in crud.list_academies(conn) if a["id"] == academy_id), None
     )
@@ -144,8 +159,15 @@ def patch_subject(subject_id: int, patch: SubjectPatch, conn: Conn) -> dict:
 
 
 @router.get("/teachers")
-def teachers(conn: Conn, include_inactive: bool = False) -> list[dict]:
-    return crud.list_teachers(conn, default_academy_id(conn), include_inactive)
+def teachers(
+    conn: Conn, include_inactive: bool = False, month: MonthQuery | None = None
+) -> list[dict]:
+    return crud.list_teachers(
+        conn,
+        default_academy_id(conn),
+        include_inactive,
+        month or clock.current_month(),
+    )
 
 
 @router.post("/teachers", status_code=201)
@@ -180,8 +202,15 @@ class ClassPatch(BaseModel):
 
 
 @router.get("/classes")
-def classes(conn: Conn, include_inactive: bool = False) -> list[dict]:
-    return crud.list_classes(conn, default_academy_id(conn), include_inactive)
+def classes(
+    conn: Conn, include_inactive: bool = False, month: MonthQuery | None = None
+) -> list[dict]:
+    return crud.list_classes(
+        conn,
+        default_academy_id(conn),
+        include_inactive,
+        month or clock.current_month(),
+    )
 
 
 @router.post("/classes", status_code=201)
@@ -298,8 +327,15 @@ class StudentPatch(BaseModel):
 
 
 @router.get("/students")
-def students(conn: Conn, include_inactive: bool = False) -> list[dict]:
-    return crud.list_students(conn, default_academy_id(conn), include_inactive)
+def students(
+    conn: Conn, include_inactive: bool = False, month: MonthQuery | None = None
+) -> list[dict]:
+    return crud.list_students(
+        conn,
+        default_academy_id(conn),
+        include_inactive,
+        month or clock.current_month(),
+    )
 
 
 @router.post("/students", status_code=201)
@@ -326,11 +362,26 @@ class EnrollmentCreate(BaseModel):
     package_id: int
     class_ids: list[int]
     price_centimes: int | None = None
+    # Mid-month arrival: the price is prorated by the academy's segments.
+    arrival_date: Annotated[str, StringConstraints(pattern=DATE_PATTERN)] | None = None
 
 
 class BearerIn(BaseModel):
     kind: Literal["owner", "venue", "teacher"]
     ref_id: int
+    # Sponsor part: explicit centimes OR a % of the reduction; both empty
+    # means "equal split with the other sponsors".
+    share_centimes: int | None = None
+    share_bp: int | None = None
+
+
+def _shares_spec(
+    bearers: list[BearerIn],
+) -> tuple[tuple[int | None, int | None], ...] | None:
+    spec = tuple((b.share_centimes, b.share_bp) for b in bearers)
+    if all(c is None and bp is None for c, bp in spec):
+        return None
+    return spec
 
 
 class AdjustmentCreate(BaseModel):
@@ -351,13 +402,29 @@ def overview(month: MonthPath, conn: Conn) -> list[dict]:
 @router.post("/enrollments", status_code=201)
 def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
     _require_open_month(body.month)
+    price = body.price_centimes
+    if price is None and body.arrival_date is not None:
+        if body.arrival_date[:7] != body.month:
+            raise HTTPException(
+                status_code=422,
+                detail="La date d'arrivée doit être dans le mois d'inscription.",
+            )
+        package = crud.package_row(conn, body.package_id)
+        if package is None:
+            raise LookupError(f"no package {body.package_id}")
+        price = prorated_price(
+            package["monthly_price_centimes"],
+            crud.academy_proration(conn, default_academy_id(conn)),
+            body.month,
+            int(body.arrival_date[8:10]),
+        )
     enrollment_id = crud.create_enrollment(
         conn,
         body.student_id,
         body.month,
         body.package_id,
         body.class_ids,
-        body.price_centimes,
+        price,
     )
     return {"id": enrollment_id}
 
@@ -422,7 +489,10 @@ def _check_adjustment_is_postable(
     bearers = tuple(Beneficiary(b.kind, b.ref_id) for b in body.bearers) or (
         Beneficiary("owner", context.owner_id),
     )
-    validate_adjustment(context, ConfiguredAdjustment(0, spec, bearers))
+    validate_adjustment(
+        context,
+        ConfiguredAdjustment(0, spec, bearers, shares_spec=_shares_spec(body.bearers)),
+    )
 
 
 @router.delete("/adjustments/{adjustment_id}")
@@ -500,14 +570,22 @@ def _validate_adjustment_edit(
     )
     if body.bearers is not None:
         bearers = tuple(Beneficiary(b.kind, b.ref_id) for b in body.bearers)
+        shares_spec = _shares_spec(body.bearers)
     else:
-        bearers = tuple(
-            Beneficiary(b["kind"], b["ref_id"])
-            for b in crud.adjustment_bearers(conn, row["id"])
+        stored_bearers = crud.adjustment_bearers(conn, row["id"])
+        bearers = tuple(Beneficiary(b["kind"], b["ref_id"]) for b in stored_bearers)
+        spec_tuple = tuple((b["share_centimes"], b["share_bp"]) for b in stored_bearers)
+        shares_spec = (
+            None
+            if all(c is None and bp is None for c, bp in spec_tuple)
+            else spec_tuple
         )
     if not bearers:
         bearers = (Beneficiary("owner", context.owner_id),)
-    validate_adjustment(context, ConfiguredAdjustment(0, spec, bearers))
+        shares_spec = None
+    validate_adjustment(
+        context, ConfiguredAdjustment(0, spec, bearers, shares_spec=shares_spec)
+    )
 
 
 @router.get("/enrollments/{enrollment_id}/preview")
@@ -553,7 +631,12 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
                 "category": stored[adjustment.adjustment_id]["category"],
                 "scope": stored[adjustment.adjustment_id]["scope"],
                 "reason": stored[adjustment.adjustment_id]["reason"],
-                "bearers": [named(bearer) for bearer in adjustment.bearers],
+                "bearers": [
+                    {**named(bearer), "share_centimes": share}
+                    for bearer, share in zip(
+                        adjustment.bearers, adjustment.shares, strict=True
+                    )
+                ],
             }
             for adjustment in preview.adjustments
         ],

@@ -14,6 +14,8 @@ from .splitting import Allocation, Beneficiary
 class Adjustment:
     reduction: Centimes  # positive amount taken off the student's price
     borne_by: tuple[Beneficiary, ...]  # default policy upstream: (owner,)
+    # Explicit sponsor parts, aligned with borne_by; None = equal split.
+    shares: tuple[Centimes, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -80,7 +82,10 @@ def _validate_bearers(
 
 
 def bearer_cuts(adjustment: Adjustment) -> dict[Beneficiary, Centimes]:
-    """How much of the reduction each bearer absorbs (equal, largest-remainder)."""
+    """How much of the reduction each sponsor absorbs — their explicit share
+    when given, an equal largest-remainder split otherwise."""
+    if adjustment.shares is not None:
+        return dict(zip(adjustment.borne_by, adjustment.shares, strict=True))
     shares = split_equally(adjustment.reduction, len(adjustment.borne_by))
     return dict(zip(adjustment.borne_by, shares, strict=True))
 

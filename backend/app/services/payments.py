@@ -8,7 +8,7 @@ from app.domain.adjustments import (
     bearer_cuts,
     resolve_reduction,
 )
-from app.domain.money import Centimes
+from app.domain.money import Centimes, percent_of
 from app.domain.splitting import (
     Allocation,
     Beneficiary,
@@ -83,6 +83,7 @@ class ResolvedAdjustment:
     adjustment_id: int
     reduction: Centimes
     bearers: tuple[Beneficiary, ...]
+    shares: tuple[Centimes, ...]  # resolved per-sponsor parts (explicit or equal)
 
 
 @dataclass(frozen=True)
@@ -120,7 +121,12 @@ def payment_preview(store: PaymentStore, enrollment_id: int) -> PaymentPreview:
         net=_net_amount(context, resolved),
         lines=lines,
         adjustments=tuple(
-            ResolvedAdjustment(adjustment_id, adjustment.reduction, adjustment.borne_by)
+            ResolvedAdjustment(
+                adjustment_id,
+                adjustment.reduction,
+                adjustment.borne_by,
+                tuple(bearer_cuts(adjustment)[b] for b in adjustment.borne_by),
+            )
             for adjustment_id, adjustment in resolved
         ),
     )
@@ -199,7 +205,27 @@ def _resolve_one(
         subject_count=len(context.subject_teachers),
     )
     bearers = configured.bearers or (Beneficiary("owner", context.owner_id),)
-    return Adjustment(reduction=reduction, borne_by=bearers)
+    shares = _resolve_shares(configured, reduction)
+    return Adjustment(reduction=reduction, borne_by=bearers, shares=shares)
+
+
+def _resolve_shares(
+    configured: ConfiguredAdjustment, reduction: Centimes
+) -> tuple[Centimes, ...] | None:
+    """Sponsor parts: explicit centimes, or a percentage of the reduction.
+    The parts must add up to the reduction exactly — no centime vanishes."""
+    spec = configured.shares_spec
+    if spec is None or all(c is None and bp is None for c, bp in spec):
+        return None
+    resolved = tuple(
+        c if c is not None else percent_of(reduction, bp or 0) for c, bp in spec
+    )
+    if sum(resolved) != reduction:
+        raise ValueError(
+            f"la somme des parts ({sum(resolved) / 100:.2f} DH) doit égaler"
+            f" la réduction ({reduction / 100:.2f} DH)"
+        )
+    return resolved
 
 
 def _net_amount(

@@ -4,11 +4,13 @@ Every public write is one transaction: all statements, then a single commit;
 any failure rolls back so a rejected request never persists partial state.
 """
 
+import json
 import sqlite3
 from contextlib import contextmanager
 
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
 from app.services.payments import net_price
+from app.services.proration import DEFAULT_SEGMENTS_BP
 
 
 @contextmanager
@@ -23,11 +25,37 @@ def _transaction(conn: sqlite3.Connection):
 
 def list_academies(conn: sqlite3.Connection) -> list[dict]:
     academies = _rows(conn, "SELECT * FROM academy WHERE is_active = 1")
-    return [{**academy, "venue": _venue(conn, academy["id"])} for academy in academies]
+    return [
+        {
+            **academy,
+            "venue": _venue(conn, academy["id"]),
+            "proration_bp": (
+                json.loads(academy["proration_json"])
+                if academy.get("proration_json")
+                else list(DEFAULT_SEGMENTS_BP)
+            ),
+        }
+        for academy in academies
+    ]
+
+
+def academy_proration(conn: sqlite3.Connection, academy_id: int) -> tuple[int, ...]:
+    row = conn.execute(
+        "SELECT proration_json FROM academy WHERE id = ?", (academy_id,)
+    ).fetchone()
+    if row is None or not row["proration_json"]:
+        return DEFAULT_SEGMENTS_BP
+    return tuple(json.loads(row["proration_json"]))
 
 
 def update_academy(conn: sqlite3.Connection, academy_id: int, fields: dict) -> None:
-    _update(conn, "academy", academy_id, fields, {"name", "venue_bp", "owner_bp"})
+    _update(
+        conn,
+        "academy",
+        academy_id,
+        fields,
+        {"name", "venue_bp", "owner_bp", "proration_json"},
+    )
 
 
 def list_levels(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
@@ -48,8 +76,17 @@ def list_subjects(
 ) -> list[dict]:
     return _rows(
         conn,
-        "SELECT * FROM subject WHERE academy_id = ?"
-        f"{_active_clause(include_inactive)} ORDER BY name",
+        f"""
+        SELECT s.*,
+          (SELECT COUNT(*) FROM class_group cg
+           WHERE cg.subject_id = s.id AND cg.is_active = 1) AS class_count,
+          (SELECT GROUP_CONCAT(DISTINCT sl.name) FROM class_group cg
+           JOIN school_level sl ON sl.id = cg.level_id
+           WHERE cg.subject_id = s.id AND cg.is_active = 1) AS levels
+        FROM subject s
+        WHERE s.academy_id = ?{_active_clause(include_inactive, "s.")}
+        ORDER BY s.name
+        """,
         (academy_id,),
     )
 
@@ -65,13 +102,27 @@ def update_subject(conn: sqlite3.Connection, subject_id: int, fields: dict) -> N
 
 
 def list_teachers(
-    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
+    conn: sqlite3.Connection,
+    academy_id: int,
+    include_inactive: bool = False,
+    month: str | None = None,
 ) -> list[dict]:
     return _rows(
         conn,
-        "SELECT * FROM teacher WHERE academy_id = ?"
-        f"{_active_clause(include_inactive)} ORDER BY name",
-        (academy_id,),
+        f"""
+        SELECT t.*,
+          COALESCE((SELECT SUM(le.amount_centimes) FROM ledger_entry le
+                    WHERE le.beneficiary_kind = 'teacher'
+                      AND le.beneficiary_id = t.id
+                      AND le.month = ?), 0) AS earned_centimes,
+          (SELECT GROUP_CONCAT(DISTINCT sub.name) FROM class_group cg
+           JOIN subject sub ON sub.id = cg.subject_id
+           WHERE cg.teacher_id = t.id AND cg.is_active = 1) AS subjects
+        FROM teacher t
+        WHERE t.academy_id = ?{_active_clause(include_inactive, "t.")}
+        ORDER BY t.name
+        """,
+        (month or "", academy_id),
     )
 
 
@@ -90,13 +141,19 @@ def create_teacher(
 
 
 def list_classes(
-    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
+    conn: sqlite3.Connection,
+    academy_id: int,
+    include_inactive: bool = False,
+    month: str | None = None,
 ) -> list[dict]:
     return _rows(
         conn,
         f"""
         SELECT cg.*, sub.name AS subject_name, t.name AS teacher_name,
-               sl.name AS level_name
+               sl.name AS level_name,
+          (SELECT COUNT(*) FROM enrollment_class ec
+           JOIN enrollment e ON e.id = ec.enrollment_id
+           WHERE ec.class_id = cg.id AND e.month = ?) AS enrolled_count
         FROM class_group cg
         JOIN subject sub ON sub.id = cg.subject_id
         JOIN teacher t ON t.id = cg.teacher_id
@@ -104,7 +161,7 @@ def list_classes(
         WHERE cg.academy_id = ?{_active_clause(include_inactive, "cg.")}
         ORDER BY sl.sort_order, sub.name, cg.name
         """,
-        (academy_id,),
+        (month or "", academy_id),
     )
 
 
@@ -217,15 +274,25 @@ def create_package(
 
 
 def list_students(
-    conn: sqlite3.Connection, academy_id: int, include_inactive: bool
+    conn: sqlite3.Connection,
+    academy_id: int,
+    include_inactive: bool,
+    month: str | None = None,
 ) -> list[dict]:
     active_filter = "" if include_inactive else " AND s.is_active = 1"
     return _rows(
         conn,
-        "SELECT s.*, sl.name AS level_name FROM student s"
-        " JOIN school_level sl ON sl.id = s.level_id"
-        f" WHERE s.academy_id = ?{active_filter} ORDER BY s.name",
-        (academy_id,),
+        f"""
+        SELECT s.*, sl.name AS level_name,
+          (SELECT COUNT(*) FROM enrollment e
+           LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
+           WHERE e.student_id = s.id AND e.month < ? AND p.id IS NULL
+          ) AS unpaid_months
+        FROM student s
+        JOIN school_level sl ON sl.id = s.level_id
+        WHERE s.academy_id = ?{active_filter} ORDER BY s.name
+        """,
+        (month or "", academy_id),
     )
 
 
@@ -313,10 +380,16 @@ def add_adjustment(conn: sqlite3.Connection, enrollment_id: int, fields: dict) -
             ),
         ).lastrowid
         conn.executemany(
-            "INSERT INTO adjustment_bearer (adjustment_id, bearer_kind, bearer_id)"
-            " VALUES (?, ?, ?)",
+            "INSERT INTO adjustment_bearer (adjustment_id, bearer_kind, bearer_id,"
+            " share_centimes, share_bp) VALUES (?, ?, ?, ?, ?)",
             [
-                (adjustment_id, bearer["kind"], bearer["ref_id"])
+                (
+                    adjustment_id,
+                    bearer["kind"],
+                    bearer["ref_id"],
+                    bearer.get("share_centimes"),
+                    bearer.get("share_bp"),
+                )
                 for bearer in fields.get("bearers", [])
             ],
         )
@@ -333,8 +406,8 @@ def adjustment_row(conn: sqlite3.Connection, adjustment_id: int) -> dict | None:
 def adjustment_bearers(conn: sqlite3.Connection, adjustment_id: int) -> list[dict]:
     return _rows(
         conn,
-        "SELECT bearer_kind AS kind, bearer_id AS ref_id FROM adjustment_bearer"
-        " WHERE adjustment_id = ?",
+        "SELECT bearer_kind AS kind, bearer_id AS ref_id, share_centimes, share_bp"
+        " FROM adjustment_bearer WHERE adjustment_id = ?",
         (adjustment_id,),
     )
 
@@ -376,10 +449,16 @@ def update_adjustment(
                 (adjustment_id,),
             )
             conn.executemany(
-                "INSERT INTO adjustment_bearer (adjustment_id, bearer_kind, bearer_id)"
-                " VALUES (?, ?, ?)",
+                "INSERT INTO adjustment_bearer (adjustment_id, bearer_kind, bearer_id,"
+                " share_centimes, share_bp) VALUES (?, ?, ?, ?, ?)",
                 [
-                    (adjustment_id, bearer["kind"], bearer["ref_id"])
+                    (
+                        adjustment_id,
+                        bearer["kind"],
+                        bearer["ref_id"],
+                        bearer.get("share_centimes"),
+                        bearer.get("share_bp"),
+                    )
                     for bearer in bearers
                 ],
             )
@@ -424,7 +503,14 @@ def month_overview(
         SELECT s.id AS student_id, s.name AS student_name, s.level_id,
                sl.name AS level_name,
                e.id AS enrollment_id, e.price_centimes,
-               p.id AS payment_id
+               p.id AS payment_id,
+               EXISTS(
+                 SELECT 1 FROM enrollment prior
+                 LEFT JOIN payment pp ON pp.enrollment_id = prior.id
+                   AND pp.reversed_at IS NULL
+                 WHERE prior.student_id = s.id AND prior.month < ?
+                   AND pp.id IS NULL
+               ) AS has_arrears
         FROM student s
         JOIN school_level sl ON sl.id = s.level_id
         LEFT JOIN enrollment e ON e.student_id = s.id AND e.month = ?
@@ -432,7 +518,7 @@ def month_overview(
         WHERE s.academy_id = ?{active_filter}
         ORDER BY s.name
         """,
-        (month, academy_id),
+        (month, month, academy_id),
     )
     store = SqlitePaymentStore(conn)
     return [_overview_row(conn, store, row) for row in students]
@@ -513,6 +599,7 @@ def _overview_row(conn, store, row) -> dict:
         "student_name": row["student_name"],
         "level_id": row["level_id"],
         "level_name": row["level_name"],
+        "has_arrears": bool(row["has_arrears"]),
     }
     if row["enrollment_id"] is None:
         return {**base, "enrollment": None}
