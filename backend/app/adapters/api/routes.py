@@ -4,7 +4,7 @@ import sqlite3
 from collections.abc import Iterator
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Path, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from pydantic import BaseModel, StringConstraints
 
 from app.adapters.sqlite import crud
@@ -14,6 +14,7 @@ from app.adapters.sqlite.reports import arrears, monthly_report
 from app.domain.adjustments import AdjustmentSpec
 from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
+from app.services import clock
 from app.services.payments import (
     payment_preview,
     post_payment,
@@ -49,6 +50,26 @@ def default_academy_id(conn: sqlite3.Connection) -> int:
 @router.get("/health")
 def health() -> dict:
     return {"status": "ok", "app": "academy-management"}
+
+
+def _require_open_month(month: str) -> None:
+    """History is not a workspace: months before the current one are locked
+    for structural changes (enrollments, reductions). Paying stays allowed."""
+    if month < clock.current_month():
+        raise HTTPException(
+            status_code=409,
+            detail="Mois passé — verrouillé. Les mois écoulés ne se modifient plus ;"
+            " seul l'encaissement des impayés reste possible.",
+        )
+
+
+def _require_open_enrollment_month(
+    conn: sqlite3.Connection, enrollment_id: int
+) -> None:
+    month = crud.enrollment_month(conn, enrollment_id)
+    if month is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    _require_open_month(month)
 
 
 # --- structure -----------------------------------------------------------
@@ -175,9 +196,35 @@ def patch_class(class_id: int, patch: ClassPatch, conn: Conn) -> dict:
     return {"id": class_id}
 
 
+class MotifBody(BaseModel):
+    label: str
+
+
+class MotifPatch(BaseModel):
+    label: str | None = None
+    is_active: bool | None = None
+
+
+@router.get("/motifs")
+def motifs(conn: Conn, include_inactive: bool = False) -> list[dict]:
+    return crud.list_motifs(conn, default_academy_id(conn), include_inactive)
+
+
+@router.post("/motifs", status_code=201)
+def create_motif(body: MotifBody, conn: Conn) -> dict:
+    return {"id": crud.create_motif(conn, default_academy_id(conn), body.label)}
+
+
+@router.patch("/motifs/{motif_id}")
+def patch_motif(motif_id: int, patch: MotifPatch, conn: Conn) -> dict:
+    crud.update_motif(conn, motif_id, _lifecycle_fields(patch))
+    return {"id": motif_id}
+
+
 class PackageCreate(BaseModel):
     subject_count: int
     monthly_price_centimes: int
+    level_id: int | None = None
 
 
 class PackagePatch(BaseModel):
@@ -194,10 +241,28 @@ def packages(conn: Conn, include_inactive: bool = False) -> list[dict]:
 @router.post("/packages", status_code=201)
 def create_package(body: PackageCreate, conn: Conn) -> dict:
     academy_id = default_academy_id(conn)
+    if body.level_id is not None:
+        _check_package_fits_level(conn, body.level_id, body.subject_count)
     package_id = crud.create_package(
-        conn, academy_id, body.subject_count, body.monthly_price_centimes
+        conn,
+        academy_id,
+        body.subject_count,
+        body.monthly_price_centimes,
+        body.level_id,
     )
     return {"id": package_id}
+
+
+def _check_package_fits_level(
+    conn: sqlite3.Connection, level_id: int, subject_count: int
+) -> None:
+    taught = crud.subjects_taught_at_level(conn, level_id)
+    if subject_count > taught:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Ce niveau n'enseigne que {taught} matière(s) —"
+            f" impossible de créer un forfait de {subject_count}.",
+        )
 
 
 @router.patch("/packages/{package_id}")
@@ -280,6 +345,7 @@ def overview(month: MonthPath, conn: Conn) -> list[dict]:
 
 @router.post("/enrollments", status_code=201)
 def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
+    _require_open_month(body.month)
     enrollment_id = crud.create_enrollment(
         conn,
         body.student_id,
@@ -293,6 +359,7 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
 
 @router.post("/enrollments/{enrollment_id}/adjustments", status_code=201)
 def create_adjustment(enrollment_id: int, body: AdjustmentCreate, conn: Conn) -> dict:
+    _require_open_enrollment_month(conn, enrollment_id)
     _check_adjustment_is_postable(conn, enrollment_id, body)
     adjustment_id = crud.add_adjustment(conn, enrollment_id, body.model_dump())
     return {"id": adjustment_id}
@@ -322,8 +389,87 @@ def _check_adjustment_is_postable(
 
 @router.delete("/adjustments/{adjustment_id}")
 def delete_adjustment(adjustment_id: int, conn: Conn) -> dict:
+    row = crud.adjustment_row(conn, adjustment_id)
+    if row is None:
+        raise LookupError(f"no adjustment {adjustment_id}")
+    _require_open_enrollment_month(conn, row["enrollment_id"])
     crud.delete_adjustment(conn, adjustment_id)
     return {"deleted": adjustment_id}
+
+
+class AdjustmentPatch(BaseModel):
+    kind: Literal["percent", "amount"] | None = None
+    value: int | None = None
+    category: Literal["discount", "coupon", "gift"] | None = None
+    reason: str | None = None
+    bearers: list[BearerIn] | None = None
+
+
+@router.patch("/adjustments/{adjustment_id}")
+def patch_adjustment(adjustment_id: int, body: AdjustmentPatch, conn: Conn) -> dict:
+    """Edit a reduction in place — no delete-and-recreate dance."""
+    row = crud.adjustment_row(conn, adjustment_id)
+    if row is None:
+        raise LookupError(f"no adjustment {adjustment_id}")
+    _require_open_enrollment_month(conn, row["enrollment_id"])
+    if crud.enrollment_is_paid(conn, row["enrollment_id"]):
+        raise HTTPException(
+            status_code=409,
+            detail="Mois déjà encaissé — contre-passez le paiement avant de"
+            " modifier les réductions.",
+        )
+    _validate_adjustment_edit(conn, row, body)
+    fields = body.model_dump(exclude_none=True, exclude={"bearers"})
+    bearers = (
+        [bearer.model_dump() for bearer in body.bearers]
+        if body.bearers is not None
+        else None
+    )
+    crud.update_adjustment(conn, adjustment_id, fields, bearers)
+    return {"id": adjustment_id}
+
+
+def _validate_adjustment_edit(
+    conn: sqlite3.Connection, row: dict, body: AdjustmentPatch
+) -> None:
+    """Validate the merged (existing + patch) adjustment against the enrollment
+    with THIS adjustment excluded — never store an unpostable state."""
+    from dataclasses import replace as dc_replace
+
+    store = SqlitePaymentStore(conn)
+    context = store.enrollment_context(row["enrollment_id"])
+    if context is None:
+        raise UnknownEnrollmentError(f"no enrollment {row['enrollment_id']}")
+    context = dc_replace(
+        context,
+        adjustments=tuple(
+            configured
+            for configured in context.adjustments
+            if configured.adjustment_id != row["id"]
+        ),
+    )
+    merged_kind = body.kind or row["kind"]
+    merged_value = body.value if body.value is not None else row["value"]
+    subject_index = None
+    if row["scope"] == "subject":
+        class_ids = crud.enrollment_class_ids(conn, row["enrollment_id"])
+        subject_index = class_ids.index(row["class_id"])
+    spec = AdjustmentSpec(
+        kind=merged_kind,
+        value=merged_value,
+        scope=row["scope"],
+        subject_index=subject_index,
+    )
+    if body.bearers is not None:
+        bearers = tuple(Beneficiary(b.kind, b.ref_id) for b in body.bearers)
+    else:
+        bearers = tuple(
+            Beneficiary(b["kind"], b["ref_id"])
+            for b in crud.adjustment_bearers(conn, row["id"])
+        )
+    if not bearers:
+        bearers = (Beneficiary("owner", context.owner_id),)
+    validate_adjustment(context, ConfiguredAdjustment(0, spec, bearers))
 
 
 @router.get("/enrollments/{enrollment_id}/preview")
@@ -373,6 +519,23 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
             for adjustment in preview.adjustments
         ],
     }
+
+
+@router.post("/months/{month}/ensure")
+def ensure_month(month: MonthPath, conn: Conn) -> dict:
+    """Agenda model: entering a current/future month silently extends the
+    previous month's enrollments (idempotent; reductions are NOT carried)."""
+    if month < clock.current_month():
+        raise HTTPException(
+            status_code=409,
+            detail="Les mois passés sont verrouillés — rien ne s'y ajoute.",
+        )
+    academy_id = default_academy_id(conn)
+    year, month_number = int(month[:4]), int(month[5:7])
+    total = year * 12 + (month_number - 1) - 1
+    previous = f"{total // 12:04d}-{total % 12 + 1:02d}"
+    extended = crud.copy_month(conn, academy_id, previous, month)
+    return {"extended": extended, "from_month": previous}
 
 
 @router.post("/months/copy")
@@ -446,6 +609,15 @@ def export_monthly(month: MonthQuery, conn: Conn) -> Response:
             "Content-Disposition": f'attachment; filename="paiements-{month}.xlsx"'
         },
     )
+
+
+@router.get("/reports/history")
+def report_history(
+    up_to_month: MonthQuery, conn: Conn, months: int = Query(6, ge=1, le=24)
+) -> list[dict]:
+    from app.adapters.sqlite.reports import history
+
+    return history(conn, default_academy_id(conn), up_to_month, months)
 
 
 @router.get("/reports/arrears")

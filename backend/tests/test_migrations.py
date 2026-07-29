@@ -42,12 +42,20 @@ def test_migrate_twice_applies_nothing_new(conn):
 
 
 def test_partially_migrated_database_gets_only_missing_steps(conn):
-    # A database created before the runner existed: schema present, version 0.
-    migrate(conn)
+    # A database created before the runner existed: the v1 schema is present
+    # but user_version was never set — exactly what _v1 fixtures simulate.
+    from pathlib import Path
+
+    import app.adapters.sqlite.migrations as m
+
+    conn.executescript(
+        Path(m.__file__).with_name("0001_initial.sql").read_text(encoding="utf-8")
+    )
     conn.execute("PRAGMA user_version = 0")
     applied = migrate(conn)
     assert applied == latest_version()
     assert user_version(conn) == latest_version()
+    assert {"motif", "payment"} <= table_names(conn)
 
 
 def test_database_from_a_newer_app_version_is_refused(conn):

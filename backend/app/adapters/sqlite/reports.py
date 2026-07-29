@@ -194,6 +194,48 @@ def _student_arrears(
     )
 
 
+def history(
+    conn: sqlite3.Connection, academy_id: int, up_to_month: str, months: int = 6
+) -> list[dict]:
+    """Cash-in and paid/unpaid counts for the last N months — feeds the charts."""
+    return [
+        _month_stats(conn, academy_id, month)
+        for month in _month_range(up_to_month, months)
+    ]
+
+
+def _month_range(up_to_month: str, months: int) -> list[str]:
+    year, month = int(up_to_month[:4]), int(up_to_month[5:7])
+    result = []
+    for offset in range(months - 1, -1, -1):
+        total = year * 12 + (month - 1) - offset
+        result.append(f"{total // 12:04d}-{total % 12 + 1:02d}")
+    return result
+
+
+def _month_stats(conn: sqlite3.Connection, academy_id: int, month: str) -> dict:
+    counts = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS enrolled,
+          SUM(CASE WHEN p.id IS NOT NULL THEN 1 ELSE 0 END) AS paid
+        FROM enrollment e
+        JOIN student s ON s.id = e.student_id
+        LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
+        WHERE s.academy_id = ? AND e.month = ?
+        """,
+        (academy_id, month),
+    ).fetchone()
+    paid = counts["paid"] or 0
+    return {
+        "month": month,
+        "cash_in": _cash_in(conn, academy_id, month),
+        "enrolled_count": counts["enrolled"],
+        "paid_count": paid,
+        "unpaid_count": counts["enrolled"] - paid,
+    }
+
+
 def _safe_owed(store: SqlitePaymentStore, row: sqlite3.Row) -> Centimes:
     # One invalid stored adjustment must not take down the whole arrears list.
     try:

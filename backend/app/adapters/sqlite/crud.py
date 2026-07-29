@@ -143,13 +143,45 @@ def create_class(conn: sqlite3.Connection, academy_id: int, fields: dict) -> int
     )
 
 
+def list_motifs(
+    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
+) -> list[dict]:
+    return _rows(
+        conn,
+        "SELECT * FROM motif WHERE academy_id = ?"
+        f"{_active_clause(include_inactive)} ORDER BY label",
+        (academy_id,),
+    )
+
+
+def create_motif(conn: sqlite3.Connection, academy_id: int, label: str) -> int:
+    return _insert(
+        conn, "INSERT INTO motif (academy_id, label) VALUES (?, ?)", (academy_id, label)
+    )
+
+
+def update_motif(conn: sqlite3.Connection, motif_id: int, fields: dict) -> None:
+    _update(conn, "motif", motif_id, fields, {"label", "is_active"})
+
+
+def subjects_taught_at_level(conn: sqlite3.Connection, level_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(DISTINCT subject_id) FROM class_group"
+        " WHERE level_id = ? AND is_active = 1",
+        (level_id,),
+    ).fetchone()
+    return row[0]
+
+
 def list_packages(
     conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
 ) -> list[dict]:
     return _rows(
         conn,
-        "SELECT * FROM package WHERE academy_id = ?"
-        f"{_active_clause(include_inactive)} ORDER BY subject_count",
+        "SELECT p.*, sl.name AS level_name FROM package p"
+        " LEFT JOIN school_level sl ON sl.id = p.level_id"
+        f" WHERE p.academy_id = ?{_active_clause(include_inactive, 'p.')}"
+        " ORDER BY sl.sort_order, p.subject_count",
         (academy_id,),
     )
 
@@ -160,18 +192,22 @@ def update_package(conn: sqlite3.Connection, package_id: int, fields: dict) -> N
         "package",
         package_id,
         fields,
-        {"subject_count", "monthly_price_centimes", "is_active"},
+        {"subject_count", "monthly_price_centimes", "level_id", "is_active"},
     )
 
 
 def create_package(
-    conn: sqlite3.Connection, academy_id: int, subject_count: int, price: int
+    conn: sqlite3.Connection,
+    academy_id: int,
+    subject_count: int,
+    price: int,
+    level_id: int | None = None,
 ) -> int:
     return _insert(
         conn,
-        "INSERT INTO package (academy_id, subject_count, monthly_price_centimes)"
-        " VALUES (?, ?, ?)",
-        (academy_id, subject_count, price),
+        "INSERT INTO package (academy_id, subject_count, monthly_price_centimes,"
+        " level_id) VALUES (?, ?, ?, ?)",
+        (academy_id, subject_count, price, level_id),
     )
 
 
@@ -282,6 +318,68 @@ def add_adjustment(conn: sqlite3.Connection, enrollment_id: int, fields: dict) -
         return adjustment_id
 
 
+def adjustment_row(conn: sqlite3.Connection, adjustment_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM adjustment WHERE id = ?", (adjustment_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def adjustment_bearers(conn: sqlite3.Connection, adjustment_id: int) -> list[dict]:
+    return _rows(
+        conn,
+        "SELECT bearer_kind AS kind, bearer_id AS ref_id FROM adjustment_bearer"
+        " WHERE adjustment_id = ?",
+        (adjustment_id,),
+    )
+
+
+def enrollment_month(conn: sqlite3.Connection, enrollment_id: int) -> str | None:
+    row = conn.execute(
+        "SELECT month FROM enrollment WHERE id = ?", (enrollment_id,)
+    ).fetchone()
+    return row["month"] if row else None
+
+
+def enrollment_is_paid(conn: sqlite3.Connection, enrollment_id: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM payment WHERE enrollment_id = ? AND reversed_at IS NULL",
+        (enrollment_id,),
+    ).fetchone()
+    return row is not None
+
+
+def update_adjustment(
+    conn: sqlite3.Connection,
+    adjustment_id: int,
+    fields: dict,
+    bearers: list[dict] | None,
+) -> None:
+    """Edit a configured adjustment in place; bearers=None keeps the current ones."""
+    allowed = {"kind", "value", "scope", "class_id", "category", "reason"}
+    changes = {key: value for key, value in fields.items() if key in allowed}
+    with _transaction(conn):
+        if changes:
+            assignments = ", ".join(f"{column} = ?" for column in changes)
+            conn.execute(
+                f"UPDATE adjustment SET {assignments} WHERE id = ?",
+                (*changes.values(), adjustment_id),
+            )
+        if bearers is not None:
+            conn.execute(
+                "DELETE FROM adjustment_bearer WHERE adjustment_id = ?",
+                (adjustment_id,),
+            )
+            conn.executemany(
+                "INSERT INTO adjustment_bearer (adjustment_id, bearer_kind, bearer_id)"
+                " VALUES (?, ?, ?)",
+                [
+                    (adjustment_id, bearer["kind"], bearer["ref_id"])
+                    for bearer in bearers
+                ],
+            )
+
+
 def delete_adjustment(conn: sqlite3.Connection, adjustment_id: int) -> None:
     """Remove a configured adjustment — only while its enrollment is unpaid."""
     from app.ports.payments import AlreadyPaidError
@@ -385,8 +483,31 @@ def _overview_row(conn, store, row) -> dict:
             "paid": row["payment_id"] is not None,
             "payment_id": row["payment_id"],
             "classes": _enrollment_classes(conn, row["enrollment_id"]),
+            "split": _row_split(conn, store, row["enrollment_id"]),
         },
     }
+
+
+def _row_split(conn, store, enrollment_id: int) -> list[dict]:
+    """Per-beneficiary final amounts, shown directly in listing rows."""
+    from app.adapters.sqlite.reports import _beneficiary_name
+    from app.services.payments import payment_preview
+
+    try:
+        preview = payment_preview(store, enrollment_id)
+    except ValueError:
+        return []
+    return [
+        {
+            "kind": line.beneficiary.kind,
+            "ref_id": line.beneficiary.ref_id,
+            "name": _beneficiary_name(
+                conn, line.beneficiary.kind, line.beneficiary.ref_id
+            ),
+            "final_centimes": line.final,
+        }
+        for line in preview.lines
+    ]
 
 
 def safe_net(store: SqlitePaymentStore, enrollment_id: int, fallback: int) -> int:
