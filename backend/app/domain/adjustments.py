@@ -66,7 +66,7 @@ def _apply_one(
     allocations: tuple[Allocation, ...], adjustment: Adjustment
 ) -> tuple[Allocation, ...]:
     _validate_bearers(allocations, adjustment.borne_by)
-    cuts = _cut_per_bearer(adjustment)
+    cuts = bearer_cuts(adjustment)
     return tuple(_reduced(allocation, cuts) for allocation in allocations)
 
 
@@ -79,7 +79,8 @@ def _validate_bearers(
         raise ValueError(f"bearers without an allocation: {unknown}")
 
 
-def _cut_per_bearer(adjustment: Adjustment) -> dict[Beneficiary, Centimes]:
+def bearer_cuts(adjustment: Adjustment) -> dict[Beneficiary, Centimes]:
+    """How much of the reduction each bearer absorbs (equal, largest-remainder)."""
     shares = split_equally(adjustment.reduction, len(adjustment.borne_by))
     return dict(zip(adjustment.borne_by, shares, strict=True))
 
