@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { CopyPlus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +22,7 @@ import type { MonthlyReport, OverviewRow } from "@/lib/api"
 import { formatDH, previousMonth } from "@/lib/money"
 import { DiscountDialog } from "@/components/DiscountDialog"
 import { EnrollDialog } from "@/components/EnrollDialog"
+import { PayDialog } from "@/components/PayDialog"
 import { ReverseDialog } from "@/components/ReverseDialog"
 
 type Props = { month: string; setMonth: (month: string) => void }
@@ -44,25 +46,17 @@ export function Dashboard({ month, setMonth }: Props) {
 
   useEffect(reload, [reload])
 
-  const act = (action: () => Promise<unknown>) => {
+  const copyLastMonth = () => {
     setError(null)
     setBusy(true)
-    action()
+    apiSend("POST", "/api/months/copy", {
+      from_month: previousMonth(month),
+      to_month: month,
+    })
       .then(reload)
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false))
   }
-
-  const pay = (enrollmentId: number) =>
-    act(() => apiSend("POST", "/api/payments", { enrollment_id: enrollmentId }))
-
-  const copyLastMonth = () =>
-    act(() =>
-      apiSend("POST", "/api/months/copy", {
-        from_month: previousMonth(month),
-        to_month: month,
-      }),
-    )
 
   const enrolled = rows.filter((row) => row.enrollment)
   const paidCount = enrolled.filter((row) => row.enrollment?.paid).length
@@ -71,14 +65,14 @@ export function Dashboard({ month, setMonth }: Props) {
   )
 
   return (
-    <div className="space-y-6">
+    <div className="view-enter space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">
             Tableau de bord
           </h2>
           <p className="text-muted-foreground text-sm">
-            Paiements du mois sélectionné
+            Inscriptions et encaissements du mois
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -91,13 +85,14 @@ export function Dashboard({ month, setMonth }: Props) {
             className="w-44"
           />
           <Button variant="outline" onClick={copyLastMonth} disabled={busy}>
+            <CopyPlus className="size-4" />
             Copier le mois précédent
           </Button>
         </div>
       </header>
 
       {error && (
-        <p className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm">
           {error}
         </p>
       )}
@@ -112,14 +107,15 @@ export function Dashboard({ month, setMonth }: Props) {
         <StatCard
           label="Encaissé"
           value={report ? formatDH(report.cash_in) : "—"}
+          accent
         />
       </section>
 
-      <Card>
+      <Card className="surface-card">
         <CardHeader>
           <CardTitle>Étudiants — {month}</CardTitle>
           <CardDescription>
-            Inscription, encaissement et réductions par étudiant
+            Inscrire, encaisser (avec aperçu de la répartition), corriger
           </CardDescription>
         </CardHeader>
         <div className="space-y-4 px-6 pb-6">
@@ -142,14 +138,7 @@ export function Dashboard({ month, setMonth }: Props) {
             </TableHeader>
             <TableBody>
               {filtered.map((row) => (
-                <StudentRow
-                  key={row.student_id}
-                  row={row}
-                  month={month}
-                  busy={busy}
-                  onPay={pay}
-                  onDone={reload}
-                />
+                <StudentRow key={row.student_id} row={row} month={month} onDone={reload} />
               ))}
               {filtered.length === 0 && (
                 <TableRow>
@@ -157,7 +146,7 @@ export function Dashboard({ month, setMonth }: Props) {
                     colSpan={6}
                     className="text-muted-foreground text-center"
                   >
-                    Aucun étudiant
+                    Aucun étudiant — créez-en dans la page Étudiants
                   </TableCell>
                 </TableRow>
               )}
@@ -169,26 +158,36 @@ export function Dashboard({ month, setMonth }: Props) {
   )
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string
+  value: string
+  accent?: boolean
+}) {
   return (
-    <Card>
+    <Card className="surface-card">
       <CardHeader>
         <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
+        <CardTitle className={`text-2xl ${accent ? "text-primary" : ""}`}>
+          {value}
+        </CardTitle>
       </CardHeader>
     </Card>
   )
 }
 
-type RowProps = {
+function StudentRow({
+  row,
+  month,
+  onDone,
+}: {
   row: OverviewRow
   month: string
-  busy: boolean
-  onPay: (enrollmentId: number) => void
   onDone: () => void
-}
-
-function StudentRow({ row, month, busy, onPay, onDone }: RowProps) {
+}) {
   const enrollment = row.enrollment
   return (
     <TableRow>
@@ -204,7 +203,11 @@ function StudentRow({ row, month, busy, onPay, onDone }: RowProps) {
       </TableCell>
       <TableCell>
         {!enrollment && <Badge variant="outline">Non inscrit</Badge>}
-        {enrollment?.paid && <Badge>Payé</Badge>}
+        {enrollment?.paid && (
+          <Badge className="bg-success/15 text-success border-success/20 border">
+            Payé
+          </Badge>
+        )}
         {enrollment && !enrollment.paid && (
           <Badge variant="destructive">Impayé</Badge>
         )}
@@ -214,6 +217,7 @@ function StudentRow({ row, month, busy, onPay, onDone }: RowProps) {
           <EnrollDialog
             studentId={row.student_id}
             studentName={row.student_name}
+            levelId={row.level_id}
             month={month}
             onDone={onDone}
           />
@@ -221,9 +225,11 @@ function StudentRow({ row, month, busy, onPay, onDone }: RowProps) {
         {enrollment && !enrollment.paid && (
           <>
             <DiscountDialog enrollmentId={enrollment.id} onDone={onDone} />
-            <Button size="sm" disabled={busy} onClick={() => onPay(enrollment.id)}>
-              Encaisser
-            </Button>
+            <PayDialog
+              enrollmentId={enrollment.id}
+              studentName={row.student_name}
+              onDone={onDone}
+            />
           </>
         )}
         {enrollment?.paid && enrollment.payment_id && (

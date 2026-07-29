@@ -71,6 +71,62 @@ def validate_adjustment(
 
 
 @dataclass(frozen=True)
+class PreviewLine:
+    beneficiary: Beneficiary
+    base: Centimes
+    adjustment: Centimes  # negative when this beneficiary bears reductions
+    final: Centimes
+
+
+@dataclass(frozen=True)
+class ResolvedAdjustment:
+    adjustment_id: int
+    reduction: Centimes
+    bearers: tuple[Beneficiary, ...]
+
+
+@dataclass(frozen=True)
+class PaymentPreview:
+    price: Centimes
+    net: Centimes
+    lines: tuple[PreviewLine, ...]
+    adjustments: tuple[ResolvedAdjustment, ...]
+
+
+def payment_preview(store: PaymentStore, enrollment_id: int) -> PaymentPreview:
+    """What paying this enrollment would post — shown to the user BEFORE money moves."""
+    context = _context_or_raise(store, enrollment_id)
+    allocations = _base_split(context)
+    resolved = _resolved_adjustments(context)
+    # Same validation as posting: a bearer who no longer holds an allocation
+    # (e.g. the class teacher changed) must fail loudly here, never render a
+    # split whose lines don't sum to the net.
+    apply_adjustments(allocations, [adjustment for _, adjustment in resolved])
+    cuts: dict[Beneficiary, Centimes] = {}
+    for _, adjustment in resolved:
+        for bearer, cut in bearer_cuts(adjustment).items():
+            cuts[bearer] = cuts.get(bearer, 0) + cut
+    lines = tuple(
+        PreviewLine(
+            beneficiary=allocation.beneficiary,
+            base=allocation.amount,
+            adjustment=-cuts.get(allocation.beneficiary, 0),
+            final=allocation.amount - cuts.get(allocation.beneficiary, 0),
+        )
+        for allocation in allocations
+    )
+    return PaymentPreview(
+        price=context.price,
+        net=_net_amount(context, resolved),
+        lines=lines,
+        adjustments=tuple(
+            ResolvedAdjustment(adjustment_id, adjustment.reduction, adjustment.borne_by)
+            for adjustment_id, adjustment in resolved
+        ),
+    )
+
+
+@dataclass(frozen=True)
 class ReversedPayment:
     payment_id: int
     lines: tuple[LedgerLine, ...]

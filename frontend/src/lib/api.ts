@@ -50,8 +50,35 @@ export type OverviewEnrollment = {
 export type OverviewRow = {
   student_id: number
   student_name: string
+  level_id: number
   level_name: string
   enrollment: OverviewEnrollment | null
+}
+
+export type PreviewBeneficiary = {
+  kind: "venue" | "owner" | "teacher"
+  ref_id: number
+  name: string
+}
+export type PreviewLine = PreviewBeneficiary & {
+  base_centimes: number
+  adjustment_centimes: number
+  final_centimes: number
+}
+export type PreviewAdjustment = {
+  id: number
+  resolved_centimes: number
+  kind: string
+  value: number
+  category: string
+  reason: string | null
+  bearers: PreviewBeneficiary[]
+}
+export type PaymentPreview = {
+  price_centimes: number
+  net_centimes: number
+  lines: PreviewLine[]
+  adjustments: PreviewAdjustment[]
 }
 export type BeneficiaryTotal = {
   kind: "venue" | "owner" | "teacher"
@@ -73,10 +100,18 @@ export type ArrearsEntry = {
   items: { enrollment_id: number; month: string; owed: number }[]
 }
 
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    throw new Error(detailMessage(body, response.status))
+    throw new ApiError(detailMessage(body, response.status), response.status)
   }
   return response.json() as Promise<T>
 }

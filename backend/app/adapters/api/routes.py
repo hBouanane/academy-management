@@ -14,7 +14,12 @@ from app.adapters.sqlite.reports import arrears, monthly_report
 from app.domain.adjustments import AdjustmentSpec
 from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
-from app.services.payments import post_payment, reverse_payment, validate_adjustment
+from app.services.payments import (
+    payment_preview,
+    post_payment,
+    reverse_payment,
+    validate_adjustment,
+)
 
 router = APIRouter()
 
@@ -81,9 +86,29 @@ class NamedCreate(BaseModel):
     phone: str | None = None
 
 
+class SubjectPatch(BaseModel):
+    name: str | None = None
+    is_active: bool | None = None
+
+
+class LifecyclePatch(BaseModel):
+    name: str | None = None
+    phone: str | None = None
+    is_active: bool | None = None
+
+
+def _lifecycle_fields(patch: BaseModel) -> dict:
+    fields = patch.model_dump(exclude_none=True)
+    if "is_active" in fields:
+        fields["is_active"] = int(fields["is_active"])
+    if fields.get("phone") == "":
+        fields["phone"] = None  # an emptied phone field means "clear it"
+    return fields
+
+
 @router.get("/subjects")
-def subjects(conn: Conn) -> list[dict]:
-    return crud.list_subjects(conn, default_academy_id(conn))
+def subjects(conn: Conn, include_inactive: bool = False) -> list[dict]:
+    return crud.list_subjects(conn, default_academy_id(conn), include_inactive)
 
 
 @router.post("/subjects", status_code=201)
@@ -91,15 +116,27 @@ def create_subject(body: NamedCreate, conn: Conn) -> dict:
     return {"id": crud.create_subject(conn, default_academy_id(conn), body.name)}
 
 
+@router.patch("/subjects/{subject_id}")
+def patch_subject(subject_id: int, patch: SubjectPatch, conn: Conn) -> dict:
+    crud.update_subject(conn, subject_id, _lifecycle_fields(patch))
+    return {"id": subject_id}
+
+
 @router.get("/teachers")
-def teachers(conn: Conn) -> list[dict]:
-    return crud.list_teachers(conn, default_academy_id(conn))
+def teachers(conn: Conn, include_inactive: bool = False) -> list[dict]:
+    return crud.list_teachers(conn, default_academy_id(conn), include_inactive)
 
 
 @router.post("/teachers", status_code=201)
 def create_teacher(body: NamedCreate, conn: Conn) -> dict:
     academy_id = default_academy_id(conn)
-    return {"id": crud.create_teacher(conn, academy_id, body.name, body.phone)}
+    return {"id": crud.create_teacher(conn, academy_id, body.name, body.phone or None)}
+
+
+@router.patch("/teachers/{teacher_id}")
+def patch_teacher(teacher_id: int, patch: LifecyclePatch, conn: Conn) -> dict:
+    crud.update_teacher(conn, teacher_id, _lifecycle_fields(patch))
+    return {"id": teacher_id}
 
 
 class ClassCreate(BaseModel):
@@ -111,9 +148,19 @@ class ClassCreate(BaseModel):
     start_time: str | None = None
 
 
+class ClassPatch(BaseModel):
+    name: str | None = None
+    level_id: int | None = None
+    subject_id: int | None = None
+    teacher_id: int | None = None
+    day_of_week: int | None = None
+    start_time: str | None = None
+    is_active: bool | None = None
+
+
 @router.get("/classes")
-def classes(conn: Conn) -> list[dict]:
-    return crud.list_classes(conn, default_academy_id(conn))
+def classes(conn: Conn, include_inactive: bool = False) -> list[dict]:
+    return crud.list_classes(conn, default_academy_id(conn), include_inactive)
 
 
 @router.post("/classes", status_code=201)
@@ -122,14 +169,26 @@ def create_class(body: ClassCreate, conn: Conn) -> dict:
     return {"id": crud.create_class(conn, academy_id, body.model_dump())}
 
 
+@router.patch("/classes/{class_id}")
+def patch_class(class_id: int, patch: ClassPatch, conn: Conn) -> dict:
+    crud.update_class(conn, class_id, _lifecycle_fields(patch))
+    return {"id": class_id}
+
+
 class PackageCreate(BaseModel):
     subject_count: int
     monthly_price_centimes: int
 
 
+class PackagePatch(BaseModel):
+    subject_count: int | None = None
+    monthly_price_centimes: int | None = None
+    is_active: bool | None = None
+
+
 @router.get("/packages")
-def packages(conn: Conn) -> list[dict]:
-    return crud.list_packages(conn, default_academy_id(conn))
+def packages(conn: Conn, include_inactive: bool = False) -> list[dict]:
+    return crud.list_packages(conn, default_academy_id(conn), include_inactive)
 
 
 @router.post("/packages", status_code=201)
@@ -138,6 +197,12 @@ def create_package(body: PackageCreate, conn: Conn) -> dict:
     package_id = crud.create_package(
         conn, academy_id, body.subject_count, body.monthly_price_centimes
     )
+    return {"id": package_id}
+
+
+@router.patch("/packages/{package_id}")
+def patch_package(package_id: int, patch: PackagePatch, conn: Conn) -> dict:
+    crud.update_package(conn, package_id, _lifecycle_fields(patch))
     return {"id": package_id}
 
 
@@ -173,10 +238,7 @@ def create_student(body: StudentCreate, conn: Conn) -> dict:
 
 @router.patch("/students/{student_id}")
 def patch_student(student_id: int, patch: StudentPatch, conn: Conn) -> dict:
-    fields = patch.model_dump(exclude_none=True)
-    if "is_active" in fields:
-        fields["is_active"] = int(fields["is_active"])
-    crud.update_student(conn, student_id, fields)
+    crud.update_student(conn, student_id, _lifecycle_fields(patch))
     return {"id": student_id}
 
 
@@ -262,6 +324,55 @@ def _check_adjustment_is_postable(
 def delete_adjustment(adjustment_id: int, conn: Conn) -> dict:
     crud.delete_adjustment(conn, adjustment_id)
     return {"deleted": adjustment_id}
+
+
+@router.get("/enrollments/{enrollment_id}/preview")
+def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
+    """The split a payment would produce — shown before any money moves."""
+    from app.adapters.sqlite.reports import _beneficiary_name
+
+    preview = payment_preview(SqlitePaymentStore(conn), enrollment_id)
+    stored = {
+        row["id"]: row
+        for row in conn.execute(
+            "SELECT id, kind, value, category, reason FROM adjustment"
+            " WHERE enrollment_id = ?",
+            (enrollment_id,),
+        )
+    }
+
+    def named(beneficiary):
+        return {
+            "kind": beneficiary.kind,
+            "ref_id": beneficiary.ref_id,
+            "name": _beneficiary_name(conn, beneficiary.kind, beneficiary.ref_id),
+        }
+
+    return {
+        "price_centimes": preview.price,
+        "net_centimes": preview.net,
+        "lines": [
+            {
+                **named(line.beneficiary),
+                "base_centimes": line.base,
+                "adjustment_centimes": line.adjustment,
+                "final_centimes": line.final,
+            }
+            for line in preview.lines
+        ],
+        "adjustments": [
+            {
+                "id": adjustment.adjustment_id,
+                "resolved_centimes": adjustment.reduction,
+                "kind": stored[adjustment.adjustment_id]["kind"],
+                "value": stored[adjustment.adjustment_id]["value"],
+                "category": stored[adjustment.adjustment_id]["category"],
+                "reason": stored[adjustment.adjustment_id]["reason"],
+                "bearers": [named(bearer) for bearer in adjustment.bearers],
+            }
+            for adjustment in preview.adjustments
+        ],
+    }
 
 
 @router.post("/months/copy")

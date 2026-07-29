@@ -37,15 +37,17 @@ export function DiscountDialog({ enrollmentId, onDone }: Props) {
     setBusy(false)
   }
 
+  const isGift = category === "gift"
   const centimes = dhToCentimes(amount)
-  const valid = Number.isFinite(centimes) && centimes > 0
+  const valid = isGift || (Number.isFinite(centimes) && centimes > 0)
 
   const submit = () => {
     setError(null)
     setBusy(true)
     apiSend("POST", `/api/enrollments/${enrollmentId}/adjustments`, {
-      kind: "amount",
-      value: centimes,
+      // A gift month is simply a 100% reduction of the package.
+      kind: isGift ? "percent" : "amount",
+      value: isGift ? 10_000 : centimes,
       category,
       reason: reason || null,
     })
@@ -79,28 +81,29 @@ export function DiscountDialog({ enrollmentId, onDone }: Props) {
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Montant (DH)</Label>
-            <Input
-              type="number"
-              min="0"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="50"
-            />
-          </div>
-          <div className="space-y-2">
             <Label>Type</Label>
             <Select value={category} onValueChange={setCategory}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="discount">Réduction</SelectItem>
-                <SelectItem value="coupon">Coupon</SelectItem>
-                <SelectItem value="gift">Cadeau</SelectItem>
+                <SelectItem value="discount">Réduction (montant)</SelectItem>
+                <SelectItem value="gift">Mois offert (100%)</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {!isGift && (
+            <div className="space-y-2">
+              <Label>Montant (DH)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="50"
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Motif</Label>
             <Input

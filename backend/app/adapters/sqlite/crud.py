@@ -39,10 +39,17 @@ def list_levels(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
     )
 
 
-def list_subjects(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+def _active_clause(include_inactive: bool, prefix: str = "") -> str:
+    return "" if include_inactive else f" AND {prefix}is_active = 1"
+
+
+def list_subjects(
+    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
+) -> list[dict]:
     return _rows(
         conn,
-        "SELECT * FROM subject WHERE academy_id = ? AND is_active = 1 ORDER BY name",
+        "SELECT * FROM subject WHERE academy_id = ?"
+        f"{_active_clause(include_inactive)} ORDER BY name",
         (academy_id,),
     )
 
@@ -53,12 +60,23 @@ def create_subject(conn: sqlite3.Connection, academy_id: int, name: str) -> int:
     )
 
 
-def list_teachers(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+def update_subject(conn: sqlite3.Connection, subject_id: int, fields: dict) -> None:
+    _update(conn, "subject", subject_id, fields, {"name", "is_active"})
+
+
+def list_teachers(
+    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
+) -> list[dict]:
     return _rows(
         conn,
-        "SELECT * FROM teacher WHERE academy_id = ? AND is_active = 1 ORDER BY name",
+        "SELECT * FROM teacher WHERE academy_id = ?"
+        f"{_active_clause(include_inactive)} ORDER BY name",
         (academy_id,),
     )
+
+
+def update_teacher(conn: sqlite3.Connection, teacher_id: int, fields: dict) -> None:
+    _update(conn, "teacher", teacher_id, fields, {"name", "phone", "is_active"})
 
 
 def create_teacher(
@@ -71,20 +89,40 @@ def create_teacher(
     )
 
 
-def list_classes(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+def list_classes(
+    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
+) -> list[dict]:
     return _rows(
         conn,
-        """
+        f"""
         SELECT cg.*, sub.name AS subject_name, t.name AS teacher_name,
                sl.name AS level_name
         FROM class_group cg
         JOIN subject sub ON sub.id = cg.subject_id
         JOIN teacher t ON t.id = cg.teacher_id
         JOIN school_level sl ON sl.id = cg.level_id
-        WHERE cg.academy_id = ? AND cg.is_active = 1
+        WHERE cg.academy_id = ?{_active_clause(include_inactive, "cg.")}
         ORDER BY sl.sort_order, sub.name, cg.name
         """,
         (academy_id,),
+    )
+
+
+def update_class(conn: sqlite3.Connection, class_id: int, fields: dict) -> None:
+    _update(
+        conn,
+        "class_group",
+        class_id,
+        fields,
+        {
+            "name",
+            "level_id",
+            "subject_id",
+            "teacher_id",
+            "day_of_week",
+            "start_time",
+            "is_active",
+        },
     )
 
 
@@ -105,12 +143,24 @@ def create_class(conn: sqlite3.Connection, academy_id: int, fields: dict) -> int
     )
 
 
-def list_packages(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+def list_packages(
+    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
+) -> list[dict]:
     return _rows(
         conn,
-        "SELECT * FROM package WHERE academy_id = ? AND is_active = 1"
-        " ORDER BY subject_count",
+        "SELECT * FROM package WHERE academy_id = ?"
+        f"{_active_clause(include_inactive)} ORDER BY subject_count",
         (academy_id,),
+    )
+
+
+def update_package(conn: sqlite3.Connection, package_id: int, fields: dict) -> None:
+    _update(
+        conn,
+        "package",
+        package_id,
+        fields,
+        {"subject_count", "monthly_price_centimes", "is_active"},
     )
 
 
@@ -268,7 +318,8 @@ def month_overview(
     students = _rows(
         conn,
         f"""
-        SELECT s.id AS student_id, s.name AS student_name, sl.name AS level_name,
+        SELECT s.id AS student_id, s.name AS student_name, s.level_id,
+               sl.name AS level_name,
                e.id AS enrollment_id, e.price_centimes,
                p.id AS payment_id
         FROM student s
@@ -318,6 +369,7 @@ def _overview_row(conn, store, row) -> dict:
     base = {
         "student_id": row["student_id"],
         "student_name": row["student_name"],
+        "level_id": row["level_id"],
         "level_name": row["level_name"],
     }
     if row["enrollment_id"] is None:

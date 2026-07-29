@@ -24,12 +24,28 @@ import { formatDH } from "@/lib/money"
 type Props = {
   studentId: number
   studentName: string
+  levelId: number
   month: string
   onDone: () => void
+  /** Controlled mode: when provided, the dialog renders without a trigger
+      button (used right after creating a student). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
-  const [open, setOpen] = useState(false)
+export function EnrollDialog({
+  studentId,
+  studentName,
+  levelId,
+  month,
+  onDone,
+  open: controlledOpen,
+  onOpenChange,
+}: Props) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = onOpenChange ?? setInternalOpen
+
   const [packages, setPackages] = useState<Package[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
   const [packageId, setPackageId] = useState<string>("")
@@ -50,10 +66,12 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
     setBusy(false)
   }
 
+  // A Primaire student only sees Primaire classes.
+  const levelClasses = classes.filter((row) => row.level_id === levelId)
   const chosenPackage = packages.find((p) => String(p.id) === packageId)
-  const ready =
-    chosenPackage !== undefined &&
-    selectedClasses.length === chosenPackage.subject_count
+  const capacity = chosenPackage?.subject_count ?? 0
+  const full = chosenPackage !== undefined && selectedClasses.length >= capacity
+  const ready = chosenPackage !== undefined && selectedClasses.length === capacity
 
   const toggleClass = (classId: number, checked: boolean) => {
     setSelectedClasses((current) =>
@@ -90,11 +108,13 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
         if (!next) reset()
       }}
     >
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          Inscrire
-        </Button>
-      </DialogTrigger>
+      {controlledOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button size="sm" variant="outline">
+            Inscrire
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -104,7 +124,13 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Forfait</Label>
-            <Select value={packageId} onValueChange={setPackageId}>
+            <Select
+              value={packageId}
+              onValueChange={(value) => {
+                setPackageId(value)
+                setSelectedClasses([])
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Choisir un forfait" />
               </SelectTrigger>
@@ -119,41 +145,51 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
             </Select>
             {packages.length === 0 && (
               <p className="text-muted-foreground text-sm">
-                Aucun forfait — créez-en un dans Paramètres.
+                Aucun forfait — créez-en un dans la page Forfaits.
               </p>
             )}
           </div>
           <div className="space-y-2">
-            <Label>Matières ({selectedClasses.length} choisie(s))</Label>
-            <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
-              {classes.map((classRow) => (
-                <label
-                  key={classRow.id}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <Checkbox
-                    checked={selectedClasses.includes(classRow.id)}
-                    onCheckedChange={(checked) =>
-                      toggleClass(classRow.id, checked === true)
-                    }
-                  />
-                  {classRow.subject_name} — {classRow.teacher_name} (
-                  {classRow.level_name})
-                </label>
-              ))}
-              {classes.length === 0 && (
+            <Label>
+              Matières{" "}
+              {chosenPackage && (
+                <span className="text-muted-foreground">
+                  ({selectedClasses.length}/{capacity})
+                </span>
+              )}
+            </Label>
+            <div className="border-border max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
+              {levelClasses.map((classRow) => {
+                const checked = selectedClasses.includes(classRow.id)
+                const disabled = !chosenPackage || (!checked && full)
+                return (
+                  <label
+                    key={classRow.id}
+                    className={`flex items-center gap-2 text-sm ${disabled && !checked ? "opacity-40" : ""}`}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={disabled}
+                      onCheckedChange={(state) =>
+                        toggleClass(classRow.id, state === true)
+                      }
+                    />
+                    {classRow.subject_name} — {classRow.teacher_name}
+                  </label>
+                )
+              })}
+              {levelClasses.length === 0 && (
                 <p className="text-muted-foreground text-sm">
-                  Aucune classe — créez-en dans Paramètres.
+                  Aucune classe pour ce niveau — créez-en dans la page Classes.
                 </p>
               )}
             </div>
+            {!chosenPackage && (
+              <p className="text-muted-foreground text-xs">
+                Choisissez d'abord un forfait.
+              </p>
+            )}
           </div>
-          {chosenPackage && !ready && (
-            <p className="text-muted-foreground text-sm">
-              Choisissez exactement {chosenPackage.subject_count} matière(s)
-              pour ce forfait.
-            </p>
-          )}
           {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <DialogFooter>
