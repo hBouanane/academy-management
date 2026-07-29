@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { ComponentType } from "react"
 import {
   BarChart3,
@@ -6,14 +6,19 @@ import {
   Building2,
   GraduationCap,
   LayoutDashboard,
+  Moon,
   Package,
   School,
+  Sun,
+  Tags,
   Users,
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { currentMonth } from "@/lib/money"
 import { Academy } from "@/views/Academy"
 import { Classes } from "@/views/Classes"
 import { Dashboard } from "@/views/Dashboard"
+import { Motifs } from "@/views/Motifs"
 import { Packages } from "@/views/Packages"
 import { Reports } from "@/views/Reports"
 import { Students } from "@/views/Students"
@@ -41,6 +46,7 @@ const SECTIONS: {
       { key: "subjects", label: "Matières", icon: BookOpen },
       { key: "classes", label: "Classes", icon: School },
       { key: "packages", label: "Forfaits", icon: Package },
+      { key: "motifs", label: "Motifs", icon: Tags },
     ],
   },
   {
@@ -49,20 +55,38 @@ const SECTIONS: {
   },
 ]
 
+function useTheme() {
+  const [dark, setDark] = useState(
+    () => localStorage.getItem("theme") !== "light",
+  )
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark)
+    localStorage.setItem("theme", dark ? "dark" : "light")
+  }, [dark])
+  return { dark, toggle: () => setDark((current) => !current) }
+}
+
 function App() {
   const [view, setView] = useState("dashboard")
   const [month, setMonth] = useState(currentMonth())
+  const { dark, toggle } = useTheme()
 
   return (
     <div className="flex min-h-svh">
-      <aside className="border-sidebar-border bg-sidebar w-60 shrink-0 border-r px-3 py-5">
+      <aside className="border-sidebar-border bg-sidebar flex w-60 shrink-0 flex-col border-r px-3 py-5">
         <div className="mb-8 flex items-center gap-2 px-3">
-          <span className="bg-primary size-2.5 rounded-full" />
+          <span
+            className="size-2.5 rounded-full"
+            style={{
+              background:
+                "conic-gradient(var(--orb-mint), var(--orb-lavender), var(--orb-peach), var(--orb-mint))",
+            }}
+          />
           <h1 className="text-sm font-semibold tracking-tight">
             Academy Management
           </h1>
         </div>
-        <nav className="space-y-6">
+        <nav className="flex-1 space-y-6">
           {SECTIONS.map((section) => (
             <div key={section.label}>
               <p className="text-muted-foreground/70 mb-1.5 px-3 text-[11px] font-medium tracking-widest uppercase">
@@ -76,15 +100,13 @@ function App() {
                     <button
                       key={item.key}
                       onClick={() => setView(item.key)}
-                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                      className={`flex w-full items-center gap-2.5 rounded-full px-3 py-1.5 text-sm transition-colors duration-150 ${
                         active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                       }`}
                     >
-                      <Icon
-                        className={`size-4 ${active ? "text-primary" : "text-muted-foreground"}`}
-                      />
+                      <Icon className="size-4" />
                       {item.label}
                     </button>
                   )
@@ -93,6 +115,16 @@ function App() {
             </div>
           ))}
         </nav>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggle}
+          className="justify-start gap-2.5 rounded-full px-3"
+          title={dark ? "Passer en mode clair" : "Passer en mode sombre"}
+        >
+          {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          {dark ? "Mode clair" : "Mode sombre"}
+        </Button>
       </aside>
       <main className="min-w-0 flex-1 px-8 py-6" key={view}>
         {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}
@@ -102,6 +134,7 @@ function App() {
         {view === "subjects" && <Subjects />}
         {view === "classes" && <Classes />}
         {view === "packages" && <Packages />}
+        {view === "motifs" && <Motifs />}
         {view === "academy" && <Academy />}
       </main>
     </div>

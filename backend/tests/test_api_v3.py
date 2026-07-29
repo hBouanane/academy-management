@@ -208,7 +208,7 @@ class TestRowSplitAndHistory:
     def test_history_returns_cash_and_counts_per_month(self, client, monkeypatch):
         level, class_id, _ = setup_level_class(client)
         monkeypatch.setattr(clock, "current_month", lambda: "2026-08")
-        _, package, enrollment = enroll_student(
+        _, _package, enrollment = enroll_student(
             client, level, [class_id], month="2026-08"
         )
         monkeypatch.setattr(clock, "current_month", lambda: "2026-09")

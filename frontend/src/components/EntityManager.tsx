@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { Archive, ArchiveRestore, Pencil } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ConfirmButton } from "@/components/Confirm"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -202,11 +203,12 @@ export function EntityManager({
                   >
                     <Pencil className="size-4" />
                   </Button>
-                  <Button
+                  <ConfirmButton
                     size="sm"
                     variant="ghost"
                     disabled={busy}
-                    onClick={() => setActive(row, !row.is_active)}
+                    onConfirm={() => setActive(row, !row.is_active)}
+                    confirmLabel={row.is_active ? "Archiver ?" : "Restaurer ?"}
                     title={row.is_active ? "Archiver (réversible)" : "Restaurer"}
                   >
                     {row.is_active ? (
@@ -214,7 +216,7 @@ export function EntityManager({
                     ) : (
                       <ArchiveRestore className="size-4" />
                     )}
-                  </Button>
+                  </ConfirmButton>
                 </TableCell>
               </TableRow>
             ))}
@@ -257,9 +259,9 @@ export function EntityManager({
             ))}
           </div>
           <DialogFooter>
-            <Button onClick={saveEdit} disabled={busy}>
+            <ConfirmButton onConfirm={saveEdit} disabled={busy}>
               Enregistrer
-            </Button>
+            </ConfirmButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

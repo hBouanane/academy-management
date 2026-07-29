@@ -66,8 +66,11 @@ export function EnrollDialog({
     setBusy(false)
   }
 
-  // A Primaire student only sees Primaire classes.
+  // A Primaire student only sees Primaire classes and Primaire packages.
   const levelClasses = classes.filter((row) => row.level_id === levelId)
+  const levelPackages = packages.filter(
+    (pack) => pack.level_id === null || pack.level_id === levelId,
+  )
   const chosenPackage = packages.find((p) => String(p.id) === packageId)
   const capacity = chosenPackage?.subject_count ?? 0
   const full = chosenPackage !== undefined && selectedClasses.length >= capacity
@@ -135,7 +138,7 @@ export function EnrollDialog({
                 <SelectValue placeholder="Choisir un forfait" />
               </SelectTrigger>
               <SelectContent>
-                {packages.map((pack) => (
+                {levelPackages.map((pack) => (
                   <SelectItem key={pack.id} value={String(pack.id)}>
                     {pack.subject_count} matière(s) —{" "}
                     {formatDH(pack.monthly_price_centimes)}
@@ -143,7 +146,7 @@ export function EnrollDialog({
                 ))}
               </SelectContent>
             </Select>
-            {packages.length === 0 && (
+            {levelPackages.length === 0 && (
               <p className="text-muted-foreground text-sm">
                 Aucun forfait — créez-en un dans la page Forfaits.
               </p>

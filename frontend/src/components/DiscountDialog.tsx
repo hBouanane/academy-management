@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { MotifInput, useMotifs } from "@/components/MotifInput"
 import { apiSend } from "@/lib/api"
 import { dhToCentimes } from "@/lib/money"
 
@@ -29,6 +30,7 @@ export function DiscountDialog({ enrollmentId, onDone }: Props) {
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { motifs, ensure } = useMotifs()
 
   const reset = () => {
     setAmount("")
@@ -41,9 +43,10 @@ export function DiscountDialog({ enrollmentId, onDone }: Props) {
   const centimes = dhToCentimes(amount)
   const valid = isGift || (Number.isFinite(centimes) && centimes > 0)
 
-  const submit = () => {
+  const submit = async () => {
     setError(null)
     setBusy(true)
+    await ensure(reason)
     apiSend("POST", `/api/enrollments/${enrollmentId}/adjustments`, {
       // A gift month is simply a 100% reduction of the package.
       kind: isGift ? "percent" : "amount",
@@ -106,11 +109,7 @@ export function DiscountDialog({ enrollmentId, onDone }: Props) {
           )}
           <div className="space-y-2">
             <Label>Motif</Label>
-            <Input
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="Situation familiale…"
-            />
+            <MotifInput value={reason} onChange={setReason} motifs={motifs} />
           </div>
           {error && <p className="text-destructive text-sm">{error}</p>}
         </div>

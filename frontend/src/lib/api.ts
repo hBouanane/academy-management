@@ -25,6 +25,25 @@ export type Package = {
   id: number
   subject_count: number
   monthly_price_centimes: number
+  level_id: number | null
+  level_name: string | null
+}
+
+export type Motif = { id: number; label: string; is_active: number }
+
+export type HistoryEntry = {
+  month: string
+  cash_in: number
+  enrolled_count: number
+  paid_count: number
+  unpaid_count: number
+}
+
+export type SplitChip = {
+  kind: "venue" | "owner" | "teacher"
+  ref_id: number
+  name: string
+  final_centimes: number
 }
 export type Student = {
   id: number
@@ -46,6 +65,7 @@ export type OverviewEnrollment = {
   paid: boolean
   payment_id: number | null
   classes: EnrollmentClass[]
+  split: SplitChip[]
 }
 export type OverviewRow = {
   student_id: number
