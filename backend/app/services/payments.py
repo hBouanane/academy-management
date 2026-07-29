@@ -48,6 +48,11 @@ def post_payment(
     return PostedPayment(payment_id, net_amount, lines)
 
 
+def net_price(context: EnrollmentContext) -> Centimes:
+    """What the student actually owes for this enrollment, after adjustments."""
+    return _net_amount(context, _resolved_adjustments(context))
+
+
 def _context_or_raise(store: PaymentStore, enrollment_id: int) -> EnrollmentContext:
     context = store.enrollment_context(enrollment_id)
     if context is None:
