@@ -16,6 +16,7 @@ Set-Location (Join-Path $root "backend")
     --noconfirm --noconsole --onedir `
     --name AcademyManagement `
     --add-data "..\frontend\dist;frontend/dist" `
+    --add-data "app\adapters\sqlite\migrations\*.sql;app/adapters/sqlite/migrations" `
     desktop.py
 if ($LASTEXITCODE -ne 0) { throw "pyinstaller failed" }
 
