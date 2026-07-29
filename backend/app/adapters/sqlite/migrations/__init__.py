@@ -45,7 +45,9 @@ def _migration_files() -> list[tuple[int, Path]]:
 
 
 def _pending(current: int) -> list[tuple[int, Path]]:
-    return [(version, path) for version, path in _migration_files() if version > current]
+    return [
+        (version, path) for version, path in _migration_files() if version > current
+    ]
 
 
 def _apply(connection: sqlite3.Connection, version: int, path: Path) -> None:

@@ -53,7 +53,9 @@ def test_requires_at_least_one_teacher():
 
 def test_rejects_duplicate_teachers():
     with pytest.raises(ValueError):
-        split_payment(100 * DH, seed_policy(), venue_id=1, owner_id=1, teacher_ids=[7, 7])
+        split_payment(
+            100 * DH, seed_policy(), venue_id=1, owner_id=1, teacher_ids=[7, 7]
+        )
 
 
 def test_policy_rejects_shares_over_100_percent():

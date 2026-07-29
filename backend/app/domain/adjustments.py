@@ -43,7 +43,7 @@ def _validate_bearers(
 
 def _cut_per_bearer(adjustment: Adjustment) -> dict[Beneficiary, Centimes]:
     shares = split_equally(adjustment.reduction, len(adjustment.borne_by))
-    return dict(zip(adjustment.borne_by, shares))
+    return dict(zip(adjustment.borne_by, shares, strict=True))
 
 
 def _reduced(allocation: Allocation, cuts: dict[Beneficiary, Centimes]) -> Allocation:
