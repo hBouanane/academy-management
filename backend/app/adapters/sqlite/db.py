@@ -1,7 +1,6 @@
 import sqlite3
-from pathlib import Path
 
-_SCHEMA = Path(__file__).joinpath("..", "migrations", "0001_initial.sql").resolve()
+from .migrations import migrate
 
 
 def connect(path: str) -> sqlite3.Connection:
@@ -12,4 +11,5 @@ def connect(path: str) -> sqlite3.Connection:
 
 
 def init_db(connection: sqlite3.Connection) -> None:
-    connection.executescript(_SCHEMA.read_text(encoding="utf-8"))
+    """Bring the database to the latest schema version (fresh or existing)."""
+    migrate(connection)
