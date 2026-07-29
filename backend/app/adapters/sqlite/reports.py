@@ -160,7 +160,7 @@ def _unpaid_enrollments(
 ) -> list[sqlite3.Row]:
     return conn.execute(
         """
-        SELECT e.id AS enrollment_id, e.month,
+        SELECT e.id AS enrollment_id, e.month, e.price_centimes,
                s.id AS student_id, s.name AS student_name, sl.name AS level_name
         FROM enrollment e
         JOIN student s ON s.id = e.student_id
@@ -181,7 +181,7 @@ def _student_arrears(
         ArrearsItem(
             enrollment_id=row["enrollment_id"],
             month=row["month"],
-            owed=net_price(store.enrollment_context(row["enrollment_id"])),
+            owed=_safe_owed(store, row),
         )
         for row in rows
     )
@@ -192,3 +192,11 @@ def _student_arrears(
         items=items,
         total_owed=sum(item.owed for item in items),
     )
+
+
+def _safe_owed(store: SqlitePaymentStore, row: sqlite3.Row) -> Centimes:
+    # One invalid stored adjustment must not take down the whole arrears list.
+    try:
+        return net_price(store.enrollment_context(row["enrollment_id"]))
+    except ValueError:
+        return row["price_centimes"]

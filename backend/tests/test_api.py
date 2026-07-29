@@ -164,6 +164,100 @@ class TestEnrollmentsAndPayments:
         assert again.json()["copied"] == 0
 
 
+class TestValidationHardening:
+    def test_adjustment_beyond_price_rejected_and_nothing_stored(self, client):
+        class_id, student_id = setup_class_and_student(client)
+        enrollment_id = enroll(client, student_id, [class_id])  # 300 DH
+        response = client.post(
+            f"/api/enrollments/{enrollment_id}/adjustments",
+            json={"kind": "amount", "value": 400 * DH, "category": "discount"},
+        )
+        assert response.status_code == 422
+        (row,) = client.get("/api/months/2026-09/overview").json()
+        assert row["enrollment"]["net_centimes"] == 300 * DH  # untouched, no 500
+
+    def test_adjustment_with_stranger_bearer_rejected_and_nothing_stored(self, client):
+        class_id, student_id = setup_class_and_student(client)
+        enrollment_id = enroll(client, student_id, [class_id])
+        response = client.post(
+            f"/api/enrollments/{enrollment_id}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 10 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": 999}],
+            },
+        )
+        assert response.status_code == 422
+        paid = client.post("/api/payments", json={"enrollment_id": enrollment_id})
+        assert paid.json()["net_centimes"] == 300 * DH  # no silent live discount
+
+    def test_failed_enrollment_leaves_no_partial_row(self, client):
+        class_id, student_id = setup_class_and_student(client)
+        package = client.post(
+            "/api/packages",
+            json={"subject_count": 1, "monthly_price_centimes": 300 * DH},
+        ).json()
+        bad = client.post(
+            "/api/enrollments",
+            json={
+                "student_id": student_id,
+                "month": "2026-09",
+                "package_id": package["id"],
+                "class_ids": [999],
+            },
+        )
+        assert bad.status_code in (409, 422)
+        retry = client.post(
+            "/api/enrollments",
+            json={
+                "student_id": student_id,
+                "month": "2026-09",
+                "package_id": package["id"],
+                "class_ids": [class_id],
+            },
+        )
+        assert retry.status_code == 201  # no half-committed enrollment blocking it
+
+    def test_adjustment_can_be_deleted_while_unpaid(self, client):
+        class_id, student_id = setup_class_and_student(client)
+        enrollment_id = enroll(client, student_id, [class_id])
+        adjustment_id = client.post(
+            f"/api/enrollments/{enrollment_id}/adjustments",
+            json={"kind": "amount", "value": 50 * DH},
+        ).json()["id"]
+        assert client.delete(f"/api/adjustments/{adjustment_id}").status_code == 200
+        (row,) = client.get("/api/months/2026-09/overview").json()
+        assert row["enrollment"]["net_centimes"] == 300 * DH
+
+    def test_adjustment_delete_refused_once_paid(self, client):
+        class_id, student_id = setup_class_and_student(client)
+        enrollment_id = enroll(client, student_id, [class_id])
+        adjustment_id = client.post(
+            f"/api/enrollments/{enrollment_id}/adjustments",
+            json={"kind": "amount", "value": 50 * DH},
+        ).json()["id"]
+        client.post("/api/payments", json={"enrollment_id": enrollment_id})
+        assert client.delete(f"/api/adjustments/{adjustment_id}").status_code == 409
+
+    def test_bad_months_are_422_everywhere(self, client):
+        assert client.get("/api/months/banana/overview").status_code == 422
+        assert (
+            client.get("/api/reports/monthly", params={"month": "2026-13"}).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/api/months/copy",
+                json={"from_month": "2026-9", "to_month": "2026-10"},
+            ).status_code
+            == 422
+        )
+
+    def test_patching_unknown_rows_is_404(self, client):
+        assert client.patch("/api/academies/999", json={"name": "X"}).status_code == 404
+        assert client.patch("/api/students/999", json={"name": "X"}).status_code == 404
+
+
 class TestReports:
     def test_monthly_report_and_arrears(self, client):
         class_id, student_id = setup_class_and_student(client)

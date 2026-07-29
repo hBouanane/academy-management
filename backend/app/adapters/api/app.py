@@ -27,6 +27,7 @@ _ERROR_STATUS: list[tuple[type[Exception], int]] = [
     (AlreadyPaidError, 409),
     (AlreadyReversedError, 409),
     (ReductionsExceedPriceError, 422),
+    (ValueError, 422),  # domain validation (bad bearer, over-100% percent, ...)
     (sqlite3.IntegrityError, 409),
 ]
 

@@ -2,18 +2,27 @@
 
 import sqlite3
 from collections.abc import Iterator
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Path, Query, Request
+from pydantic import BaseModel, StringConstraints
 
 from app.adapters.sqlite import crud
 from app.adapters.sqlite.db import connect
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
 from app.adapters.sqlite.reports import arrears, monthly_report
-from app.services.payments import post_payment, reverse_payment
+from app.domain.adjustments import AdjustmentSpec
+from app.domain.splitting import Beneficiary
+from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
+from app.services.payments import post_payment, reverse_payment, validate_adjustment
 
 router = APIRouter()
+
+MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+Month = Annotated[str, StringConstraints(pattern=MONTH_PATTERN)]
+MonthPath = Annotated[str, Path(pattern=MONTH_PATTERN)]
+MonthQuery = Annotated[str, Query(pattern=MONTH_PATTERN)]
 
 
 def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
@@ -54,7 +63,12 @@ def academies(conn: Conn) -> list[dict]:
 @router.patch("/academies/{academy_id}")
 def patch_academy(academy_id: int, patch: AcademyPatch, conn: Conn) -> dict:
     crud.update_academy(conn, academy_id, patch.model_dump(exclude_none=True))
-    return next(a for a in crud.list_academies(conn) if a["id"] == academy_id)
+    updated = next(
+        (a for a in crud.list_academies(conn) if a["id"] == academy_id), None
+    )
+    if updated is None:
+        raise LookupError(f"no academy {academy_id}")
+    return updated
 
 
 @router.get("/levels")
@@ -171,29 +185,34 @@ def patch_student(student_id: int, patch: StudentPatch, conn: Conn) -> dict:
 
 class EnrollmentCreate(BaseModel):
     student_id: int
-    month: str
+    month: Month
     package_id: int
     class_ids: list[int]
     price_centimes: int | None = None
 
 
+class BearerIn(BaseModel):
+    kind: Literal["owner", "venue", "teacher"]
+    ref_id: int
+
+
 class AdjustmentCreate(BaseModel):
-    kind: str  # 'percent' | 'amount'
-    value: int
-    scope: str = "package"
+    kind: Literal["percent", "amount"]
+    value: int  # basis points for 'percent' (10000 = 100%), centimes for 'amount'
+    scope: Literal["package", "subject"] = "package"
     class_id: int | None = None
-    category: str = "discount"
+    category: Literal["discount", "coupon", "gift"] = "discount"
     reason: str | None = None
-    bearers: list[dict] = []
+    bearers: list[BearerIn] = []
 
 
 class CopyMonth(BaseModel):
-    from_month: str
-    to_month: str
+    from_month: Month
+    to_month: Month
 
 
 @router.get("/months/{month}/overview")
-def overview(month: str, conn: Conn) -> list[dict]:
+def overview(month: MonthPath, conn: Conn) -> list[dict]:
     return crud.month_overview(conn, default_academy_id(conn), month)
 
 
@@ -212,15 +231,49 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
 
 @router.post("/enrollments/{enrollment_id}/adjustments", status_code=201)
 def create_adjustment(enrollment_id: int, body: AdjustmentCreate, conn: Conn) -> dict:
+    _check_adjustment_is_postable(conn, enrollment_id, body)
     adjustment_id = crud.add_adjustment(conn, enrollment_id, body.model_dump())
     return {"id": adjustment_id}
 
 
+def _check_adjustment_is_postable(
+    conn: sqlite3.Connection, enrollment_id: int, body: AdjustmentCreate
+) -> None:
+    """Reject unpostable adjustments with 422 BEFORE anything is stored."""
+    context = SqlitePaymentStore(conn).enrollment_context(enrollment_id)
+    if context is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    subject_index = None
+    if body.scope == "subject":
+        class_ids = crud.enrollment_class_ids(conn, enrollment_id)
+        if body.class_id not in class_ids:
+            raise ValueError(f"class {body.class_id} is not in this enrollment")
+        subject_index = class_ids.index(body.class_id)
+    spec = AdjustmentSpec(
+        kind=body.kind, value=body.value, scope=body.scope, subject_index=subject_index
+    )
+    bearers = tuple(Beneficiary(b.kind, b.ref_id) for b in body.bearers) or (
+        Beneficiary("owner", context.owner_id),
+    )
+    validate_adjustment(context, ConfiguredAdjustment(0, spec, bearers))
+
+
+@router.delete("/adjustments/{adjustment_id}")
+def delete_adjustment(adjustment_id: int, conn: Conn) -> dict:
+    crud.delete_adjustment(conn, adjustment_id)
+    return {"deleted": adjustment_id}
+
+
 @router.post("/months/copy")
 def copy_month(body: CopyMonth, conn: Conn) -> dict:
+    """Copies enrollments (not one-off adjustments) into an empty month slot.
+
+    Adjustments are deliberately NOT copied: discounts and gifts are per-month
+    decisions; auto-perpetuating them would silently leak money.
+    """
     academy_id = default_academy_id(conn)
     copied = crud.copy_month(conn, academy_id, body.from_month, body.to_month)
-    return {"copied": copied}
+    return {"copied": copied, "adjustments_copied": False}
 
 
 # --- payments ------------------------------------------------------------
@@ -228,7 +281,7 @@ def copy_month(body: CopyMonth, conn: Conn) -> dict:
 
 class PaymentCreate(BaseModel):
     enrollment_id: int
-    paid_on: str | None = None
+    paid_on: Annotated[str, StringConstraints(pattern=DATE_PATTERN)] | None = None
 
 
 class ReverseBody(BaseModel):
@@ -253,7 +306,7 @@ def reverse(payment_id: int, body: ReverseBody, conn: Conn) -> dict:
 
 
 @router.get("/reports/monthly")
-def report_monthly(month: str, conn: Conn) -> dict:
+def report_monthly(month: MonthQuery, conn: Conn) -> dict:
     report = monthly_report(conn, default_academy_id(conn), month)
     return {
         "month": report.month,
@@ -271,7 +324,7 @@ def report_monthly(month: str, conn: Conn) -> dict:
 
 
 @router.get("/reports/arrears")
-def report_arrears(up_to_month: str, conn: Conn) -> list[dict]:
+def report_arrears(up_to_month: MonthQuery, conn: Conn) -> list[dict]:
     return [
         {
             "student_id": entry.student_id,

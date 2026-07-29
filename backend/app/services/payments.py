@@ -57,6 +57,19 @@ def net_price(context: EnrollmentContext) -> Centimes:
     return _net_amount(context, _resolved_adjustments(context))
 
 
+def validate_adjustment(
+    context: EnrollmentContext, configured: ConfiguredAdjustment
+) -> None:
+    """Raise (ValueError family) if adding this adjustment would be unpostable."""
+    from dataclasses import replace
+
+    candidate = replace(context, adjustments=(*context.adjustments, configured))
+    allocations = _base_split(candidate)
+    adjustments = _resolved_adjustments(candidate)
+    apply_adjustments(allocations, [adj for _, adj in adjustments])  # bearer check
+    _net_amount(candidate, adjustments)  # over-reduction check
+
+
 @dataclass(frozen=True)
 class ReversedPayment:
     payment_id: int
