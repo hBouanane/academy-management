@@ -17,23 +17,40 @@ type Props = { paymentId: number; onDone: () => void }
 export function ReverseDialog({ paymentId, onDone }: Props) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState("")
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const reset = () => {
+    setReason("")
+    setError(null)
+    setBusy(false)
+  }
 
   const submit = () => {
     setError(null)
+    setBusy(true)
     apiSend("POST", `/api/payments/${paymentId}/reverse`, {
       reason: reason || null,
     })
       .then(() => {
         setOpen(false)
-        setReason("")
+        reset()
         onDone()
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err: Error) => {
+        setError(err.message)
+        setBusy(false)
+      })
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) reset()
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           Annuler paiement
@@ -57,8 +74,8 @@ export function ReverseDialog({ paymentId, onDone }: Props) {
         </div>
         {error && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
-          <Button variant="destructive" onClick={submit}>
-            Contre-passer
+          <Button variant="destructive" onClick={submit} disabled={busy}>
+            {busy ? "…" : "Contre-passer"}
           </Button>
         </DialogFooter>
       </DialogContent>

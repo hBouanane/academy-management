@@ -1,6 +1,9 @@
 export function formatDH(centimes: number): string {
   const dirhams = centimes / 100
-  return `${dirhams.toLocaleString("fr-MA", { maximumFractionDigits: 2 })} DH`
+  return `${dirhams.toLocaleString("fr-MA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} DH`
 }
 
 export function dhToCentimes(dirhams: string): number {

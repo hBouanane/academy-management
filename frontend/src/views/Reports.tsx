@@ -54,7 +54,9 @@ export function Reports({ month, setMonth }: Props) {
         <Input
           type="month"
           value={month}
-          onChange={(event) => setMonth(event.target.value)}
+          onChange={(event) => {
+            if (event.target.value) setMonth(event.target.value)
+          }}
           className="w-44"
         />
       </header>

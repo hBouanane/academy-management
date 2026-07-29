@@ -76,13 +76,21 @@ export type ArrearsEntry = {
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    const detail =
-      body && typeof body.detail === "string"
-        ? body.detail
-        : `Erreur ${response.status}`
-    throw new Error(detail)
+    throw new Error(detailMessage(body, response.status))
   }
   return response.json() as Promise<T>
+}
+
+function detailMessage(body: unknown, status: number): string {
+  const detail = (body as { detail?: unknown } | null)?.detail
+  if (typeof detail === "string") return detail
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (item as { msg?: string }).msg)
+      .filter(Boolean)
+    if (messages.length) return messages.join(" ; ")
+  }
+  return `Erreur ${status}`
 }
 
 export async function apiGet<T>(url: string): Promise<T> {

@@ -34,6 +34,7 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
   const [classes, setClasses] = useState<ClassRow[]>([])
   const [packageId, setPackageId] = useState<string>("")
   const [selectedClasses, setSelectedClasses] = useState<number[]>([])
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -41,6 +42,13 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
     apiGet<Package[]>("/api/packages").then(setPackages).catch(() => {})
     apiGet<ClassRow[]>("/api/classes").then(setClasses).catch(() => {})
   }, [open])
+
+  const reset = () => {
+    setSelectedClasses([])
+    setPackageId("")
+    setError(null)
+    setBusy(false)
+  }
 
   const chosenPackage = packages.find((p) => String(p.id) === packageId)
   const ready =
@@ -56,6 +64,7 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
   const submit = () => {
     if (!chosenPackage) return
     setError(null)
+    setBusy(true)
     apiSend("POST", "/api/enrollments", {
       student_id: studentId,
       month,
@@ -64,15 +73,23 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
     })
       .then(() => {
         setOpen(false)
-        setSelectedClasses([])
-        setPackageId("")
+        reset()
         onDone()
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err: Error) => {
+        setError(err.message)
+        setBusy(false)
+      })
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) reset()
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           Inscrire
@@ -140,8 +157,8 @@ export function EnrollDialog({ studentId, studentName, month, onDone }: Props) {
           {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!ready}>
-            Inscrire
+          <Button onClick={submit} disabled={!ready || busy}>
+            {busy ? "…" : "Inscrire"}
           </Button>
         </DialogFooter>
       </DialogContent>

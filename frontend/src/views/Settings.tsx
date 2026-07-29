@@ -62,28 +62,42 @@ function AcademyCard({ onError }: CardProps) {
   const [ownerPct, setOwnerPct] = useState("")
 
   useEffect(() => {
-    apiGet<Academy[]>("/api/academies").then(([first]) => {
-      setAcademy(first)
-      setName(first.name)
-      setVenuePct(String(first.venue_bp / 100))
-      setOwnerPct(String(first.owner_bp / 100))
-    })
+    apiGet<Academy[]>("/api/academies")
+      .then(([first]) => {
+        if (!first) return
+        setAcademy(first)
+        setName(first.name)
+        setVenuePct(String(first.venue_bp / 100))
+        setOwnerPct(String(first.owner_bp / 100))
+      })
+      .catch((err: Error) => onError(err.message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const venue = Number(venuePct)
+  const owner = Number(ownerPct)
+  const splitValid =
+    venuePct !== "" &&
+    ownerPct !== "" &&
+    Number.isFinite(venue) &&
+    Number.isFinite(owner) &&
+    venue >= 0 &&
+    owner >= 0 &&
+    venue + owner <= 100
+
   const save = () => {
-    if (!academy) return
+    if (!academy || !splitValid) return
     onError(null)
     apiSend("PATCH", `/api/academies/${academy.id}`, {
       name,
-      venue_bp: Math.round(Number(venuePct) * 100),
-      owner_bp: Math.round(Number(ownerPct) * 100),
+      venue_bp: Math.round(venue * 100),
+      owner_bp: Math.round(owner * 100),
     })
       .then((updated) => setAcademy(updated as Academy))
       .catch((err: Error) => onError(err.message))
   }
 
-  const teacherPct =
-    100 - (Number(venuePct) || 0) - (Number(ownerPct) || 0)
+  const teacherPct = splitValid ? 100 - venue - owner : 0
 
   return (
     <Card>
@@ -121,7 +135,12 @@ function AcademyCard({ onError }: CardProps) {
             />
           </div>
         </div>
-        <Button onClick={save} disabled={!academy}>
+        {!splitValid && (
+          <p className="text-destructive text-sm">
+            Les pourcentages doivent être positifs et leur somme au plus 100.
+          </p>
+        )}
+        <Button onClick={save} disabled={!academy || !splitValid}>
           Enregistrer
         </Button>
       </div>

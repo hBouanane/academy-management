@@ -29,6 +29,7 @@ export function Dashboard({ month, setMonth }: Props) {
   const [rows, setRows] = useState<OverviewRow[]>([])
   const [report, setReport] = useState<MonthlyReport | null>(null)
   const [search, setSearch] = useState("")
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(() => {
@@ -45,9 +46,11 @@ export function Dashboard({ month, setMonth }: Props) {
 
   const act = (action: () => Promise<unknown>) => {
     setError(null)
+    setBusy(true)
     action()
       .then(reload)
       .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false))
   }
 
   const pay = (enrollmentId: number) =>
@@ -82,10 +85,12 @@ export function Dashboard({ month, setMonth }: Props) {
           <Input
             type="month"
             value={month}
-            onChange={(event) => setMonth(event.target.value)}
+            onChange={(event) => {
+              if (event.target.value) setMonth(event.target.value)
+            }}
             className="w-44"
           />
-          <Button variant="outline" onClick={copyLastMonth}>
+          <Button variant="outline" onClick={copyLastMonth} disabled={busy}>
             Copier le mois précédent
           </Button>
         </div>
@@ -141,6 +146,7 @@ export function Dashboard({ month, setMonth }: Props) {
                   key={row.student_id}
                   row={row}
                   month={month}
+                  busy={busy}
                   onPay={pay}
                   onDone={reload}
                 />
@@ -177,11 +183,12 @@ function StatCard({ label, value }: { label: string; value: string }) {
 type RowProps = {
   row: OverviewRow
   month: string
+  busy: boolean
   onPay: (enrollmentId: number) => void
   onDone: () => void
 }
 
-function StudentRow({ row, month, onPay, onDone }: RowProps) {
+function StudentRow({ row, month, busy, onPay, onDone }: RowProps) {
   const enrollment = row.enrollment
   return (
     <TableRow>
@@ -214,7 +221,7 @@ function StudentRow({ row, month, onPay, onDone }: RowProps) {
         {enrollment && !enrollment.paid && (
           <>
             <DiscountDialog enrollmentId={enrollment.id} onDone={onDone} />
-            <Button size="sm" onClick={() => onPay(enrollment.id)}>
+            <Button size="sm" disabled={busy} onClick={() => onPay(enrollment.id)}>
               Encaisser
             </Button>
           </>

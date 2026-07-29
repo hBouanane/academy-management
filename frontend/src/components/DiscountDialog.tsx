@@ -27,27 +27,47 @@ export function DiscountDialog({ enrollmentId, onDone }: Props) {
   const [amount, setAmount] = useState("")
   const [category, setCategory] = useState("discount")
   const [reason, setReason] = useState("")
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const reset = () => {
+    setAmount("")
+    setReason("")
+    setError(null)
+    setBusy(false)
+  }
+
+  const centimes = dhToCentimes(amount)
+  const valid = Number.isFinite(centimes) && centimes > 0
 
   const submit = () => {
     setError(null)
+    setBusy(true)
     apiSend("POST", `/api/enrollments/${enrollmentId}/adjustments`, {
       kind: "amount",
-      value: dhToCentimes(amount),
+      value: centimes,
       category,
       reason: reason || null,
     })
       .then(() => {
         setOpen(false)
-        setAmount("")
-        setReason("")
+        reset()
         onDone()
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err: Error) => {
+        setError(err.message)
+        setBusy(false)
+      })
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) reset()
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           Réduction
@@ -92,8 +112,8 @@ export function DiscountDialog({ enrollmentId, onDone }: Props) {
           {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!amount}>
-            Appliquer
+          <Button onClick={submit} disabled={!valid || busy}>
+            {busy ? "…" : "Appliquer"}
           </Button>
         </DialogFooter>
       </DialogContent>
