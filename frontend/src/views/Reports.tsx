@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardDescription,
@@ -51,14 +52,21 @@ export function Reports({ month, setMonth }: Props) {
             Qui reçoit quoi — calculé depuis le registre, jamais recalculé
           </p>
         </div>
-        <Input
-          type="month"
-          value={month}
-          onChange={(event) => {
-            if (event.target.value) setMonth(event.target.value)
-          }}
-          className="w-44"
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            type="month"
+            value={month}
+            onChange={(event) => {
+              if (event.target.value) setMonth(event.target.value)
+            }}
+            className="w-44"
+          />
+          <Button asChild variant="outline">
+            <a href={`/api/export/monthly.xlsx?month=${month}`} download>
+              Exporter Excel
+            </a>
+          </Button>
+        </div>
       </header>
 
       {error && <p className="text-destructive text-sm">{error}</p>}
