@@ -7,7 +7,7 @@
 #define AppExe "AcademyManagement.exe"
 
 [Setup]
-AppId={{7E2B4A31-9C55-4D8E-B1F2-AC4DEMY00001}
+AppId={{7E2B4A31-9C55-4D8E-B1F2-3A6C0DE4F512}
 AppName={#AppName}
 AppVersion={#AppVersion}
 DefaultDirName={autopf}\{#AppName}
@@ -35,9 +35,10 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-; WebView2 is preinstalled on Windows 10/11; on stripped machines install the
-; Evergreen runtime first (put MicrosoftEdgeWebView2Setup.exe next to this
-; script and uncomment):
+; WebView2 is preinstalled on Windows 10/11. For stripped machines, put
+; MicrosoftEdgeWebView2Setup.exe next to this script and uncomment BOTH the
+; [Files] entry and the [Run] line below:
+;   [Files]  Source: "MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Filename: "{tmp}\MicrosoftEdgeWebView2Setup.exe"; Parameters: "/silent /install"; \
 ;   StatusMsg: "Installation de WebView2..."; Flags: waituntilterminated
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

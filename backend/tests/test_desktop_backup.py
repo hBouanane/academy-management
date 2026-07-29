@@ -1,19 +1,48 @@
-"""Backup-on-close logic — written first (TDD)."""
+"""Backup-on-close logic — consistency matters more than byte equality."""
+
+import sqlite3
 
 from desktop import backup_database
 
 
-def make_db(tmp_path, content=b"sqlite-bytes"):
+def make_db(tmp_path, value="ledger-row"):
     db = tmp_path / "data.db"
-    db.write_bytes(content)
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE t (v TEXT)")
+    conn.execute("INSERT INTO t VALUES (?)", (value,))
+    conn.commit()
+    conn.close()
     return db
 
 
-def test_backup_copies_the_database_with_a_timestamped_name(tmp_path):
+def read_value(path):
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute("SELECT v FROM t").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_backup_produces_a_consistent_timestamped_copy(tmp_path):
     db = make_db(tmp_path)
     target = backup_database(db, stamp="20260729-120000")
     assert target == tmp_path / "backups" / "data-20260729-120000.db"
-    assert target.read_bytes() == db.read_bytes()
+    assert read_value(target) == "ledger-row"
+
+
+def test_backup_is_consistent_while_a_writer_holds_a_connection(tmp_path):
+    # The online backup API must produce a valid snapshot even with another
+    # connection open on the database (the uvicorn thread scenario).
+    db = make_db(tmp_path)
+    writer = sqlite3.connect(db)
+    writer.execute("INSERT INTO t VALUES ('second')")
+    writer.commit()
+    try:
+        target = backup_database(db, stamp="20260729-130000")
+        rows = sqlite3.connect(target).execute("SELECT COUNT(*) FROM t").fetchone()
+        assert rows[0] == 2
+    finally:
+        writer.close()
 
 
 def test_missing_database_backs_up_nothing(tmp_path):
