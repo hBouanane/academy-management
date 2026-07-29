@@ -213,19 +213,37 @@ def _resolve_shares(
     configured: ConfiguredAdjustment, reduction: Centimes
 ) -> tuple[Centimes, ...] | None:
     """Sponsor parts: explicit centimes, or a percentage of the reduction.
-    The parts must add up to the reduction exactly — no centime vanishes."""
+
+    Percentages are floored, then the flooring loss (at most one centime per
+    percentage entry) is given back to the largest percentage shares — so
+    40%/60% or thirds always land exactly on the reduction. Any remaining
+    difference is a genuine user error and is refused."""
     spec = configured.shares_spec
     if spec is None or all(c is None and bp is None for c, bp in spec):
         return None
-    resolved = tuple(
+    if any(c is None and bp is None for c, bp in spec):
+        raise ValueError(
+            "chaque sponsor doit indiquer sa part (montant ou pourcentage)"
+        )
+    resolved = [
         c if c is not None else percent_of(reduction, bp or 0) for c, bp in spec
+    ]
+    percent_indexes = sorted(
+        (i for i, (c, _) in enumerate(spec) if c is None),
+        key=lambda i: resolved[i],
+        reverse=True,
     )
-    if sum(resolved) != reduction:
+    difference = reduction - sum(resolved)
+    if difference != 0 and percent_indexes and 0 < difference <= len(percent_indexes):
+        for offset in range(difference):  # give the flooring loss back
+            resolved[percent_indexes[offset % len(percent_indexes)]] += 1
+        difference = 0
+    if difference != 0:
         raise ValueError(
             f"la somme des parts ({sum(resolved) / 100:.2f} DH) doit égaler"
             f" la réduction ({reduction / 100:.2f} DH)"
         )
-    return resolved
+    return tuple(resolved)
 
 
 def _net_amount(

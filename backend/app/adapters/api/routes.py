@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.adapters.sqlite import crud
 from app.adapters.sqlite.db import connect
@@ -370,9 +370,18 @@ class BearerIn(BaseModel):
     kind: Literal["owner", "venue", "teacher"]
     ref_id: int
     # Sponsor part: explicit centimes OR a % of the reduction; both empty
-    # means "equal split with the other sponsors".
-    share_centimes: int | None = None
-    share_bp: int | None = None
+    # (on every sponsor) means "equal split".
+    share_centimes: Annotated[int, Field(ge=0)] | None = None
+    share_bp: Annotated[int, Field(ge=0, le=10_000)] | None = None
+
+
+def _require_unique_bearers(bearers: list[BearerIn]) -> None:
+    seen = {(b.kind, b.ref_id) for b in bearers}
+    if len(seen) != len(bearers):
+        raise HTTPException(
+            status_code=422,
+            detail="Un même sponsor ne peut apparaître qu'une seule fois.",
+        )
 
 
 def _shares_spec(
@@ -404,6 +413,14 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
     _require_open_month(body.month)
     price = body.price_centimes
     if price is None and body.arrival_date is not None:
+        from datetime import date
+
+        try:
+            arrival = date.fromisoformat(body.arrival_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail="Date d'arrivée invalide."
+            ) from None
         if body.arrival_date[:7] != body.month:
             raise HTTPException(
                 status_code=422,
@@ -416,7 +433,7 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
             package["monthly_price_centimes"],
             crud.academy_proration(conn, default_academy_id(conn)),
             body.month,
-            int(body.arrival_date[8:10]),
+            arrival.day,
         )
     enrollment_id = crud.create_enrollment(
         conn,
@@ -425,6 +442,7 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
         body.package_id,
         body.class_ids,
         price,
+        arrival_date=body.arrival_date,
     )
     return {"id": enrollment_id}
 
@@ -465,6 +483,7 @@ def _require_unpaid_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> 
 @router.post("/enrollments/{enrollment_id}/adjustments", status_code=201)
 def create_adjustment(enrollment_id: int, body: AdjustmentCreate, conn: Conn) -> dict:
     _require_unpaid_enrollment(conn, enrollment_id)
+    _require_unique_bearers(body.bearers)
     _check_adjustment_is_postable(conn, enrollment_id, body)
     adjustment_id = crud.add_adjustment(conn, enrollment_id, body.model_dump())
     return {"id": adjustment_id}
@@ -520,6 +539,8 @@ def patch_adjustment(adjustment_id: int, body: AdjustmentPatch, conn: Conn) -> d
     if row is None:
         raise LookupError(f"no adjustment {adjustment_id}")
     _require_unpaid_enrollment(conn, row["enrollment_id"])
+    if body.bearers is not None:
+        _require_unique_bearers(body.bearers)
     if body.kind is not None and body.kind != row["kind"] and body.value is None:
         raise HTTPException(
             status_code=422,
@@ -588,6 +609,15 @@ def _validate_adjustment_edit(
     )
 
 
+def _stored_bp(conn: sqlite3.Connection, adjustment_id: int, bearer) -> int | None:
+    row = conn.execute(
+        "SELECT share_bp FROM adjustment_bearer WHERE adjustment_id = ?"
+        " AND bearer_kind = ? AND bearer_id = ?",
+        (adjustment_id, bearer.kind, bearer.ref_id),
+    ).fetchone()
+    return row["share_bp"] if row else None
+
+
 @router.get("/enrollments/{enrollment_id}/preview")
 def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
     """The split a payment would produce — shown before any money moves."""
@@ -632,7 +662,11 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
                 "scope": stored[adjustment.adjustment_id]["scope"],
                 "reason": stored[adjustment.adjustment_id]["reason"],
                 "bearers": [
-                    {**named(bearer), "share_centimes": share}
+                    {
+                        **named(bearer),
+                        "share_centimes": share,
+                        "share_bp": _stored_bp(conn, adjustment.adjustment_id, bearer),
+                    }
                     for bearer, share in zip(
                         adjustment.bearers, adjustment.shares, strict=True
                     )

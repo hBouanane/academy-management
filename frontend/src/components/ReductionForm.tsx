@@ -48,20 +48,35 @@ export function ReductionForm({
   onSubmit,
   onCancel,
 }: Props) {
+  // Subject-scoped rows resolve % against the subject share, not the price —
+  // editing them stays in DH to keep the displayed math truthful.
+  const subjectScoped = initial?.scope === "subject"
   const [totalMode, setTotalMode] = useState<"amount" | "percent">(
-    initial?.kind === "percent" ? "percent" : "amount",
+    initial?.kind === "percent" && !subjectScoped ? "percent" : "amount",
   )
   const [totalValue, setTotalValue] = useState(
-    initial ? String(initial.value / 100) : "",
+    initial
+      ? subjectScoped
+        ? String(initial.resolved_centimes / 100)
+        : String(initial.value / 100)
+      : "",
   )
   const [reason, setReason] = useState(initial?.reason ?? "")
   const [sponsors, setSponsors] = useState<SponsorRow[]>(
     initial && initial.bearers.length
-      ? initial.bearers.map((bearer) => ({
-          target: `${bearer.kind}-${bearer.ref_id}`,
-          mode: "amount",
-          value: String((bearer.share_centimes ?? 0) / 100),
-        }))
+      ? initial.bearers.map((bearer) =>
+          bearer.share_bp !== null
+            ? {
+                target: `${bearer.kind}-${bearer.ref_id}`,
+                mode: "percent" as const,
+                value: String(bearer.share_bp / 100),
+              }
+            : {
+                target: `${bearer.kind}-${bearer.ref_id}`,
+                mode: "amount" as const,
+                value: String((bearer.share_centimes ?? 0) / 100),
+              },
+        )
       : [{ target: "owner-default", mode: "percent", value: "100" }],
   )
 
@@ -75,22 +90,57 @@ export function ReductionForm({
   const totalCentimes =
     totalMode === "amount"
       ? dhToCentimes(totalValue)
-      : Math.round((numericTotal / 100) * preview.price_centimes)
+      : Math.floor((numericTotal * 100 * preview.price_centimes) / 10000)
 
-  const sponsorCentimes = sponsors.map((sponsor) => {
-    const raw = Number(sponsor.value.replace(",", "."))
-    if (!Number.isFinite(raw)) return 0
-    return sponsor.mode === "amount"
-      ? dhToCentimes(sponsor.value)
-      : Math.round((raw / 100) * totalCentimes)
-  })
+  // Exact mirror of the backend: floor % shares, then give the flooring loss
+  // back to the largest % shares — the red note only fires on real mismatch.
+  const sponsorCentimes = (() => {
+    const raw = sponsors.map((sponsor) => {
+      const value = Number(sponsor.value.replace(",", "."))
+      if (!Number.isFinite(value)) return 0
+      return sponsor.mode === "amount"
+        ? dhToCentimes(sponsor.value)
+        : Math.floor((value * 100 * totalCentimes) / 10000)
+    })
+    const percentIndexes = sponsors
+      .map((sponsor, index) => ({ sponsor, index }))
+      .filter(({ sponsor }) => sponsor.mode === "percent")
+      .sort((a, b) => raw[b.index] - raw[a.index])
+      .map(({ index }) => index)
+    let difference = totalCentimes - raw.reduce((sum, value) => sum + value, 0)
+    if (difference > 0 && percentIndexes.length && difference <= percentIndexes.length) {
+      for (let offset = 0; difference > 0; offset++, difference--) {
+        raw[percentIndexes[offset % percentIndexes.length]] += 1
+      }
+    }
+    return raw
+  })()
   const sponsorsSum = sponsorCentimes.reduce((sum, value) => sum + value, 0)
   const mismatch = totalCentimes > 0 && sponsorsSum !== totalCentimes
+
+  // The owner's zero-floor rule: a share can be reduced to zero, never below.
+  // When editing, this adjustment's own current cut comes back first.
+  const capFor = (target: string) => {
+    const line = resolveTarget(target)
+    if (!line) return 0
+    const previousCut =
+      initial?.bearers.find(
+        (bearer) =>
+          bearer.kind === line.kind && bearer.ref_id === line.ref_id,
+      )?.share_centimes ?? 0
+    return line.final_centimes + previousCut
+  }
+  const overCapIndex = sponsors.findIndex(
+    (sponsor, index) =>
+      resolveTarget(sponsor.target) !== undefined &&
+      sponsorCentimes[index] > capFor(sponsor.target),
+  )
   const targetsValid = sponsors.every((sponsor) => resolveTarget(sponsor.target))
   const valid =
     Number.isFinite(totalCentimes) &&
     totalCentimes > 0 &&
     !mismatch &&
+    overCapIndex === -1 &&
     targetsValid &&
     sponsors.length > 0
 
@@ -143,6 +193,7 @@ export function ReductionForm({
         <Select
           value={totalMode}
           onValueChange={(mode) => setTotalMode(mode as "amount" | "percent")}
+          disabled={subjectScoped}
         >
           <SelectTrigger className="w-20">
             <SelectValue />
@@ -245,6 +296,13 @@ export function ReductionForm({
             ? `il manque ${formatDH(totalCentimes - sponsorsSum)}`
             : `${formatDH(sponsorsSum - totalCentimes)} en trop`}
           .
+        </p>
+      )}
+      {overCapIndex !== -1 && (
+        <p className="text-destructive text-xs font-medium">
+          Maximum pour {resolveTarget(sponsors[overCapIndex].target)?.name} :{" "}
+          {formatDH(capFor(sponsors[overCapIndex].target))} — une part ne peut
+          pas devenir négative.
         </p>
       )}
 

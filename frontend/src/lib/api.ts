@@ -97,7 +97,10 @@ export type PreviewAdjustment = {
   category: string
   scope: string
   reason: string | null
-  bearers: (PreviewBeneficiary & { share_centimes: number })[]
+  bearers: (PreviewBeneficiary & {
+    share_centimes: number
+    share_bp: number | null
+  })[]
 }
 export type PaymentPreview = {
   price_centimes: number

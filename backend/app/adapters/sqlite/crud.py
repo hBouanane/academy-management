@@ -153,7 +153,9 @@ def list_classes(
                sl.name AS level_name,
           (SELECT COUNT(*) FROM enrollment_class ec
            JOIN enrollment e ON e.id = ec.enrollment_id
-           WHERE ec.class_id = cg.id AND e.month = ?) AS enrolled_count
+           JOIN student st ON st.id = e.student_id
+           WHERE ec.class_id = cg.id AND e.month = ? AND st.is_active = 1
+          ) AS enrolled_count
         FROM class_group cg
         JOIN subject sub ON sub.id = cg.subject_id
         JOIN teacher t ON t.id = cg.teacher_id
@@ -323,10 +325,17 @@ def create_enrollment(
     package_id: int,
     class_ids: list[int],
     price_centimes: int | None,
+    arrival_date: str | None = None,
 ) -> int:
     with _transaction(conn):
         return _insert_enrollment(
-            conn, student_id, month, package_id, class_ids, price_centimes
+            conn,
+            student_id,
+            month,
+            package_id,
+            class_ids,
+            price_centimes,
+            arrival_date,
         )
 
 
@@ -337,6 +346,7 @@ def _insert_enrollment(
     package_id: int,
     class_ids: list[int],
     price_centimes: int | None,
+    arrival_date: str | None = None,
 ) -> int:
     price = (
         price_centimes
@@ -344,9 +354,9 @@ def _insert_enrollment(
         else _package_price(conn, package_id)
     )
     enrollment_id = conn.execute(
-        "INSERT INTO enrollment (student_id, package_id, month, price_centimes)"
-        " VALUES (?, ?, ?, ?)",
-        (student_id, package_id, month, price),
+        "INSERT INTO enrollment (student_id, package_id, month, price_centimes,"
+        " arrival_date) VALUES (?, ?, ?, ?, ?)",
+        (student_id, package_id, month, price, arrival_date),
     ).lastrowid
     conn.executemany(
         "INSERT INTO enrollment_class (enrollment_id, class_id) VALUES (?, ?)",
@@ -569,9 +579,11 @@ def copy_month(
     source = _rows(
         conn,
         """
-        SELECT e.id, e.student_id, e.package_id, e.price_centimes
+        SELECT e.id, e.student_id, e.package_id, e.price_centimes,
+               e.arrival_date, p.monthly_price_centimes AS package_price
         FROM enrollment e
         JOIN student s ON s.id = e.student_id
+        JOIN package p ON p.id = e.package_id
         WHERE s.academy_id = ? AND e.month = ? AND s.is_active = 1
           AND NOT EXISTS (
             SELECT 1 FROM enrollment t
@@ -582,13 +594,20 @@ def copy_month(
     )
     with _transaction(conn):
         for enrollment in source:
+            # A prorated first month is a one-off concession: the extension
+            # re-prices from the package. Manual overrides carry over.
+            price = (
+                enrollment["package_price"]
+                if enrollment["arrival_date"] is not None
+                else enrollment["price_centimes"]
+            )
             _insert_enrollment(
                 conn,
                 enrollment["student_id"],
                 to_month,
                 enrollment["package_id"],
                 enrollment_class_ids(conn, enrollment["id"]),
-                enrollment["price_centimes"],
+                price,
             )
     return len(source)
 
