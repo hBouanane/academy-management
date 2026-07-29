@@ -178,9 +178,7 @@ class TestReports:
         ).json()["id"]
         enroll(client, lina, [class_id], month="2026-08", price_dh=150)
 
-        report = client.get(
-            "/api/reports/monthly", params={"month": "2026-09"}
-        ).json()
+        report = client.get("/api/reports/monthly", params={"month": "2026-09"}).json()
         assert report["cash_in"] == 300 * DH
         names = {t["name"]: t["total"] for t in report["totals"]}
         assert names["Ahmed"] == 180 * DH
