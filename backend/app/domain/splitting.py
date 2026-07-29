@@ -6,7 +6,7 @@ exactly to the paid amount — every centime lands somewhere, deterministically.
 
 from dataclasses import dataclass
 
-from .money import Centimes, FULL_SHARE_BP, percent_of, split_equally
+from .money import FULL_SHARE_BP, Centimes, percent_of, split_equally
 
 
 @dataclass(frozen=True)
@@ -59,11 +59,9 @@ def _validate_teachers(teacher_ids: list[int]) -> None:
         raise ValueError(f"duplicate teachers in {teacher_ids}")
 
 
-def _teacher_allocations(
-    teacher_ids: list[int], total: Centimes
-) -> list[Allocation]:
+def _teacher_allocations(teacher_ids: list[int], total: Centimes) -> list[Allocation]:
     shares = split_equally(total, len(teacher_ids))
     return [
         Allocation(Beneficiary("teacher", teacher_id), share)
-        for teacher_id, share in zip(teacher_ids, shares)
+        for teacher_id, share in zip(teacher_ids, shares, strict=True)
     ]
