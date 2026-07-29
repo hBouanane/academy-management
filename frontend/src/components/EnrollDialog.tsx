@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -48,8 +49,10 @@ export function EnrollDialog({
 
   const [packages, setPackages] = useState<Package[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
+  const [proration, setProration] = useState<number[]>([10000, 6700, 3300])
   const [packageId, setPackageId] = useState<string>("")
   const [selectedClasses, setSelectedClasses] = useState<number[]>([])
+  const [arrival, setArrival] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -57,11 +60,15 @@ export function EnrollDialog({
     if (!open) return
     apiGet<Package[]>("/api/packages").then(setPackages).catch(() => {})
     apiGet<ClassRow[]>("/api/classes").then(setClasses).catch(() => {})
+    apiGet<{ proration_bp: number[] }[]>("/api/academies")
+      .then(([academy]) => academy && setProration(academy.proration_bp))
+      .catch(() => {})
   }, [open])
 
   const reset = () => {
     setSelectedClasses([])
     setPackageId("")
+    setArrival("")
     setError(null)
     setBusy(false)
   }
@@ -75,6 +82,24 @@ export function EnrollDialog({
   const capacity = chosenPackage?.subject_count ?? 0
   const full = chosenPackage !== undefined && selectedClasses.length >= capacity
   const ready = chosenPackage !== undefined && selectedClasses.length === capacity
+
+  // Mirror of the backend proration formula, for the live price hint.
+  const proratedHint = (() => {
+    if (!chosenPackage || !arrival || arrival.slice(0, 7) !== month) return null
+    const day = Number(arrival.slice(8, 10))
+    const daysInMonth = new Date(
+      Number(month.slice(0, 4)),
+      Number(month.slice(5, 7)),
+      0,
+    ).getDate()
+    const index = Math.min(
+      Math.floor((day - 1) / (daysInMonth / proration.length)),
+      proration.length - 1,
+    )
+    return Math.floor(
+      (chosenPackage.monthly_price_centimes * proration[index]) / 10000,
+    )
+  })()
 
   const toggleClass = (classId: number, checked: boolean) => {
     setSelectedClasses((current) =>
@@ -91,6 +116,7 @@ export function EnrollDialog({
       month,
       package_id: chosenPackage.id,
       class_ids: selectedClasses,
+      arrival_date: arrival || null,
     })
       .then(() => {
         setOpen(false)
@@ -190,6 +216,30 @@ export function EnrollDialog({
             {!chosenPackage && (
               <p className="text-muted-foreground text-xs">
                 Choisissez d'abord un forfait.
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>
+              Arrivé en cours de mois ?{" "}
+              <span className="text-muted-foreground">(optionnel)</span>
+            </Label>
+            <Input
+              type="date"
+              min={`${month}-01`}
+              max={`${month}-31`}
+              value={arrival}
+              onChange={(event) => setArrival(event.target.value)}
+            />
+            {proratedHint !== null && chosenPackage && (
+              <p className="text-muted-foreground text-xs">
+                Prix au prorata :{" "}
+                <span className="text-foreground line-through">
+                  {formatDH(chosenPackage.monthly_price_centimes)}
+                </span>{" "}
+                <span className="text-foreground font-medium">
+                  {formatDH(proratedHint)}
+                </span>
               </p>
             )}
           </div>

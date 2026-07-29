@@ -53,10 +53,12 @@ export function Students({ month }: Props) {
   } | null>(null)
 
   const reload = useCallback(() => {
-    apiGet<Student[]>(`/api/students?include_inactive=${showInactive}`)
+    apiGet<Student[]>(
+      `/api/students?include_inactive=${showInactive}&month=${month}`,
+    )
       .then(setStudents)
       .catch((err: Error) => setError(err.message))
-  }, [showInactive])
+  }, [showInactive, month])
 
   useEffect(() => {
     apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
@@ -168,17 +170,31 @@ export function Students({ month }: Props) {
               <TableHead>Nom</TableHead>
               <TableHead>Niveau</TableHead>
               <TableHead>Téléphone</TableHead>
+              <TableHead>Impayés</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {students.map((student) => (
-              <TableRow key={student.id}>
+            {students.map((student, index) => (
+              <TableRow
+                key={student.id}
+                className={`stagger-row ${Number(student.unpaid_months) > 0 ? "row-unpaid" : ""}`}
+                style={{ animationDelay: `${index * 40}ms` }}
+              >
                 <TableCell className="font-medium">{student.name}</TableCell>
                 <TableCell>{student.level_name}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {student.phone ?? "—"}
+                </TableCell>
+                <TableCell>
+                  {Number(student.unpaid_months) > 0 ? (
+                    <Badge variant="destructive">
+                      {student.unpaid_months} mois
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {student.is_active ? (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Pencil, Trash2 } from "lucide-react"
+import { Gift, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -8,19 +8,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { ConfirmButton } from "@/components/Confirm"
-import { MotifInput, useMotifs } from "@/components/MotifInput"
+import { useMotifs } from "@/components/MotifInput"
+import { ReductionForm } from "@/components/ReductionForm"
+import type { ReductionPayload } from "@/components/ReductionForm"
 import { ApiError, apiGet, apiSend } from "@/lib/api"
 import type { PaymentPreview, PreviewAdjustment, PreviewLine } from "@/lib/api"
-import { dhToCentimes, formatDH } from "@/lib/money"
+import { formatDH } from "@/lib/money"
 
 type Props = { enrollmentId: number; studentName: string; onDone: () => void }
 
@@ -36,6 +30,7 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [adding, setAdding] = useState(false)
   const { motifs, ensure } = useMotifs()
 
   const reload = useCallback(() => {
@@ -64,6 +59,7 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
           onDone()
         } else {
           setEditingId(null)
+          setAdding(false)
           reload()
         }
       })
@@ -89,6 +85,30 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
       isPayment: true,
     })
 
+  const submitReduction = async (
+    payload: ReductionPayload,
+    adjustmentId?: number,
+  ) => {
+    if (payload.reason) await ensure(payload.reason)
+    if (adjustmentId !== undefined) {
+      run(() => apiSend("PATCH", `/api/adjustments/${adjustmentId}`, payload))
+    } else {
+      run(() =>
+        apiSend("POST", `/api/enrollments/${enrollmentId}/adjustments`, payload),
+      )
+    }
+  }
+
+  const giftMonth = () =>
+    run(() =>
+      apiSend("POST", `/api/enrollments/${enrollmentId}/adjustments`, {
+        kind: "percent",
+        value: 10_000,
+        category: "gift",
+        reason: "Mois offert",
+      }),
+    )
+
   return (
     <Dialog
       open={open}
@@ -97,6 +117,7 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
         if (!next) {
           setError(null)
           setEditingId(null)
+          setAdding(false)
         }
       }}
     >
@@ -127,36 +148,62 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
             </section>
 
             <section className="space-y-2">
-              <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                Réductions
-              </p>
-              {preview.adjustments.length === 0 && (
+              <div className="flex items-center justify-between">
+                <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  Réductions
+                </p>
+                <div className="flex gap-2">
+                  {!adding && editingId === null && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAdding(true)}
+                      >
+                        Ajouter
+                      </Button>
+                      {preview.adjustments.length === 0 && (
+                        <ConfirmButton
+                          size="sm"
+                          variant="outline"
+                          confirmLabel="Offrir ce mois ?"
+                          onConfirm={giftMonth}
+                          disabled={busy}
+                        >
+                          <Gift className="size-4" /> Mois offert
+                        </ConfirmButton>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {preview.adjustments.length === 0 && !adding && (
                 <p className="text-muted-foreground text-sm">
                   Aucune — le tarif plein s'applique.
                 </p>
               )}
+
               {preview.adjustments.map((adjustment) =>
                 editingId === adjustment.id ? (
-                  <AdjustmentEditor
+                  <ReductionForm
                     key={adjustment.id}
-                    adjustment={adjustment}
                     preview={preview}
                     motifs={motifs}
-                    ensureMotif={ensure}
                     busy={busy}
+                    initial={adjustment}
+                    onSubmit={(payload) => submitReduction(payload, adjustment.id)}
                     onCancel={() => setEditingId(null)}
-                    onSave={(body) =>
-                      run(() =>
-                        apiSend("PATCH", `/api/adjustments/${adjustment.id}`, body),
-                      )
-                    }
                   />
                 ) : (
                   <AdjustmentRow
                     key={adjustment.id}
                     adjustment={adjustment}
                     busy={busy}
-                    onEdit={() => setEditingId(adjustment.id)}
+                    onEdit={() => {
+                      setAdding(false)
+                      setEditingId(adjustment.id)
+                    }}
                     onDelete={() =>
                       run(() =>
                         apiSend("DELETE", `/api/adjustments/${adjustment.id}`),
@@ -165,21 +212,14 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
                   />
                 ),
               )}
-              {editingId === null && (
-                <ManualReduction
+
+              {adding && (
+                <ReductionForm
                   preview={preview}
                   motifs={motifs}
-                  ensureMotif={ensure}
                   busy={busy}
-                  onApply={(body) =>
-                    run(() =>
-                      apiSend(
-                        "POST",
-                        `/api/enrollments/${enrollmentId}/adjustments`,
-                        body,
-                      ),
-                    )
-                  }
+                  onSubmit={(payload) => submitReduction(payload)}
+                  onCancel={() => setAdding(false)}
                 />
               )}
             </section>
@@ -258,11 +298,14 @@ function AdjustmentRow({
         <p className="truncate">
           {CATEGORY_LABEL[adjustment.category] ?? adjustment.category}
           {adjustment.reason ? ` · ${adjustment.reason}` : ""}
+          {adjustment.kind === "percent" ? ` · ${adjustment.value / 100}%` : ""}
         </p>
         <p className="text-muted-foreground truncate text-xs">
-          supportée par{" "}
-          {adjustment.bearers.map((bearer) => bearer.name).join(", ")}
-          {adjustment.kind === "percent" ? ` · ${adjustment.value / 100}%` : ""}
+          {adjustment.bearers
+            .map(
+              (bearer) => `${bearer.name} ${formatDH(bearer.share_centimes)}`,
+            )
+            .join(" · ")}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
@@ -281,243 +324,6 @@ function AdjustmentRow({
         >
           <Trash2 className="size-4" />
         </ConfirmButton>
-      </div>
-    </div>
-  )
-}
-
-type ReductionBody = {
-  kind: "percent" | "amount"
-  value: number
-  reason: string | null
-  bearers?: { kind: string; ref_id: number }[]
-}
-
-function ManualReduction({
-  preview,
-  motifs,
-  ensureMotif,
-  busy,
-  onApply,
-}: {
-  preview: PaymentPreview
-  motifs: { id: number; label: string }[]
-  ensureMotif: (label: string) => Promise<void>
-  busy: boolean
-  onApply: (body: ReductionBody) => void
-}) {
-  const [target, setTarget] = useState("")
-  const [mode, setMode] = useState<"amount" | "percent">("amount")
-  const [value, setValue] = useState("")
-  const [reason, setReason] = useState("")
-
-  const line = preview.lines.find(
-    (candidate) => `${candidate.kind}-${candidate.ref_id}` === target,
-  )
-  const numeric = Number(value.replace(",", "."))
-  const centimes =
-    mode === "amount"
-      ? dhToCentimes(value)
-      : Math.round((numeric / 100) * preview.price_centimes)
-  // A share can go down to zero, never below — the cap the owner asked for.
-  const cap = line ? line.final_centimes : 0
-  const valid =
-    line !== undefined &&
-    value !== "" &&
-    Number.isFinite(centimes) &&
-    centimes > 0 &&
-    centimes <= cap
-
-  const apply = async () => {
-    if (!line) return
-    await ensureMotif(reason)
-    onApply({
-      kind: "amount",
-      value: centimes,
-      reason: reason || null,
-      bearers: [{ kind: line.kind, ref_id: line.ref_id }],
-    })
-    setValue("")
-    setReason("")
-    setTarget("")
-  }
-
-  return (
-    <div className="border-border bg-muted/30 space-y-3 rounded-xl border border-dashed p-4">
-      <p className="text-sm font-medium">Réduire une part</p>
-      <div className="flex flex-wrap gap-2">
-        <Select value={target} onValueChange={setTarget}>
-          <SelectTrigger className="min-w-44 flex-1">
-            <SelectValue placeholder="Qui reçoit moins ?" />
-          </SelectTrigger>
-          <SelectContent>
-            {preview.lines.map((candidate) => (
-              <SelectItem
-                key={`${candidate.kind}-${candidate.ref_id}`}
-                value={`${candidate.kind}-${candidate.ref_id}`}
-              >
-                {candidate.name} — {formatDH(candidate.final_centimes)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={mode}
-          onValueChange={(next) => setMode(next as "amount" | "percent")}
-        >
-          <SelectTrigger className="w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="amount">DH</SelectItem>
-            <SelectItem value="percent">%</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input
-          type="number"
-          min="0"
-          placeholder={mode === "amount" ? "Montant" : "% du forfait"}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          className="w-32"
-        />
-      </div>
-      <MotifInput value={reason} onChange={setReason} motifs={motifs} />
-      {line && value !== "" && !valid && (
-        <p className="text-destructive text-xs">
-          Maximum pour {line.name} : {formatDH(cap)}.
-        </p>
-      )}
-      <Button size="sm" variant="outline" disabled={!valid || busy} onClick={apply}>
-        Appliquer la réduction
-      </Button>
-    </div>
-  )
-}
-
-function AdjustmentEditor({
-  adjustment,
-  preview,
-  motifs,
-  ensureMotif,
-  busy,
-  onCancel,
-  onSave,
-}: {
-  adjustment: PreviewAdjustment
-  preview: PaymentPreview
-  motifs: { id: number; label: string }[]
-  ensureMotif: (label: string) => Promise<void>
-  busy: boolean
-  onCancel: () => void
-  onSave: (body: ReductionBody) => void
-}) {
-  const [mode, setMode] = useState<"amount" | "percent">(
-    adjustment.kind === "percent" ? "percent" : "amount",
-  )
-  const [value, setValue] = useState(String(adjustment.value / 100))
-  const [reason, setReason] = useState(adjustment.reason ?? "")
-  const [bearer, setBearer] = useState(
-    adjustment.bearers[0]
-      ? `${adjustment.bearers[0].kind}-${adjustment.bearers[0].ref_id}`
-      : "",
-  )
-
-  const bearerLine = preview.lines.find(
-    (line) => `${line.kind}-${line.ref_id}` === bearer,
-  )
-  const numeric = Number(value.replace(",", "."))
-  const subjectScoped = adjustment.scope === "subject"
-  const resolved =
-    mode === "amount"
-      ? Math.round(numeric * 100)
-      : Math.round((numeric / 100) * preview.price_centimes)
-  // Same zero-floor cap as ManualReduction: the bearer's current share plus
-  // what THIS adjustment already takes from them (its cut comes back on edit).
-  const keepsBearer = adjustment.bearers.some(
-    (candidate) => `${candidate.kind}-${candidate.ref_id}` === bearer,
-  )
-  const ownCut = keepsBearer
-    ? Math.floor(adjustment.resolved_centimes / adjustment.bearers.length)
-    : 0
-  const cap = bearerLine ? bearerLine.final_centimes + ownCut : 0
-  const overCap = !subjectScoped && Number.isFinite(resolved) && resolved > cap
-  const valid =
-    value !== "" && Number.isFinite(resolved) && resolved > 0 && !overCap
-
-  const save = async () => {
-    await ensureMotif(reason)
-    onSave({
-      kind: mode,
-      value: mode === "amount" ? resolved : Math.round(numeric * 100),
-      reason: reason || null,
-      bearers: bearerLine
-        ? [{ kind: bearerLine.kind, ref_id: bearerLine.ref_id }]
-        : undefined,
-    })
-  }
-
-  return (
-    <div className="border-border bg-muted/30 space-y-3 rounded-xl border p-4">
-      <p className="text-sm font-medium">Modifier la réduction</p>
-      <div className="flex flex-wrap gap-2">
-        <Select value={bearer} onValueChange={setBearer}>
-          <SelectTrigger className="min-w-44 flex-1">
-            <SelectValue placeholder="Supportée par…" />
-          </SelectTrigger>
-          <SelectContent>
-            {preview.lines.map((line) => (
-              <SelectItem
-                key={`${line.kind}-${line.ref_id}`}
-                value={`${line.kind}-${line.ref_id}`}
-              >
-                {line.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={mode}
-          onValueChange={(next) => setMode(next as "amount" | "percent")}
-        >
-          <SelectTrigger className="w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="amount">DH</SelectItem>
-            <SelectItem value="percent">%</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input
-          type="number"
-          min="0"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          className="w-32"
-        />
-      </div>
-      <MotifInput value={reason} onChange={setReason} motifs={motifs} />
-      {subjectScoped && mode === "percent" ? (
-        <p className="text-muted-foreground text-xs">
-          Pourcentage calculé sur la part de la matière concernée.
-        </p>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          Aperçu : −{formatDH(Number.isFinite(resolved) ? Math.max(resolved, 0) : 0)}
-        </p>
-      )}
-      {overCap && bearerLine && (
-        <p className="text-destructive text-xs">
-          Maximum pour {bearerLine.name} : {formatDH(cap)}.
-        </p>
-      )}
-      <div className="flex gap-2">
-        <Button size="sm" onClick={save} disabled={!valid || busy}>
-          Enregistrer
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Annuler
-        </Button>
       </div>
     </div>
   )

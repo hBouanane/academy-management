@@ -176,4 +176,24 @@
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
     }
+  /* Row colors ARE information: unpaid = faint red, reduced = warm peach. */
+  .row-unpaid {
+    background: color-mix(in srgb, var(--destructive) 7%, transparent);
+    }
+  .row-reduced {
+    background: color-mix(in srgb, var(--orb-peach) 16%, transparent);
+    }
+  .row-unpaid.row-reduced {
+    background:
+      linear-gradient(90deg,
+        color-mix(in srgb, var(--orb-peach) 16%, transparent),
+        color-mix(in srgb, var(--destructive) 7%, transparent));
+    }
+  /* Rows cascade in — the page feels alive, not static. */
+  .stagger-row {
+    animation: view-fade 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  .table-wrap {
+    overflow-x: auto;
+    }
 }

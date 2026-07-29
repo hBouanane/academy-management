@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { ChevronLeft, ChevronRight, Lock, UserRoundX } from "lucide-react"
+import { AlertTriangle, UserRoundX } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,28 +13,16 @@ import {
 } from "@/components/ui/table"
 import { CashBars, CollectionRing } from "@/components/charts"
 import { ConfirmButton } from "@/components/Confirm"
-import { DiscountDialog } from "@/components/DiscountDialog"
 import { EnrollDialog } from "@/components/EnrollDialog"
+import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { PayDialog } from "@/components/PayDialog"
 import { ReverseDialog } from "@/components/ReverseDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { HistoryEntry, MonthlyReport, OverviewRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
-import { currentMonth, formatDH, previousMonth } from "@/lib/money"
+import { currentMonth, formatDH } from "@/lib/money"
 
 type Props = { month: string; setMonth: (month: string) => void }
-
-function nextMonth(month: string): string {
-  const [year, monthNumber] = month.split("-").map(Number)
-  const total = year * 12 + (monthNumber - 1) + 1
-  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`
-}
-
-const monthLabel = (month: string) =>
-  new Date(`${month}-01T00:00:00`).toLocaleDateString("fr-FR", {
-    month: "long",
-    year: "numeric",
-  })
 
 export function Dashboard({ month, setMonth }: Props) {
   const [rows, setRows] = useState<OverviewRow[]>([])
@@ -70,14 +58,14 @@ export function Dashboard({ month, setMonth }: Props) {
     }
   }, [month])
 
+  useEffect(reload, [reload])
+
   const prepareMonth = () => {
     setError(null)
     apiSend("POST", `/api/months/${month}/ensure`)
       .then(reload)
       .catch((err: Error) => setError(err.message))
   }
-
-  useEffect(reload, [reload])
 
   const enrolled = rows.filter((row) => row.enrollment)
   const paidCount = enrolled.filter((row) => row.enrollment?.paid).length
@@ -94,32 +82,7 @@ export function Dashboard({ month, setMonth }: Props) {
             Le mois glisse comme un agenda — le passé est verrouillé, jamais perdu
           </p>
         </div>
-        <div className="surface-card flex items-center gap-1 p-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMonth(previousMonth(month))}
-            title="Mois précédent"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <span className="min-w-36 text-center text-sm font-medium capitalize">
-            {monthLabel(month)}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMonth(nextMonth(month))}
-            title="Mois suivant"
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-          {locked && (
-            <Badge variant="outline" className="ml-1 gap-1">
-              <Lock className="size-3" /> Verrouillé
-            </Badge>
-          )}
-        </div>
+        <MonthNav month={month} setMonth={setMonth} />
       </header>
 
       {error && (
@@ -136,10 +99,10 @@ export function Dashboard({ month, setMonth }: Props) {
           <CountUpAmount value={report?.cash_in ?? 0} />
           <Trend history={history} />
         </div>
-        <div className="surface-card flex items-center p-5">
+        <div className="surface-card orb-backdrop flex items-center p-5">
           <CollectionRing paid={paidCount} total={enrolled.length} />
         </div>
-        <div className="surface-card p-5">
+        <div className="surface-card orb-backdrop p-5">
           <p className="text-muted-foreground mb-2 text-sm">
             Encaissements — 6 derniers mois
           </p>
@@ -154,7 +117,7 @@ export function Dashboard({ month, setMonth }: Props) {
             <p className="text-muted-foreground text-sm">
               {locked
                 ? "Mois passé : consultation et encaissement des impayés uniquement"
-                : "Inscrire, encaisser, ajuster — l'aperçu montre qui reçoit quoi"}
+                : "Rouge clair = impayé · fond pêche = réduction appliquée"}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -171,39 +134,42 @@ export function Dashboard({ month, setMonth }: Props) {
             />
           </div>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nom</TableHead>
-              <TableHead>Matières</TableHead>
-              <TableHead>Répartition</TableHead>
-              <TableHead className="text-right">À payer</TableHead>
-              <TableHead>Statut</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((row) => (
-              <StudentRow
-                key={row.student_id}
-                row={row}
-                month={month}
-                locked={locked}
-                onDone={reload}
-              />
-            ))}
-            {filtered.length === 0 && (
+        <div className="table-wrap">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell
-                  colSpan={6}
-                  className="text-muted-foreground text-center"
-                >
-                  Aucun étudiant ce mois-ci
-                </TableCell>
+                <TableHead>Nom</TableHead>
+                <TableHead>Matières</TableHead>
+                <TableHead>Répartition</TableHead>
+                <TableHead className="text-right">À payer</TableHead>
+                <TableHead>Statut</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((row, index) => (
+                <StudentRow
+                  key={row.student_id}
+                  row={row}
+                  index={index}
+                  month={month}
+                  locked={locked}
+                  onDone={reload}
+                />
+              ))}
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="text-muted-foreground text-center"
+                  >
+                    Aucun étudiant ce mois-ci
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     </div>
   )
@@ -239,23 +205,39 @@ function Trend({ history }: { history: HistoryEntry[] }) {
 
 function StudentRow({
   row,
+  index,
   month,
   locked,
   onDone,
 }: {
   row: OverviewRow
+  index: number
   month: string
   locked: boolean
   onDone: () => void
 }) {
   const enrollment = row.enrollment
-  const teacherChips =
-    enrollment?.split.filter((chip) => chip.kind === "teacher") ?? []
+  const reduced =
+    enrollment !== null && enrollment.net_centimes !== enrollment.price_centimes
+  const unpaid = enrollment !== null && !enrollment.paid
+  const rowClass = [
+    "stagger-row",
+    unpaid ? "row-unpaid" : "",
+    reduced ? "row-reduced" : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+
   return (
-    <TableRow>
+    <TableRow className={rowClass} style={{ animationDelay: `${index * 40}ms` }}>
       <TableCell>
         <p className="font-medium">{row.student_name}</p>
         <p className="text-muted-foreground text-xs">{row.level_name}</p>
+        {row.has_arrears && (
+          <Badge variant="destructive" className="mt-1 gap-1">
+            <AlertTriangle className="size-3" /> Impayés antérieurs
+          </Badge>
+        )}
       </TableCell>
       <TableCell className="text-muted-foreground">
         {enrollment
@@ -263,24 +245,26 @@ function StudentRow({
           : "—"}
       </TableCell>
       <TableCell>
-        <div className="flex max-w-64 flex-wrap gap-1">
-          {teacherChips.map((chip) => (
+        <div className="flex max-w-72 flex-wrap gap-1">
+          {(enrollment?.split ?? []).map((chip) => (
             <span
-              key={chip.ref_id}
-              className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs"
+              key={`${chip.kind}-${chip.ref_id}`}
+              className={`rounded-full px-2 py-0.5 text-xs ${
+                chip.kind === "teacher"
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-secondary text-secondary-foreground"
+              }`}
               title={`${chip.name} reçoit ${formatDH(chip.final_centimes)}`}
             >
               {chip.name} · {formatDH(chip.final_centimes)}
             </span>
           ))}
-          {enrollment && teacherChips.length === 0 && (
-            <span className="text-muted-foreground text-xs">—</span>
-          )}
+          {!enrollment && <span className="text-muted-foreground text-xs">—</span>}
         </div>
       </TableCell>
       <TableCell className="text-right">
         {enrollment ? (
-          enrollment.net_centimes !== enrollment.price_centimes ? (
+          reduced ? (
             <span>
               <span className="text-muted-foreground mr-2 text-xs line-through">
                 {formatDH(enrollment.price_centimes)}
@@ -303,9 +287,7 @@ function StudentRow({
             Payé
           </Badge>
         )}
-        {enrollment && !enrollment.paid && (
-          <Badge variant="destructive">Impayé</Badge>
-        )}
+        {unpaid && <Badge variant="destructive">Impayé</Badge>}
       </TableCell>
       <TableCell className="space-x-2 text-right">
         {!enrollment && !locked && (
@@ -317,9 +299,8 @@ function StudentRow({
             onDone={onDone}
           />
         )}
-        {enrollment && !enrollment.paid && (
+        {enrollment && unpaid && (
           <>
-            <DiscountDialog enrollmentId={enrollment.id} onDone={onDone} />
             <PayDialog
               enrollmentId={enrollment.id}
               studentName={row.student_name}

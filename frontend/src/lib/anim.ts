@@ -31,18 +31,25 @@ export function useCountUp(value: number, format: (n: number) => string) {
 }
 
 /** Grows children (bars, ring) in with a stagger when `deps` change. */
-export function useGrowIn<T extends HTMLElement | SVGElement>(deps: unknown[]) {
+export function useGrowIn<T extends HTMLElement | SVGElement>(
+  deps: unknown[],
+  axis: "x" | "y" = "y",
+) {
   const ref = useRef<T>(null)
   useEffect(() => {
     const element = ref.current
     if (!element) return
     const marks = element.querySelectorAll("[data-grow]")
     if (!marks.length) return
-    const tween = gsap.fromTo(
-      marks,
-      { scaleY: 0, transformOrigin: "bottom" },
-      { scaleY: 1, duration: 0.5, ease: "power2.out", stagger: 0.05 },
-    )
+    const from =
+      axis === "y"
+        ? { scaleY: 0, transformOrigin: "bottom" }
+        : { scaleX: 0, transformOrigin: "left" }
+    const to =
+      axis === "y"
+        ? { scaleY: 1, duration: 0.5, ease: "power2.out", stagger: 0.05 }
+        : { scaleX: 1, duration: 0.5, ease: "power2.out", stagger: 0.05 }
+    const tween = gsap.fromTo(marks, from, to)
     return () => {
       tween.kill()
     }

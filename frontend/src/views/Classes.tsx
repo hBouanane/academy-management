@@ -3,7 +3,7 @@ import { EntityManager } from "@/components/EntityManager"
 import { apiGet } from "@/lib/api"
 import type { Level, Subject, Teacher } from "@/lib/api"
 
-export function Classes() {
+export function Classes({ month }: { month: string }) {
   const [levels, setLevels] = useState<Level[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
@@ -22,10 +22,16 @@ export function Classes() {
       title="Classes"
       description="Une classe = une matière, un professeur, un niveau. Ajoutez une deuxième classe de la même matière quand l'académie grandit."
       endpoint="/api/classes"
+      query={`&month=${month}`}
       columns={[
         { key: "subject_name", label: "Matière" },
         { key: "teacher_name", label: "Professeur" },
         { key: "level_name", label: "Niveau" },
+        {
+          key: "enrolled_count",
+          label: `Inscrits (${month})`,
+          render: (row) => String(row.enrolled_count ?? 0),
+        },
       ]}
       fields={[
         { key: "level_id", label: "Niveau", type: "select", options: toOptions(levels) },

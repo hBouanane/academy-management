@@ -52,6 +52,8 @@ type Props = {
   fromRow?: (row: Row) => Record<string, string>
   refreshKey?: number
   onChanged?: () => void
+  /** Extra query-string parameters, e.g. "&month=2026-09". */
+  query?: string
 }
 
 const identityBody = (values: Record<string, string>) => values
@@ -66,6 +68,7 @@ export function EntityManager({
   fromRow,
   refreshKey = 0,
   onChanged,
+  query = "",
 }: Props) {
   const [rows, setRows] = useState<Row[]>([])
   const [showArchived, setShowArchived] = useState(false)
@@ -76,10 +79,10 @@ export function EntityManager({
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(() => {
-    apiGet<Row[]>(`${endpoint}?include_inactive=${showArchived}`)
+    apiGet<Row[]>(`${endpoint}?include_inactive=${showArchived}${query}`)
       .then(setRows)
       .catch((err: Error) => setError(err.message))
-  }, [endpoint, showArchived])
+  }, [endpoint, showArchived, query])
 
   useEffect(reload, [reload, refreshKey])
 
@@ -167,6 +170,7 @@ export function EntityManager({
           />
           Afficher les éléments archivés
         </label>
+        <div className="table-wrap">
         <Table>
           <TableHeader>
             <TableRow>
@@ -178,8 +182,12 @@ export function EntityManager({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.id} className="group">
+            {rows.map((row, index) => (
+              <TableRow
+                key={row.id}
+                className="group stagger-row"
+                style={{ animationDelay: `${index * 40}ms` }}
+              >
                 {columns.map((column) => (
                   <TableCell key={column.key}>
                     {column.render ? column.render(row) : String(row[column.key] ?? "—")}
@@ -232,6 +240,7 @@ export function EntityManager({
             )}
           </TableBody>
         </Table>
+        </div>
         <p className="text-muted-foreground mt-3 text-xs">
           Rien n'est jamais supprimé définitivement — archiver retire l'élément
           des listes, l'historique financier reste intact.

@@ -7,6 +7,7 @@ export type Academy = {
   venue_bp: number
   owner_bp: number
   venue: Venue | null
+  proration_bp: number[]
 }
 export type Level = { id: number; name: string }
 export type Subject = { id: number; name: string }
@@ -27,6 +28,7 @@ export type Package = {
   monthly_price_centimes: number
   level_id: number | null
   level_name: string | null
+  is_active: number
 }
 
 export type Motif = { id: number; label: string; is_active: number }
@@ -52,6 +54,7 @@ export type Student = {
   level_id: number
   level_name: string
   is_active: number
+  unpaid_months: number
 }
 export type EnrollmentClass = {
   id: number
@@ -72,6 +75,7 @@ export type OverviewRow = {
   student_name: string
   level_id: number
   level_name: string
+  has_arrears: boolean
   enrollment: OverviewEnrollment | null
 }
 
@@ -93,7 +97,7 @@ export type PreviewAdjustment = {
   category: string
   scope: string
   reason: string | null
-  bearers: PreviewBeneficiary[]
+  bearers: (PreviewBeneficiary & { share_centimes: number })[]
 }
 export type PaymentPreview = {
   price_centimes: number

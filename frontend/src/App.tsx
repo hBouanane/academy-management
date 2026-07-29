@@ -130,9 +130,9 @@ function App() {
         {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}
         {view === "reports" && <Reports month={month} setMonth={setMonth} />}
         {view === "students" && <Students month={month} />}
-        {view === "teachers" && <Teachers />}
+        {view === "teachers" && <Teachers month={month} />}
         {view === "subjects" && <Subjects />}
-        {view === "classes" && <Classes />}
+        {view === "classes" && <Classes month={month} />}
         {view === "packages" && <Packages />}
         {view === "motifs" && <Motifs />}
         {view === "academy" && <Academy />}
