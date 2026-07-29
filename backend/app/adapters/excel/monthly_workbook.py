@@ -20,6 +20,20 @@ _BOLD = Font(bold=True)
 
 KIND_LABEL = {"teacher": "Professeur", "owner": "Propriétaire", "venue": "Salle"}
 
+_FORBIDDEN_TITLE_CHARS = set("[]:*?/\\")
+_RESERVED_TITLES = {"Répartition", "Impayés"}
+
+
+def _sheet_title(level_name: str) -> str:
+    """Excel-safe sheet title: no forbidden chars, no collision with the
+    summary sheets, at most 31 chars."""
+    clean = "".join(
+        "-" if char in _FORBIDDEN_TITLE_CHARS else char for char in level_name
+    )
+    if clean in _RESERVED_TITLES:
+        clean += " (niveau)"
+    return clean[:31]
+
 
 def monthly_workbook(conn: sqlite3.Connection, academy_id: int, month: str) -> bytes:
     workbook = Workbook()
@@ -39,14 +53,13 @@ def _dh(centimes: int) -> float:
 def _level_sheets(
     workbook: Workbook, conn: sqlite3.Connection, academy_id: int, month: str
 ) -> None:
-    enrolled = [
-        row for row in crud.month_overview(conn, academy_id, month) if row["enrollment"]
-    ]
+    overview = crud.month_overview(conn, academy_id, month, include_inactive=True)
+    enrolled = [row for row in overview if row["enrollment"]]
     by_level: dict[str, list[dict]] = {}
     for row in enrolled:
         by_level.setdefault(row["level_name"], []).append(row)
     for level_name, rows in by_level.items():
-        sheet = workbook.create_sheet(title=level_name[:31])
+        sheet = workbook.create_sheet(title=_sheet_title(level_name))
         _header(sheet, ["Étudiant", "Matières", "Prix (DH)", "Net (DH)", "Statut"])
         for row in rows:
             enrollment = row["enrollment"]
@@ -71,8 +84,7 @@ def _summary_sheet(
     sheet["B1"] = _dh(report.cash_in)
     _append_totals(sheet, report.totals)
     for level in report.by_level:
-        sheet.append([])
-        title_row = sheet.max_row + 1
+        title_row = sheet.max_row + 2
         sheet.cell(row=title_row, column=1, value=level.level_name).font = _BOLD
         _append_totals(sheet, level.totals, with_header=False)
 

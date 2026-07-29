@@ -110,3 +110,20 @@ def test_arrears_sheet_lists_who_owes(client):
 def test_export_of_empty_month_still_produces_a_workbook(client):
     workbook = download(client, month="2026-01")
     assert "Répartition" in workbook.sheetnames
+
+
+def test_deactivated_student_still_appears_on_past_month_export(client):
+    build_month(client)
+    (sami,) = [s for s in client.get("/api/students").json() if s["name"] == "Sami"]
+    client.patch(f"/api/students/{sami['id']}", json={"is_active": False})
+    sheet = download(client)["Primaire"]
+    names = [row[0] for row in sheet.iter_rows(min_row=2, values_only=True)]
+    assert "Sami" in names  # archival record must not rewrite history
+
+
+def test_sheet_titles_are_excel_safe():
+    from app.adapters.excel.monthly_workbook import _sheet_title
+
+    assert _sheet_title("CE1/CE2") == "CE1-CE2"
+    assert _sheet_title("Répartition") == "Répartition (niveau)"
+    assert len(_sheet_title("N" * 40)) == 31
