@@ -162,7 +162,8 @@ def _unpaid_enrollments(
         FROM enrollment e
         JOIN student s ON s.id = e.student_id
         JOIN school_level sl ON sl.id = s.level_id
-        LEFT JOIN payment p ON p.enrollment_id = e.id
+        LEFT JOIN payment p
+            ON p.enrollment_id = e.id AND p.reversed_at IS NULL
         WHERE s.academy_id = ? AND e.month <= ? AND p.id IS NULL
         ORDER BY s.name, e.month
         """,

@@ -132,6 +132,21 @@ class TestArrears:
         assert [item.month for item in adam_entry.items] == ["2026-08", "2026-09"]
         assert adam_entry.total_owed == 300 * DH
 
+    def test_reversed_payment_counts_as_unpaid(self, scenario):
+        from app.services.payments import reverse_payment
+
+        math = scenario.add_class("Math", "Ahmed", "Primaire")
+        sami = scenario.add_student("Sami", "Primaire")
+        enrollment = scenario.enroll(sami, "2026-08", [math], 300)
+        store = SqlitePaymentStore(scenario.conn)
+        payment_id = post_payment(store, enrollment).payment_id
+        assert arrears(scenario.conn, scenario.academy_id, "2026-09") == ()
+
+        reverse_payment(store, payment_id, reason="bounced")
+
+        owing = arrears(scenario.conn, scenario.academy_id, "2026-09")
+        assert [(e.student_name, e.total_owed) for e in owing] == [("Sami", 300 * DH)]
+
     def test_gifted_month_owes_nothing(self, scenario):
         math = scenario.add_class("Math", "Ahmed", "Primaire")
         sami = scenario.add_student("Sami", "Primaire")
