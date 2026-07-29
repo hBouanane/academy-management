@@ -13,7 +13,9 @@ OWNER = Beneficiary("owner", 1)
 
 def base_allocations():
     policy = SplitPolicy(venue_bp=3000, owner_bp=1000)
-    return split_payment(300 * DH, policy, venue_id=1, owner_id=1, teacher_ids=[7, 8])
+    return split_payment(
+        300 * DH, policy, venue_id=1, owner_id=1, subject_teachers=[7, 8]
+    )
 
 
 def amounts_by_beneficiary(allocations):

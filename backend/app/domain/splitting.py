@@ -39,29 +39,31 @@ def split_payment(
     *,
     venue_id: int,
     owner_id: int,
-    teacher_ids: list[int],
+    subject_teachers: list[int],
 ) -> tuple[Allocation, ...]:
-    _validate_teachers(teacher_ids)
+    """subject_teachers holds one teacher id per subject; a teacher covering
+    several of the student's subjects appears once per subject and earns
+    one slice each, aggregated into a single allocation."""
+    if not subject_teachers:
+        raise ValueError("a payment must cover at least one subject")
     venue_amount = percent_of(amount, policy.venue_bp)
     owner_amount = percent_of(amount, policy.owner_bp)
     teachers_total = amount - venue_amount - owner_amount
     return (
         Allocation(Beneficiary("venue", venue_id), venue_amount),
         Allocation(Beneficiary("owner", owner_id), owner_amount),
-        *_teacher_allocations(teacher_ids, teachers_total),
+        *_teacher_allocations(subject_teachers, teachers_total),
     )
 
 
-def _validate_teachers(teacher_ids: list[int]) -> None:
-    if not teacher_ids:
-        raise ValueError("a payment must have at least one teacher")
-    if len(set(teacher_ids)) != len(teacher_ids):
-        raise ValueError(f"duplicate teachers in {teacher_ids}")
-
-
-def _teacher_allocations(teacher_ids: list[int], total: Centimes) -> list[Allocation]:
-    shares = split_equally(total, len(teacher_ids))
+def _teacher_allocations(
+    subject_teachers: list[int], total: Centimes
+) -> list[Allocation]:
+    slices = split_equally(total, len(subject_teachers))
+    totals: dict[int, Centimes] = {}
+    for teacher_id, subject_slice in zip(subject_teachers, slices, strict=True):
+        totals[teacher_id] = totals.get(teacher_id, 0) + subject_slice
     return [
-        Allocation(Beneficiary("teacher", teacher_id), share)
-        for teacher_id, share in zip(teacher_ids, shares, strict=True)
+        Allocation(Beneficiary("teacher", teacher_id), amount)
+        for teacher_id, amount in totals.items()
     ]
