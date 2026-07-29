@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { apiGet, apiSend } from "@/lib/api"
+import { ApiError, apiGet, apiSend } from "@/lib/api"
 import type { PaymentPreview } from "@/lib/api"
 import { dhToCentimes, formatDH } from "@/lib/money"
 
@@ -60,7 +60,8 @@ export function PayDialog({ enrollmentId, studentName, onDone }: Props) {
         }
       })
       .catch((err: Error) => {
-        if (err.message.includes("already paid")) {
+        // 409 = the month was already collected (double click, stale dialog).
+        if (err instanceof ApiError && err.status === 409) {
           setError("Ce mois est déjà encaissé — la liste va se mettre à jour.")
           setTimeout(() => {
             setOpen(false)

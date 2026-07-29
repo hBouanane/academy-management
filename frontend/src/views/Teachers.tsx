@@ -14,7 +14,7 @@ export function Teachers() {
         { key: "name", label: "Nom", placeholder: "Ahmed Benali" },
         { key: "phone", label: "Téléphone", placeholder: "06…", optional: true },
       ]}
-      toBody={(values) => ({ name: values.name, phone: values.phone || null })}
+      toBody={(values) => ({ name: values.name, phone: values.phone ?? "" })}
     />
   )
 }

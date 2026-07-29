@@ -86,6 +86,11 @@ class NamedCreate(BaseModel):
     phone: str | None = None
 
 
+class SubjectPatch(BaseModel):
+    name: str | None = None
+    is_active: bool | None = None
+
+
 class LifecyclePatch(BaseModel):
     name: str | None = None
     phone: str | None = None
@@ -96,6 +101,8 @@ def _lifecycle_fields(patch: BaseModel) -> dict:
     fields = patch.model_dump(exclude_none=True)
     if "is_active" in fields:
         fields["is_active"] = int(fields["is_active"])
+    if fields.get("phone") == "":
+        fields["phone"] = None  # an emptied phone field means "clear it"
     return fields
 
 
@@ -110,7 +117,7 @@ def create_subject(body: NamedCreate, conn: Conn) -> dict:
 
 
 @router.patch("/subjects/{subject_id}")
-def patch_subject(subject_id: int, patch: LifecyclePatch, conn: Conn) -> dict:
+def patch_subject(subject_id: int, patch: SubjectPatch, conn: Conn) -> dict:
     crud.update_subject(conn, subject_id, _lifecycle_fields(patch))
     return {"id": subject_id}
 
@@ -123,7 +130,7 @@ def teachers(conn: Conn, include_inactive: bool = False) -> list[dict]:
 @router.post("/teachers", status_code=201)
 def create_teacher(body: NamedCreate, conn: Conn) -> dict:
     academy_id = default_academy_id(conn)
-    return {"id": crud.create_teacher(conn, academy_id, body.name, body.phone)}
+    return {"id": crud.create_teacher(conn, academy_id, body.name, body.phone or None)}
 
 
 @router.patch("/teachers/{teacher_id}")
@@ -231,10 +238,7 @@ def create_student(body: StudentCreate, conn: Conn) -> dict:
 
 @router.patch("/students/{student_id}")
 def patch_student(student_id: int, patch: StudentPatch, conn: Conn) -> dict:
-    fields = patch.model_dump(exclude_none=True)
-    if "is_active" in fields:
-        fields["is_active"] = int(fields["is_active"])
-    crud.update_student(conn, student_id, fields)
+    crud.update_student(conn, student_id, _lifecycle_fields(patch))
     return {"id": student_id}
 
 

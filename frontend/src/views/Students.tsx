@@ -95,7 +95,7 @@ export function Students({ month }: Props) {
       if (!editing) return
       await apiSend("PATCH", `/api/students/${editing.id}`, {
         name: editValues.name,
-        phone: editValues.phone || null,
+        phone: editValues.phone,  // "" means "clear it" (normalized server-side)
         level_id: Number(editValues.level_id),
       })
       setEditing(null)

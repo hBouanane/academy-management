@@ -100,10 +100,18 @@ export type ArrearsEntry = {
   items: { enrollment_id: number; month: string; owed: number }[]
 }
 
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    throw new Error(detailMessage(body, response.status))
+    throw new ApiError(detailMessage(body, response.status), response.status)
   }
   return response.json() as Promise<T>
 }

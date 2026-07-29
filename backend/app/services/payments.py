@@ -98,6 +98,10 @@ def payment_preview(store: PaymentStore, enrollment_id: int) -> PaymentPreview:
     context = _context_or_raise(store, enrollment_id)
     allocations = _base_split(context)
     resolved = _resolved_adjustments(context)
+    # Same validation as posting: a bearer who no longer holds an allocation
+    # (e.g. the class teacher changed) must fail loudly here, never render a
+    # split whose lines don't sum to the net.
+    apply_adjustments(allocations, [adjustment for _, adjustment in resolved])
     cuts: dict[Beneficiary, Centimes] = {}
     for _, adjustment in resolved:
         for bearer, cut in bearer_cuts(adjustment).items():

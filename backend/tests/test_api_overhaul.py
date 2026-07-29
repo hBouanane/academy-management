@@ -90,6 +90,31 @@ class TestPaymentPreview:
     def test_preview_of_unknown_enrollment_is_404(self, client):
         assert client.get("/api/enrollments/404/preview").status_code == 404
 
+    def test_preview_fails_loudly_when_a_bearer_lost_its_allocation(self, client):
+        # Manual teacher-borne reduction, then the class changes teacher:
+        # the preview must 422 like posting would, never show a false split.
+        enrollment, teacher = setup_enrollment(client)
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 30 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": teacher}],
+            },
+        )
+        other = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
+        (class_row,) = client.get("/api/classes").json()
+        client.patch(f"/api/classes/{class_row['id']}", json={"teacher_id": other})
+        assert client.get(f"/api/enrollments/{enrollment}/preview").status_code == 422
+
+    def test_clearing_a_phone_actually_clears_it(self, client):
+        teacher = client.post(
+            "/api/teachers", json={"name": "Ahmed", "phone": "0600"}
+        ).json()["id"]
+        client.patch(f"/api/teachers/{teacher}", json={"phone": ""})
+        (row,) = client.get("/api/teachers").json()
+        assert row["phone"] is None
+
 
 class TestEntityLifecycle:
     @pytest.mark.parametrize(
