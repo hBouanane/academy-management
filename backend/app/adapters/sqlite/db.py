@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-_SCHEMA = Path(__file__).with_name("schema.sql")
+_SCHEMA = Path(__file__).joinpath("..", "migrations", "0001_initial.sql").resolve()
 
 
 def connect(path: str) -> sqlite3.Connection:
