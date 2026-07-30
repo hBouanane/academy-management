@@ -68,9 +68,7 @@ class TestStudentMonthStatus:
         client.post("/api/payments", json={"enrollment_id": enrollment})
         rows = {
             row["name"]: row
-            for row in client.get(
-                "/api/students", params={"month": "2026-09"}
-            ).json()
+            for row in client.get("/api/students", params={"month": "2026-09"}).json()
         }
         assert rows["Sami"]["month_enrollment_id"] == enrollment
         assert rows["Sami"]["month_paid"] == 1
