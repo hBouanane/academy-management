@@ -28,18 +28,20 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { EnrollDialog } from "@/components/EnrollDialog"
+import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Student } from "@/lib/api"
+import { currentMonth } from "@/lib/money"
 
 const phoneDigits = (phone: string) => phone.replace(/[\s.-]/g, "")
 const phoneInvalid = (phone: string) =>
   phone !== "" && !/^\d{10}$/.test(phoneDigits(phone))
 
-type Props = { month: string }
+type Props = { month: string; setMonth: (month: string) => void }
 
-export function Students({ month }: Props) {
+export function Students({ month, setMonth }: Props) {
   const [students, setStudents] = useState<Student[]>([])
   const [levels, setLevels] = useState<Level[]>([])
   const [showInactive, setShowInactive] = useState(false)
@@ -128,11 +130,14 @@ export function Students({ month }: Props) {
 
   return (
     <div className="view-enter space-y-6">
-      <header>
-        <h2 className="text-2xl font-semibold tracking-tight">Étudiants</h2>
-        <p className="text-muted-foreground text-sm">
-          Après création, l'inscription du mois s'ouvre directement
-        </p>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Étudiants</h2>
+          <p className="text-muted-foreground text-sm">
+            Après création, l'inscription du mois s'ouvre directement
+          </p>
+        </div>
+        <MonthNav month={month} setMonth={setMonth} />
       </header>
 
       <Notice message={error} />
@@ -187,6 +192,7 @@ export function Students({ month }: Props) {
               <TableHead>Niveau</TableHead>
               <TableHead>Téléphone</TableHead>
               <TableHead>Impayés</TableHead>
+              <TableHead>Ce mois</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -213,6 +219,17 @@ export function Students({ month }: Props) {
                   )}
                 </TableCell>
                 <TableCell>
+                  {student.month_enrollment_id === null ? (
+                    <Badge variant="outline">Non inscrit</Badge>
+                  ) : student.month_paid ? (
+                    <Badge className="bg-success/15 text-success border-success/20 border">
+                      Payé
+                    </Badge>
+                  ) : (
+                    <Badge variant="destructive">Impayé</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
                   {student.is_active ? (
                     <Badge className="bg-success/15 text-success border-success/20 border">
                       Actif
@@ -222,7 +239,9 @@ export function Students({ month }: Props) {
                   )}
                 </TableCell>
                 <TableCell className="space-x-1 text-right">
-                  {student.is_active ? (
+                  {student.is_active &&
+                  student.month_enrollment_id === null &&
+                  month >= currentMonth() ? (
                     <EnrollDialog
                       studentId={student.id}
                       studentName={student.name}
@@ -234,6 +253,14 @@ export function Students({ month }: Props) {
                       }
                     />
                   ) : null}
+                  {student.month_enrollment_id !== null &&
+                    !student.month_paid && (
+                      <PayDialog
+                        enrollmentId={student.month_enrollment_id}
+                        studentName={student.name}
+                        onDone={reload}
+                      />
+                    )}
                   <Button
                     size="sm"
                     variant="ghost"

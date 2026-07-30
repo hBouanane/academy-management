@@ -289,12 +289,19 @@ def list_students(
           (SELECT COUNT(*) FROM enrollment e
            LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
            WHERE e.student_id = s.id AND e.month < ? AND p.id IS NULL
-          ) AS unpaid_months
+          ) AS unpaid_months,
+          (SELECT e2.id FROM enrollment e2
+           WHERE e2.student_id = s.id AND e2.month = ?
+          ) AS month_enrollment_id,
+          EXISTS(SELECT 1 FROM enrollment e3
+           JOIN payment p3 ON p3.enrollment_id = e3.id AND p3.reversed_at IS NULL
+           WHERE e3.student_id = s.id AND e3.month = ?
+          ) AS month_paid
         FROM student s
         JOIN school_level sl ON sl.id = s.level_id
         WHERE s.academy_id = ?{active_filter} ORDER BY s.name
         """,
-        (month or "", academy_id),
+        (month or "", month or "", month or "", academy_id),
     )
 
 

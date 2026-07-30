@@ -1,13 +1,17 @@
 import { EntityManager } from "@/components/EntityManager"
+import { MonthNav } from "@/components/MonthNav"
 import { formatDH } from "@/lib/money"
 
-export function Teachers({ month }: { month: string }) {
+type Props = { month: string; setMonth: (month: string) => void }
+
+export function Teachers({ month, setMonth }: Props) {
   return (
     <EntityManager
       title="Professeurs"
-      description="Ce que chaque professeur gagne ce mois — directement depuis le registre"
+      description="Ce que chaque professeur gagne le mois affiché — directement depuis le registre"
       endpoint="/api/teachers"
       query={`&month=${month}`}
+      headerExtra={<MonthNav month={month} setMonth={setMonth} />}
       columns={[
         { key: "name", label: "Nom" },
         { key: "phone", label: "Téléphone" },

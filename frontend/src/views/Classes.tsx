@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react"
 import { EntityManager } from "@/components/EntityManager"
+import { MonthNav } from "@/components/MonthNav"
 import { apiGet } from "@/lib/api"
 import type { Level, Subject, Teacher } from "@/lib/api"
 
-export function Classes({ month }: { month: string }) {
+type Props = { month: string; setMonth: (month: string) => void }
+
+export function Classes({ month, setMonth }: Props) {
   const [levels, setLevels] = useState<Level[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
@@ -23,6 +26,7 @@ export function Classes({ month }: { month: string }) {
       description="Une classe = une matière, un professeur, un niveau. Ajoutez une deuxième classe de la même matière quand l'académie grandit."
       endpoint="/api/classes"
       query={`&month=${month}`}
+      headerExtra={<MonthNav month={month} setMonth={setMonth} />}
       columns={[
         { key: "subject_name", label: "Matière" },
         { key: "teacher_name", label: "Professeur" },

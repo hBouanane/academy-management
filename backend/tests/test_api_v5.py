@@ -58,6 +58,26 @@ class TestPhoneValidation:
         assert row["phone"] is None
 
 
+class TestStudentMonthStatus:
+    def test_students_carry_their_status_for_the_viewed_month(self, client):
+        # The Étudiants page must agree with the tableau de bord: same month,
+        # same truth — enrolled+paid, enrolled+unpaid, or not enrolled.
+        level, class_id, _, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.post("/api/students", json={"name": "Lina", "level_id": level})
+        client.post("/api/payments", json={"enrollment_id": enrollment})
+        rows = {
+            row["name"]: row
+            for row in client.get(
+                "/api/students", params={"month": "2026-09"}
+            ).json()
+        }
+        assert rows["Sami"]["month_enrollment_id"] == enrollment
+        assert rows["Sami"]["month_paid"] == 1
+        assert rows["Lina"]["month_enrollment_id"] is None
+        assert rows["Lina"]["month_paid"] == 0
+
+
 class TestOverviewArrival:
     def test_overview_rows_expose_the_arrival_date(self, client):
         # The tableau de bord must explain a prorated price, not just show it.

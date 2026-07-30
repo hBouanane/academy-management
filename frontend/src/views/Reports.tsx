@@ -12,6 +12,7 @@ import {
 import { CashBars } from "@/components/charts"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { PayDialog } from "@/components/PayDialog"
 import { apiGet } from "@/lib/api"
 import type {
   ArrearsEntry,
@@ -35,6 +36,11 @@ export function Reports({ month, setMonth }: Props) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [owing, setOwing] = useState<ArrearsEntry[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [refresh, setRefresh] = useState(0)
+  // Collecting an owed month straight from the arrears list.
+  const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
+    null,
+  )
 
   useEffect(() => {
     setError(null)
@@ -47,7 +53,7 @@ export function Reports({ month, setMonth }: Props) {
     apiGet<ArrearsEntry[]>(`/api/reports/arrears?up_to_month=${month}`)
       .then(setOwing)
       .catch(() => setOwing([]))
-  }, [month])
+  }, [month, refresh])
 
   const totalOwed = owing.reduce((sum, entry) => sum + entry.total_owed, 0)
   const teacherTotal = (report?.totals ?? [])
@@ -132,10 +138,25 @@ export function Reports({ month, setMonth }: Props) {
                     {entry.student_name}
                   </TableCell>
                   <TableCell>{entry.level_name}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {entry.items
-                      .map((item) => `${item.month} (${formatDH(item.owed)})`)
-                      .join(", ")}
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1.5">
+                      {entry.items.map((item) => (
+                        <Button
+                          key={item.enrollment_id}
+                          size="sm"
+                          variant="outline"
+                          title={`Encaisser ${item.month}`}
+                          onClick={() =>
+                            setPayTarget({
+                              id: item.enrollment_id,
+                              name: entry.student_name,
+                            })
+                          }
+                        >
+                          {item.month} · {formatDH(item.owed)}
+                        </Button>
+                      ))}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {formatDH(entry.total_owed)}
@@ -156,6 +177,21 @@ export function Reports({ month, setMonth }: Props) {
           </Table>
         </div>
       </div>
+
+      {payTarget && (
+        <PayDialog
+          enrollmentId={payTarget.id}
+          studentName={payTarget.name}
+          open
+          onOpenChange={(next) => {
+            if (!next) setPayTarget(null)
+          }}
+          onDone={() => {
+            setPayTarget(null)
+            setRefresh((count) => count + 1)
+          }}
+        />
+      )}
     </div>
   )
 }

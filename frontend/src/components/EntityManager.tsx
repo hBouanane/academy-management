@@ -55,6 +55,8 @@ type Props = {
   onChanged?: () => void
   /** Extra query-string parameters, e.g. "&month=2026-09". */
   query?: string
+  /** Rendered on the right of the header — e.g. a month navigator. */
+  headerExtra?: ReactNode
 }
 
 const identityBody = (values: Record<string, string>) => values
@@ -70,6 +72,7 @@ export function EntityManager({
   refreshKey = 0,
   onChanged,
   query = "",
+  headerExtra,
 }: Props) {
   const [rows, setRows] = useState<Row[]>([])
   const [showArchived, setShowArchived] = useState(false)
@@ -131,9 +134,12 @@ export function EntityManager({
 
   return (
     <div className="view-enter space-y-6">
-      <header>
-        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        <p className="text-muted-foreground text-sm">{description}</p>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+          <p className="text-muted-foreground text-sm">{description}</p>
+        </div>
+        {headerExtra}
       </header>
 
       <Notice message={error} />

@@ -73,7 +73,7 @@ function App() {
 
   return (
     <div className="flex min-h-svh">
-      <aside className="border-sidebar-border bg-sidebar flex w-60 shrink-0 flex-col border-r px-3 py-5">
+      <aside className="border-sidebar-border bg-sidebar sticky top-0 flex h-svh w-60 shrink-0 flex-col self-start overflow-y-auto border-r px-3 py-5">
         <div className="mb-8 flex items-center gap-2 px-3">
           <span
             className="size-2.5 rounded-full"
@@ -129,10 +129,10 @@ function App() {
       <main className="min-w-0 flex-1 px-8 py-6" key={view}>
         {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}
         {view === "reports" && <Reports month={month} setMonth={setMonth} />}
-        {view === "students" && <Students month={month} />}
-        {view === "teachers" && <Teachers month={month} />}
+        {view === "students" && <Students month={month} setMonth={setMonth} />}
+        {view === "teachers" && <Teachers month={month} setMonth={setMonth} />}
         {view === "subjects" && <Subjects />}
-        {view === "classes" && <Classes month={month} />}
+        {view === "classes" && <Classes month={month} setMonth={setMonth} />}
         {view === "packages" && <Packages />}
         {view === "motifs" && <Motifs />}
         {view === "academy" && <Academy />}

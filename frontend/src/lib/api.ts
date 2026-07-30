@@ -55,6 +55,8 @@ export type Student = {
   level_name: string
   is_active: number
   unpaid_months: number
+  month_enrollment_id: number | null
+  month_paid: number
 }
 export type EnrollmentClass = {
   id: number
