@@ -133,6 +133,9 @@ def main() -> None:
     ).start()
     if not wait_until_ready(port):
         _fatal("Le serveur interne n'a pas démarré. Contactez le support.")
+    # pywebview blocks downloads unless told otherwise — without this, the
+    # Excel export button silently does nothing in the packaged app.
+    webview.settings["ALLOW_DOWNLOADS"] = True
     webview.create_window(
         "Academy Management",
         f"http://{HOST}:{port}",
