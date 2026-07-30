@@ -19,6 +19,7 @@ import type {
   BeneficiaryTotal,
   HistoryEntry,
   MonthlyReport,
+  Teacher,
 } from "@/lib/api"
 import { useCountUp, useGrowIn } from "@/lib/anim"
 import { formatDH } from "@/lib/money"
@@ -31,19 +32,26 @@ const KIND_LABEL: Record<BeneficiaryTotal["kind"], string> = {
 
 type Props = { month: string; setMonth: (month: string) => void }
 
+// Same shape as SQLite's datetime('now'): "YYYY-MM-DD HH:MM:SS" in UTC —
+// lexicographic comparison against last_entry_at is then correct.
+const utcNow = () => new Date().toISOString().slice(0, 19).replace("T", " ")
+
 export function Reports({ month, setMonth }: Props) {
   const [report, setReport] = useState<MonthlyReport | null>(null)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [owing, setOwing] = useState<ArrearsEntry[]>([])
+  const [teachers, setTeachers] = useState<Teacher[]>([])
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
   // Collecting an owed month straight from the arrears list.
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
   )
+  const [exportedAt, setExportedAt] = useState<string | null>(null)
 
   useEffect(() => {
     setError(null)
+    setExportedAt(localStorage.getItem(`excel-export-${month}`))
     apiGet<MonthlyReport>(`/api/reports/monthly?month=${month}`)
       .then(setReport)
       .catch((err: Error) => setError(err.message))
@@ -53,11 +61,35 @@ export function Reports({ month, setMonth }: Props) {
     apiGet<ArrearsEntry[]>(`/api/reports/arrears?up_to_month=${month}`)
       .then(setOwing)
       .catch(() => setOwing([]))
+    apiGet<Teacher[]>("/api/teachers")
+      .then(setTeachers)
+      .catch(() => setTeachers([]))
   }, [month, refresh])
+
+  const recordExport = () => {
+    const stamp = utcNow()
+    localStorage.setItem(`excel-export-${month}`, stamp)
+    setExportedAt(stamp)
+  }
+
+  // The exported file no longer matches the ledger (e.g. an arrears payment
+  // landed on this month after the export).
+  const staleExport =
+    exportedAt !== null &&
+    report?.last_entry_at != null &&
+    report.last_entry_at > exportedAt
 
   const totalOwed = owing.reduce((sum, entry) => sum + entry.total_owed, 0)
   const teacherTotal = (report?.totals ?? [])
     .filter((total) => total.kind === "teacher")
+    .reduce((sum, total) => sum + total.total, 0)
+  const ownerTeacher = teachers.find((teacher) => teacher.is_owner === 1)
+  const combinedOwner = (report?.totals ?? [])
+    .filter(
+      (total) =>
+        total.kind === "owner" ||
+        (total.kind === "teacher" && total.ref_id === ownerTeacher?.id),
+    )
     .reduce((sum, total) => sum + total.total, 0)
 
   return (
@@ -72,7 +104,11 @@ export function Reports({ month, setMonth }: Props) {
         <div className="flex items-center gap-2">
           <MonthNav month={month} setMonth={setMonth} />
           <Button asChild variant="outline">
-            <a href={`/api/export/monthly.xlsx?month=${month}`} download>
+            <a
+              href={`/api/export/monthly.xlsx?month=${month}`}
+              download
+              onClick={recordExport}
+            >
               Exporter Excel
             </a>
           </Button>
@@ -80,6 +116,15 @@ export function Reports({ month, setMonth }: Props) {
       </header>
 
       <Notice message={error} />
+      <Notice
+        message={
+          staleExport
+            ? `Ce mois a changé depuis votre export Excel — ré-exportez ${monthLabel(
+                month,
+              )} pour ne pas garder un fichier décalé.`
+            : null
+        }
+      />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <StatCard
@@ -102,6 +147,18 @@ export function Reports({ month, setMonth }: Props) {
             Répartition du mois — salle, propriétaire et professeurs
           </p>
           <BeneficiaryBars totals={report?.totals ?? []} />
+          {ownerTeacher && report && (
+            <p className="border-border mt-3 flex items-center justify-between border-t pt-3 text-sm">
+              <span>
+                <span className="font-medium">{ownerTeacher.name}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  — propriétaire + professeur
+                </span>
+              </span>
+              <span className="font-semibold">{formatDH(combinedOwner)}</span>
+            </p>
+          )}
         </div>
       </div>
 

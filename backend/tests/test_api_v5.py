@@ -58,6 +58,34 @@ class TestPhoneValidation:
         assert row["phone"] is None
 
 
+class TestOwnerTeacherLink:
+    def test_marking_a_teacher_as_owner_unmarks_the_previous_one(self, client):
+        # One human wears the crown; linking B must silently unlink A.
+        first = client.post("/api/teachers", json={"name": "Aicha"}).json()["id"]
+        second = client.post("/api/teachers", json={"name": "Brahim"}).json()["id"]
+        assert (
+            client.patch(f"/api/teachers/{first}", json={"is_owner": True}).status_code
+            == 200
+        )
+        client.patch(f"/api/teachers/{second}", json={"is_owner": True})
+        rows = {
+            row["name"]: row["is_owner"] for row in client.get("/api/teachers").json()
+        }
+        assert rows == {"Aicha": 0, "Brahim": 1}
+
+
+class TestReportFreshness:
+    def test_monthly_report_carries_the_last_ledger_timestamp(self, client):
+        # The stale-Excel alert compares the export moment to this timestamp.
+        level, class_id, _, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        before = client.get("/api/reports/monthly", params={"month": "2026-09"}).json()
+        assert before["last_entry_at"] is None
+        client.post("/api/payments", json={"enrollment_id": enrollment})
+        after = client.get("/api/reports/monthly", params={"month": "2026-09"}).json()
+        assert after["last_entry_at"] is not None
+
+
 class TestStudentMonthStatus:
     def test_students_carry_their_status_for_the_viewed_month(self, client):
         # The Étudiants page must agree with the tableau de bord: same month,

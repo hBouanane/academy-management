@@ -34,6 +34,9 @@ class MonthlyReport:
     cash_in: Centimes
     totals: tuple[BeneficiaryTotal, ...]
     by_level: tuple[LevelBreakdown, ...]
+    # When the month's ledger last moved — lets the UI warn that an Excel
+    # exported before this moment is stale.
+    last_entry_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,7 +64,16 @@ def monthly_report(
         cash_in=_cash_in(conn, academy_id, month),
         totals=_academy_totals(conn, academy_id, month),
         by_level=_level_breakdowns(conn, academy_id, month),
+        last_entry_at=_last_entry_at(conn, academy_id, month),
     )
+
+
+def _last_entry_at(conn: sqlite3.Connection, academy_id: int, month: str) -> str | None:
+    row = conn.execute(
+        "SELECT MAX(created_at) FROM ledger_entry WHERE academy_id = ? AND month = ?",
+        (academy_id, month),
+    ).fetchone()
+    return row[0]
 
 
 def arrears(

@@ -127,7 +127,20 @@ def list_teachers(
 
 
 def update_teacher(conn: sqlite3.Connection, teacher_id: int, fields: dict) -> None:
-    _update(conn, "teacher", teacher_id, fields, {"name", "phone", "is_active"})
+    if fields.get("is_owner"):
+        row = conn.execute(
+            "SELECT academy_id FROM teacher WHERE id = ?", (teacher_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"no teacher {teacher_id}")
+        # One human wears the crown: linking this teacher unlinks the others.
+        conn.execute(
+            "UPDATE teacher SET is_owner = 0 WHERE academy_id = ?",
+            (row["academy_id"],),
+        )
+    _update(
+        conn, "teacher", teacher_id, fields, {"name", "phone", "is_active", "is_owner"}
+    )
 
 
 def create_teacher(

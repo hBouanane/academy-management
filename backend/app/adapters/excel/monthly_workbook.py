@@ -83,6 +83,7 @@ def _summary_sheet(
     sheet["A1"].font = _BOLD
     sheet["B1"] = _dh(report.cash_in)
     _append_totals(sheet, report.totals)
+    _owner_teacher_row(sheet, conn, academy_id, report.totals)
     for level in report.by_level:
         title_row = sheet.max_row + 2
         sheet.cell(row=title_row, column=1, value=level.level_name).font = _BOLD
@@ -98,6 +99,27 @@ def _append_totals(sheet: Worksheet, totals, with_header: bool = True) -> None:
             sheet.cell(row=row, column=column, value=value).font = _BOLD
     for total in totals:
         sheet.append([total.name, KIND_LABEL[total.kind], _dh(total.total)])
+
+
+def _owner_teacher_row(
+    sheet: Worksheet, conn: sqlite3.Connection, academy_id: int, totals
+) -> None:
+    """The owner may also teach: one combined line shows their real income."""
+    row = conn.execute(
+        "SELECT id, name FROM teacher WHERE academy_id = ? AND is_owner = 1",
+        (academy_id,),
+    ).fetchone()
+    if row is None:
+        return
+    combined = sum(
+        total.total
+        for total in totals
+        if total.kind == "owner"
+        or (total.kind == "teacher" and total.ref_id == row["id"])
+    )
+    sheet.append([f"{row['name']} (propriétaire + professeur)", "Cumul", _dh(combined)])
+    for cell in sheet[sheet.max_row]:
+        cell.font = _BOLD
 
 
 def _arrears_sheet(

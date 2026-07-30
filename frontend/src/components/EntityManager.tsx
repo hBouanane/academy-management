@@ -39,6 +39,8 @@ export type FieldSpec = {
   options?: [string, string][]
   placeholder?: string
   optional?: boolean
+  /** Shown in the edit dialog only, never in the create form. */
+  editOnly?: boolean
 }
 
 type Row = Record<string, unknown> & { id: number; is_active: number }
@@ -103,7 +105,8 @@ export function EntityManager({
   }
 
   const createReady = fields.every(
-    (field) => field.optional || (createValues[field.key] ?? "") !== "",
+    (field) =>
+      field.editOnly || field.optional || (createValues[field.key] ?? "") !== "",
   )
 
   const create = () =>
@@ -149,7 +152,9 @@ export function EntityManager({
           Ajouter
         </p>
         <div className="flex flex-wrap items-end gap-3">
-          {fields.map((field) => (
+          {fields
+            .filter((field) => !field.editOnly)
+            .map((field) => (
             <FieldInput
               key={field.key}
               field={field}

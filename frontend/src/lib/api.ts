@@ -11,7 +11,12 @@ export type Academy = {
 }
 export type Level = { id: number; name: string }
 export type Subject = { id: number; name: string }
-export type Teacher = { id: number; name: string; phone: string | null }
+export type Teacher = {
+  id: number
+  name: string
+  phone: string | null
+  is_owner: number
+}
 export type ClassRow = {
   id: number
   name: string
@@ -120,6 +125,7 @@ export type BeneficiaryTotal = {
 export type MonthlyReport = {
   month: string
   cash_in: number
+  last_entry_at: string | null
   totals: BeneficiaryTotal[]
   by_level: { level_id: number; level_name: string; totals: BeneficiaryTotal[] }[]
 }

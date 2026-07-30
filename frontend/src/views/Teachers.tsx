@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge"
 import { EntityManager } from "@/components/EntityManager"
 import { MonthNav } from "@/components/MonthNav"
 import { formatDH } from "@/lib/money"
@@ -14,6 +15,16 @@ export function Teachers({ month, setMonth }: Props) {
       headerExtra={<MonthNav month={month} setMonth={setMonth} />}
       columns={[
         { key: "name", label: "Nom" },
+        {
+          key: "is_owner",
+          label: "Rôle",
+          render: (row) =>
+            row.is_owner ? (
+              <Badge variant="outline">Propriétaire</Badge>
+            ) : (
+              <span className="text-muted-foreground text-xs">—</span>
+            ),
+        },
         { key: "phone", label: "Téléphone" },
         {
           key: "subjects",
@@ -37,8 +48,25 @@ export function Teachers({ month, setMonth }: Props) {
       fields={[
         { key: "name", label: "Nom", placeholder: "Ahmed Benali" },
         { key: "phone", label: "Téléphone", placeholder: "06…", optional: true },
+        {
+          key: "is_owner",
+          label: "Propriétaire de l'académie ?",
+          type: "select",
+          options: [
+            ["0", "Non"],
+            ["1", "Oui — ses parts se cumulent dans les rapports"],
+          ],
+          optional: true,
+          editOnly: true,
+        },
       ]}
-      toBody={(values) => ({ name: values.name, phone: values.phone ?? "" })}
+      toBody={(values) => ({
+        name: values.name,
+        phone: values.phone ?? "",
+        ...(values.is_owner === undefined || values.is_owner === ""
+          ? {}
+          : { is_owner: values.is_owner === "1" }),
+      })}
     />
   )
 }

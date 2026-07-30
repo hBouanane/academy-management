@@ -147,12 +147,14 @@ class SubjectPatch(BaseModel):
 class LifecyclePatch(PhoneField):
     name: str | None = None
     is_active: bool | None = None
+    is_owner: bool | None = None  # teachers only: this teacher IS the owner
 
 
 def _lifecycle_fields(patch: BaseModel) -> dict:
     fields = patch.model_dump(exclude_none=True)
-    if "is_active" in fields:
-        fields["is_active"] = int(fields["is_active"])
+    for flag in ("is_active", "is_owner"):
+        if flag in fields:
+            fields[flag] = int(fields[flag])
     if fields.get("phone") == "":
         fields["phone"] = None  # an emptied phone field means "clear it"
     return fields
@@ -745,6 +747,7 @@ def report_monthly(month: MonthQuery, conn: Conn) -> dict:
     return {
         "month": report.month,
         "cash_in": report.cash_in,
+        "last_entry_at": report.last_entry_at,
         "totals": [vars(t) for t in report.totals],
         "by_level": [
             {

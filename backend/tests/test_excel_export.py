@@ -98,6 +98,21 @@ def test_summary_sheet_matches_the_ledger(client):
     assert sheet["B1"].value == 250  # cash-in in DH
 
 
+def test_summary_sheet_aggregates_the_owner_teacher(client):
+    # The owner also teaches math: one combined line shows their real income.
+    build_month(client)
+    (ahmed,) = [t for t in client.get("/api/teachers").json() if t["name"] == "Ahmed"]
+    client.patch(f"/api/teachers/{ahmed['id']}", json={"is_owner": True})
+    sheet = download(client)["Répartition"]
+    values = {
+        row[0]: row[2]
+        for row in sheet.iter_rows(min_row=2, values_only=True)
+        if row[0] is not None
+    }
+    # Ahmed wears both hats: 180 as teacher + (30 - 50) as owner = 160.
+    assert values["Ahmed (propriétaire + professeur)"] == 160
+
+
 def test_arrears_sheet_lists_who_owes(client):
     build_month(client)
     sheet = download(client)["Impayés"]

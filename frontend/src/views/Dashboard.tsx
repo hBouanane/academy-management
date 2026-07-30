@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { AlertTriangle, UserRoundX } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -35,6 +36,12 @@ export function Dashboard({ month, setMonth }: Props) {
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
   )
+  // Browsing an old month: rows of students who were not enrolled then are
+  // noise, so the filter switches itself on (still uncheckable).
+  const [enrolledOnly, setEnrolledOnly] = useState(false)
+  useEffect(() => {
+    setEnrolledOnly(month < currentMonth())
+  }, [month])
 
   const locked = month < currentMonth()
   const future = month > currentMonth()
@@ -74,8 +81,10 @@ export function Dashboard({ month, setMonth }: Props) {
 
   const enrolled = rows.filter((row) => row.enrollment)
   const paidCount = enrolled.filter((row) => row.enrollment?.paid).length
-  const filtered = rows.filter((row) =>
-    row.student_name.toLowerCase().includes(search.trim().toLowerCase()),
+  const filtered = rows.filter(
+    (row) =>
+      row.student_name.toLowerCase().includes(search.trim().toLowerCase()) &&
+      (!enrolledOnly || row.enrollment !== null),
   )
 
   return (
@@ -121,7 +130,14 @@ export function Dashboard({ month, setMonth }: Props) {
                 : "Rouge clair = impayé · fond pêche = réduction appliquée"}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={enrolledOnly}
+                onCheckedChange={(checked) => setEnrolledOnly(checked === true)}
+              />
+              Inscrits de ce mois uniquement
+            </label>
             {future && (
               <Button variant="outline" size="sm" onClick={prepareMonth}>
                 Préparer ce mois
@@ -356,8 +372,12 @@ function StudentRow({
             )}
           </>
         )}
-        {enrollment?.paid && enrollment.payment_id && (
-          <ReverseDialog paymentId={enrollment.payment_id} onDone={onDone} />
+        {enrollment?.paid &&
+          enrollment.payment_id &&
+          month === currentMonth() && (
+            // Only the running month offers reversal: browsing an old month
+            // and reversing the wrong payment is a mistake we refuse to invite.
+            <ReverseDialog paymentId={enrollment.payment_id} onDone={onDone} />
         )}
       </TableCell>
     </TableRow>
