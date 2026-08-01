@@ -96,7 +96,11 @@ class TestStudentIdentity:
 
     def test_filieres_used_become_reusable_suggestions(self, client):
         level = client.get("/api/levels").json()[-1]["id"]  # Lycée
-        for name, filiere in (("A", "Sciences Maths"), ("B", "Lettres"), ("C", "Sciences Maths")):
+        for name, filiere in (
+            ("A", "Sciences Maths"),
+            ("B", "Lettres"),
+            ("C", "Sciences Maths"),
+        ):
             client.post(
                 "/api/students",
                 json={"name": name, "level_id": level, "annee": 3, "filiere": filiere},
