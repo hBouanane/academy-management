@@ -4,22 +4,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Table,
   TableBody,
   TableCell,
@@ -31,13 +15,11 @@ import { EnrollDialog } from "@/components/EnrollDialog"
 import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
+import { StudentDialog } from "@/components/StudentDialog"
+import { StudentProfile } from "@/components/StudentProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Student } from "@/lib/api"
-import { currentMonth } from "@/lib/money"
-
-const phoneDigits = (phone: string) => phone.replace(/[\s.-]/g, "")
-const phoneInvalid = (phone: string) =>
-  phone !== "" && !/^\d{10}$/.test(phoneDigits(phone))
+import { anneeLabel } from "@/lib/levels"
 
 type Props = { month: string; setMonth: (month: string) => void }
 
@@ -45,21 +27,18 @@ export function Students({ month, setMonth }: Props) {
   const [students, setStudents] = useState<Student[]>([])
   const [levels, setLevels] = useState<Level[]>([])
   const [showInactive, setShowInactive] = useState(false)
-  const [name, setName] = useState("")
-  const [phone, setPhone] = useState("")
-  const [levelId, setLevelId] = useState<string>("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [editing, setEditing] = useState<Student | null>(null)
-  const [editValues, setEditValues] = useState({ name: "", phone: "", level_id: "" })
-  // Right after creating a student, we open enrollment directly — the natural
-  // next step is always "subscribe him for this month".
+  // The student modal: null closed, "new" creating, a Student editing.
+  const [editing, setEditing] = useState<Student | "new" | null>(null)
+  const [profileId, setProfileId] = useState<number | null>(null)
+  // Right after creating a student, enrollment opens directly; after
+  // enrolling, the pay dialog chains in turn.
   const [justCreated, setJustCreated] = useState<{
     id: number
     name: string
     levelId: number
   } | null>(null)
-  // A fresh enrollment chains straight into its pay dialog (réductions incluses).
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
   )
@@ -77,56 +56,14 @@ export function Students({ month, setMonth }: Props) {
   }, [])
   useEffect(reload, [reload])
 
-  const run = (action: () => Promise<unknown>) => {
+  const setActive = (student: Student, active: boolean) => {
     setError(null)
     setBusy(true)
-    action()
+    apiSend("PATCH", `/api/students/${student.id}`, { is_active: active })
       .then(reload)
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false))
   }
-
-  const addStudent = () => {
-    if (phoneInvalid(phone)) {
-      setError("Le téléphone doit contenir exactement 10 chiffres.")
-      return
-    }
-    setError(null)
-    setBusy(true)
-    apiSend<{ id: number }>("POST", "/api/students", {
-      name,
-      level_id: Number(levelId),
-      phone: phoneDigits(phone) || null,
-    })
-      .then((created) => {
-        setJustCreated({ id: created.id, name, levelId: Number(levelId) })
-        setName("")
-        setPhone("")
-        setLevelId("")
-        reload()
-      })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setBusy(false))
-  }
-
-  const saveEdit = () => {
-    if (phoneInvalid(editValues.phone)) {
-      setError("Le téléphone doit contenir exactement 10 chiffres.")
-      return
-    }
-    run(async () => {
-      if (!editing) return
-      await apiSend("PATCH", `/api/students/${editing.id}`, {
-        name: editValues.name,
-        phone: phoneDigits(editValues.phone), // "" means "clear it"
-        level_id: Number(editValues.level_id),
-      })
-      setEditing(null)
-    })
-  }
-
-  const setActive = (student: Student, active: boolean) =>
-    run(() => apiSend("PATCH", `/api/students/${student.id}`, { is_active: active }))
 
   return (
     <div className="view-enter space-y-6">
@@ -134,48 +71,18 @@ export function Students({ month, setMonth }: Props) {
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Étudiants</h2>
           <p className="text-muted-foreground text-sm">
-            Après création, l'inscription du mois s'ouvre directement
+            Cliquez un nom pour ouvrir le profil complet
           </p>
         </div>
-        <MonthNav month={month} setMonth={setMonth} />
+        <div className="flex items-center gap-2">
+          <MonthNav month={month} setMonth={setMonth} />
+          <Button onClick={() => setEditing("new")}>
+            <UserPlus className="size-4" /> Nouvel étudiant
+          </Button>
+        </div>
       </header>
 
       <Notice message={error} />
-
-      <div className="surface-card space-y-3 p-5">
-        <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-          Nouvel étudiant
-        </p>
-        <div className="flex flex-wrap items-end gap-3">
-          <Input
-            placeholder="Nom complet"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="w-56"
-          />
-          <Select value={levelId} onValueChange={setLevelId}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Niveau" />
-            </SelectTrigger>
-            <SelectContent>
-              {levels.map((level) => (
-                <SelectItem key={level.id} value={String(level.id)}>
-                  {level.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            placeholder="Téléphone (optionnel)"
-            value={phone}
-            onChange={(event) => setPhone(event.target.value)}
-            className="w-44"
-          />
-          <Button onClick={addStudent} disabled={!name || !levelId || busy}>
-            <UserPlus className="size-4" /> Créer et inscrire
-          </Button>
-        </div>
-      </div>
 
       <div className="surface-card p-5">
         <label className="text-muted-foreground mb-4 flex items-center gap-2 text-sm">
@@ -183,7 +90,7 @@ export function Students({ month, setMonth }: Props) {
             checked={showInactive}
             onCheckedChange={(checked) => setShowInactive(checked === true)}
           />
-          Afficher les étudiants désactivés
+          Afficher les étudiants archivés
         </label>
         <Table>
           <TableHeader>
@@ -204,8 +111,29 @@ export function Students({ month, setMonth }: Props) {
                 className={`stagger-row ${Number(student.unpaid_months) > 0 ? "row-unpaid" : ""}`}
                 style={{ animationDelay: `${index * 40}ms` }}
               >
-                <TableCell className="font-medium">{student.name}</TableCell>
-                <TableCell>{student.level_name}</TableCell>
+                <TableCell>
+                  <button
+                    className="hover:text-foreground/70 font-medium underline-offset-4 transition-colors hover:underline"
+                    onClick={() => setProfileId(student.id)}
+                    title="Ouvrir le profil"
+                  >
+                    {[student.first_name, student.name].filter(Boolean).join(" ")}
+                  </button>
+                  {student.school_name && (
+                    <p className="text-muted-foreground text-xs">
+                      {student.school_name}
+                    </p>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {student.level_name}
+                  {student.annee !== null && (
+                    <p className="text-muted-foreground text-xs">
+                      {anneeLabel(student.level_name, student.annee)}
+                      {student.filiere ? ` · ${student.filiere}` : ""}
+                    </p>
+                  )}
+                </TableCell>
                 <TableCell className="text-muted-foreground">
                   {student.phone ?? "—"}
                 </TableCell>
@@ -220,7 +148,9 @@ export function Students({ month, setMonth }: Props) {
                 </TableCell>
                 <TableCell>
                   {student.month_enrollment_id === null ? (
-                    <Badge variant="outline">Non inscrit</Badge>
+                    <span className="text-muted-foreground text-xs">
+                      Non inscrit
+                    </span>
                   ) : student.month_paid ? (
                     <Badge className="bg-success/15 text-success border-success/20 border">
                       Payé
@@ -230,18 +160,20 @@ export function Students({ month, setMonth }: Props) {
                   )}
                 </TableCell>
                 <TableCell>
-                  {student.is_active ? (
+                  {!student.ever_enrolled ? (
+                    <Badge className="bg-secondary text-secondary-foreground">
+                      Pré-inscrit
+                    </Badge>
+                  ) : student.is_active ? (
                     <Badge className="bg-success/15 text-success border-success/20 border">
                       Actif
                     </Badge>
                   ) : (
-                    <Badge variant="outline">Désactivé</Badge>
+                    <Badge variant="outline">Archivé</Badge>
                   )}
                 </TableCell>
                 <TableCell className="space-x-1 text-right">
-                  {student.is_active &&
-                  student.month_enrollment_id === null &&
-                  month >= currentMonth() ? (
+                  {student.is_active && student.month_enrollment_id === null && (
                     <EnrollDialog
                       studentId={student.id}
                       studentName={student.name}
@@ -252,7 +184,7 @@ export function Students({ month, setMonth }: Props) {
                         setPayTarget({ id, name: student.name })
                       }
                     />
-                  ) : null}
+                  )}
                   {student.month_enrollment_id !== null &&
                     !student.month_paid && (
                       <PayDialog
@@ -265,14 +197,7 @@ export function Students({ month, setMonth }: Props) {
                     size="sm"
                     variant="ghost"
                     title="Modifier"
-                    onClick={() => {
-                      setEditing(student)
-                      setEditValues({
-                        name: student.name,
-                        phone: student.phone ?? "",
-                        level_id: String(student.level_id),
-                      })
-                    }}
+                    onClick={() => setEditing(student)}
                   >
                     <Pencil className="size-4" />
                   </Button>
@@ -282,8 +207,8 @@ export function Students({ month, setMonth }: Props) {
                     disabled={busy}
                     title={
                       student.is_active
-                        ? "Désactiver (l'historique reste)"
-                        : "Réactiver"
+                        ? "Archiver (l'historique reste)"
+                        : "Restaurer"
                     }
                     onClick={() => setActive(student, !student.is_active)}
                   >
@@ -296,13 +221,37 @@ export function Students({ month, setMonth }: Props) {
                 </TableCell>
               </TableRow>
             ))}
+            {students.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={7}
+                  className="text-muted-foreground text-center"
+                >
+                  Aucun étudiant — créez le premier.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
         <p className="text-muted-foreground mt-3 text-xs">
-          Un étudiant n'est jamais supprimé : désactivé, il disparaît des listes
-          mais tout son historique de paiements reste.
+          Un étudiant n'est jamais supprimé : archivé, il disparaît des listes
+          mais son profil et tout son historique restent consultables.
         </p>
       </div>
+
+      <StudentDialog
+        levels={levels}
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        initial={editing === "new" ? null : editing}
+        onSaved={(created) => {
+          setEditing(null)
+          reload()
+          if (created) setJustCreated(created)
+        }}
+      />
+
+      <StudentProfile studentId={profileId} onClose={() => setProfileId(null)} />
 
       {justCreated && (
         <EnrollDialog
@@ -336,59 +285,6 @@ export function Students({ month, setMonth }: Props) {
           }}
         />
       )}
-
-      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Modifier {editing?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nom</Label>
-              <Input
-                value={editValues.name}
-                onChange={(event) =>
-                  setEditValues((current) => ({ ...current, name: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Niveau</Label>
-              <Select
-                value={editValues.level_id}
-                onValueChange={(value) =>
-                  setEditValues((current) => ({ ...current, level_id: value }))
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {levels.map((level) => (
-                    <SelectItem key={level.id} value={String(level.id)}>
-                      {level.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Téléphone</Label>
-              <Input
-                value={editValues.phone}
-                onChange={(event) =>
-                  setEditValues((current) => ({ ...current, phone: event.target.value }))
-                }
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={saveEdit} disabled={busy}>
-              Enregistrer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

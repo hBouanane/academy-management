@@ -298,7 +298,7 @@ def list_students(
     return _rows(
         conn,
         f"""
-        SELECT s.*, sl.name AS level_name,
+        SELECT s.*, sl.name AS level_name, sc.name AS school_name,
           (SELECT COUNT(*) FROM enrollment e
            LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
            WHERE e.student_id = s.id AND e.month < ? AND p.id IS NULL
@@ -309,33 +309,153 @@ def list_students(
           EXISTS(SELECT 1 FROM enrollment e3
            JOIN payment p3 ON p3.enrollment_id = e3.id AND p3.reversed_at IS NULL
            WHERE e3.student_id = s.id AND e3.month = ?
-          ) AS month_paid
+          ) AS month_paid,
+          EXISTS(SELECT 1 FROM enrollment e4 WHERE e4.student_id = s.id
+          ) AS ever_enrolled
         FROM student s
         JOIN school_level sl ON sl.id = s.level_id
+        LEFT JOIN school sc ON sc.id = s.school_id
         WHERE s.academy_id = ?{active_filter} ORDER BY s.name
         """,
         (month or "", month or "", month or "", academy_id),
     )
 
 
-def create_student(
-    conn: sqlite3.Connection,
-    academy_id: int,
-    name: str,
-    level_id: int,
-    phone: str | None,
-) -> int:
-    return _insert(
-        conn,
-        "INSERT INTO student (academy_id, level_id, name, phone) VALUES (?, ?, ?, ?)",
-        (academy_id, level_id, name, phone),
-    )
+def create_student(conn: sqlite3.Connection, academy_id: int, fields: dict) -> int:
+    with _transaction(conn):
+        student_id = conn.execute(
+            "INSERT INTO student (academy_id, level_id, name, first_name, annee,"
+            " filiere, school_id, phone, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            (
+                academy_id,
+                fields["level_id"],
+                fields["name"],
+                fields.get("first_name"),
+                fields.get("annee"),
+                fields.get("filiere"),
+                fields.get("school_id"),
+                fields.get("phone"),
+            ),
+        ).lastrowid
+        _replace_phones(conn, student_id, fields.get("phones", []))
+        return student_id
 
 
 def update_student(conn: sqlite3.Connection, student_id: int, fields: dict) -> None:
-    _update(
-        conn, "student", student_id, fields, {"name", "level_id", "phone", "is_active"}
+    phones = fields.pop("phones", None)
+    allowed = {
+        "name",
+        "first_name",
+        "level_id",
+        "annee",
+        "filiere",
+        "school_id",
+        "phone",
+        "is_active",
+    }
+    changes = {key: value for key, value in fields.items() if key in allowed}
+    with _transaction(conn):
+        if changes:
+            assignments = ", ".join(f"{column} = ?" for column in changes)
+            updated = conn.execute(
+                f"UPDATE student SET {assignments} WHERE id = ?",
+                (*changes.values(), student_id),
+            )
+            if updated.rowcount == 0:
+                raise LookupError(f"no student {student_id}")
+        if phones is not None:
+            _replace_phones(conn, student_id, phones)
+
+
+def _replace_phones(
+    conn: sqlite3.Connection, student_id: int, phones: list[dict]
+) -> None:
+    conn.execute("DELETE FROM student_phone WHERE student_id = ?", (student_id,))
+    conn.executemany(
+        "INSERT INTO student_phone (student_id, tag, number) VALUES (?, ?, ?)",
+        [(student_id, phone["tag"], phone["number"]) for phone in phones],
     )
+
+
+def student_phones(conn: sqlite3.Connection, student_id: int) -> list[dict]:
+    return _rows(
+        conn,
+        "SELECT tag, number FROM student_phone WHERE student_id = ? ORDER BY id",
+        (student_id,),
+    )
+
+
+def get_or_create_school(conn: sqlite3.Connection, academy_id: int, name: str) -> int:
+    row = conn.execute(
+        "SELECT id FROM school WHERE academy_id = ? AND name = ?", (academy_id, name)
+    ).fetchone()
+    if row is not None:
+        return row["id"]
+    return _insert(
+        conn, "INSERT INTO school (academy_id, name) VALUES (?, ?)", (academy_id, name)
+    )
+
+
+def list_schools(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+    return _rows(
+        conn,
+        "SELECT * FROM school WHERE academy_id = ? AND is_active = 1 ORDER BY name",
+        (academy_id,),
+    )
+
+
+def student_profile(conn: sqlite3.Connection, student_id: int) -> dict | None:
+    """Everything about one student: identity, tagged phones, and the full
+    month-by-month history — packs, matières, net, paid state. Works for
+    archived students too: history is never hidden."""
+    row = conn.execute(
+        """
+        SELECT s.*, sl.name AS level_name, sc.name AS school_name
+        FROM student s
+        JOIN school_level sl ON sl.id = s.level_id
+        LEFT JOIN school sc ON sc.id = s.school_id
+        WHERE s.id = ?
+        """,
+        (student_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    store = SqlitePaymentStore(conn)
+    months = [
+        {
+            "month": enrollment["month"],
+            "enrollment_id": enrollment["id"],
+            "price_centimes": enrollment["price_centimes"],
+            "net_centimes": safe_net(
+                store, enrollment["id"], enrollment["price_centimes"]
+            ),
+            "paid": enrollment["payment_id"] is not None,
+            "paid_on": enrollment["paid_on"],
+            "arrival_date": enrollment["arrival_date"],
+            "subject_count": enrollment["subject_count"],
+            "subjects": [
+                c["subject_name"] for c in _enrollment_classes(conn, enrollment["id"])
+            ],
+        }
+        for enrollment in _rows(
+            conn,
+            """
+            SELECT e.*, pk.subject_count, p.id AS payment_id, p.paid_on
+            FROM enrollment e
+            JOIN package pk ON pk.id = e.package_id
+            LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
+            WHERE e.student_id = ?
+            ORDER BY e.month DESC
+            """,
+            (student_id,),
+        )
+    ]
+    return {
+        **dict(row),
+        "phones": student_phones(conn, student_id),
+        "months": months,
+    }
 
 
 def create_enrollment(

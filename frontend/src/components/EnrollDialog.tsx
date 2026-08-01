@@ -203,16 +203,20 @@ export function EnrollDialog({
               variant="ghost"
               size="sm"
               title="Mois précédent"
-              disabled={selectedMonth <= month}
               onClick={() => changeMonth(previousMonth(selectedMonth))}
             >
               <ChevronLeft className="size-4" />
             </Button>
             <span className="text-sm font-medium capitalize">
               {monthLabel(selectedMonth)}
-              {selectedMonth !== month && (
+              {selectedMonth > currentMonth() && (
                 <span className="text-muted-foreground ml-2 text-xs font-normal">
                   mois à venir
+                </span>
+              )}
+              {selectedMonth < currentMonth() && (
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  rattrapage — impayé immédiat
                 </span>
               )}
             </span>

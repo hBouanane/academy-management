@@ -117,6 +117,13 @@ def levels(conn: Conn) -> list[dict]:
     return crud.list_levels(conn, default_academy_id(conn))
 
 
+def _ten_digit_phone(value: str) -> str:
+    digits = value.replace(" ", "").replace("-", "").replace(".", "")
+    if not (digits.isdigit() and len(digits) == 10):
+        raise ValueError("le téléphone doit contenir exactement 10 chiffres")
+    return digits
+
+
 class PhoneField(BaseModel):
     """Phones are normalized to digits and must hold exactly 10 of them.
 
@@ -129,10 +136,19 @@ class PhoneField(BaseModel):
     def _ten_digits(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return value
-        digits = value.replace(" ", "").replace("-", "").replace(".", "")
-        if not (digits.isdigit() and len(digits) == 10):
-            raise ValueError("le téléphone doit contenir exactement 10 chiffres")
-        return digits
+        return _ten_digit_phone(value)
+
+
+class PhoneIn(BaseModel):
+    """One tagged phone line: étudiant, mère, père, …"""
+
+    tag: str
+    number: str
+
+    @field_validator("number")
+    @classmethod
+    def _ten_digits(cls, value: str) -> str:
+        return _ten_digit_phone(value)
 
 
 class NamedCreate(PhoneField):
@@ -333,13 +349,47 @@ def patch_package(package_id: int, patch: PackagePatch, conn: Conn) -> dict:
 
 class StudentCreate(PhoneField):
     name: str
+    first_name: str | None = None
     level_id: int
+    annee: int | None = Field(None, ge=1, le=6)
+    filiere: str | None = None
+    school: str | None = None
+    phones: list[PhoneIn] = []
 
 
 class StudentPatch(PhoneField):
     name: str | None = None
+    first_name: str | None = None
     level_id: int | None = None
+    annee: int | None = Field(None, ge=1, le=6)
+    filiere: str | None = None
+    school: str | None = None
+    phones: list[PhoneIn] | None = None
     is_active: bool | None = None
+
+
+def _student_fields(body: StudentCreate | StudentPatch, conn, academy_id: int) -> dict:
+    """API shape -> storage shape: the school name becomes a managed-list id,
+    the legacy single `phone` becomes a tagged line, and the first tagged
+    number is denormalized back into student.phone for lists and exports."""
+    fields = body.model_dump(
+        exclude_none=True, exclude={"school", "phones", "is_active"}
+    )
+    if isinstance(body, StudentPatch) and body.is_active is not None:
+        fields["is_active"] = int(body.is_active)
+    if body.school is not None:
+        fields["school_id"] = (
+            crud.get_or_create_school(conn, academy_id, body.school)
+            if body.school
+            else None
+        )
+    phones = body.phones
+    if not phones and body.phone:
+        phones = [PhoneIn(tag="étudiant", number=body.phone)]
+    if phones is not None:
+        fields["phones"] = [phone.model_dump() for phone in phones]
+        fields["phone"] = phones[0].number if phones else None
+    return fields
 
 
 @router.get("/students")
@@ -358,14 +408,31 @@ def students(
 def create_student(body: StudentCreate, conn: Conn) -> dict:
     academy_id = default_academy_id(conn)
     student_id = crud.create_student(
-        conn, academy_id, body.name, body.level_id, body.phone
+        conn, academy_id, _student_fields(body, conn, academy_id)
     )
     return {"id": student_id}
 
 
+@router.get("/schools")
+def schools(conn: Conn) -> list[dict]:
+    return crud.list_schools(conn, default_academy_id(conn))
+
+
+@router.get("/students/{student_id}/profile")
+def student_profile(student_id: int, conn: Conn) -> dict:
+    profile = crud.student_profile(conn, student_id)
+    if profile is None:
+        raise LookupError(f"no student {student_id}")
+    return profile
+
+
 @router.patch("/students/{student_id}")
 def patch_student(student_id: int, patch: StudentPatch, conn: Conn) -> dict:
-    crud.update_student(conn, student_id, _lifecycle_fields(patch))
+    fields = _student_fields(patch, conn, default_academy_id(conn))
+    if patch.phone == "" and patch.phones is None:
+        fields["phone"] = None  # legacy "clear it" path
+        fields["phones"] = []
+    crud.update_student(conn, student_id, fields)
     return {"id": student_id}
 
 
@@ -426,7 +493,8 @@ def overview(month: MonthPath, conn: Conn) -> list[dict]:
 
 @router.post("/enrollments", status_code=201)
 def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
-    _require_open_month(body.month)
+    # Backfill is allowed: he really started in August, entered in September —
+    # the past month's enrollment lands directly as an unpaid arrear.
     price = body.price_centimes
     if price is None and body.arrival_date is not None:
         from datetime import date
@@ -526,7 +594,13 @@ def _check_adjustment_is_postable(
     )
     validate_adjustment(
         context,
-        ConfiguredAdjustment(0, spec, bearers, shares_spec=_shares_spec(body.bearers)),
+        ConfiguredAdjustment(
+            0,
+            spec,
+            bearers,
+            shares_spec=_shares_spec(body.bearers),
+            category=body.category,
+        ),
     )
 
 
@@ -621,7 +695,14 @@ def _validate_adjustment_edit(
         bearers = (Beneficiary("owner", context.owner_id),)
         shares_spec = None
     validate_adjustment(
-        context, ConfiguredAdjustment(0, spec, bearers, shares_spec=shares_spec)
+        context,
+        ConfiguredAdjustment(
+            0,
+            spec,
+            bearers,
+            shares_spec=shares_spec,
+            category=body.category or row["category"],
+        ),
     )
 
 

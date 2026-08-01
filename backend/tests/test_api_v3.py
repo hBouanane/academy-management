@@ -115,11 +115,12 @@ class TestAgendaMonths:
             client, level, [class_id], month="2026-08"
         )
         monkeypatch.setattr(clock, "current_month", lambda: "2026-09")
-        # New enrollment in a past month -> locked.
+        # New enrollment in a past month -> allowed (backfill: he really
+        # started in August, the paperwork arrived in September).
         student2 = client.post(
             "/api/students", json={"name": "Lina", "level_id": level}
         ).json()["id"]
-        blocked = client.post(
+        backfilled = client.post(
             "/api/enrollments",
             json={
                 "student_id": student2,
@@ -128,7 +129,7 @@ class TestAgendaMonths:
                 "class_ids": [class_id],
             },
         )
-        assert blocked.status_code == 409
+        assert backfilled.status_code == 201
         # Negotiating an UNPAID past month down -> allowed (that's how arrears
         # get settled, and how reverse-then-fix works).
         negotiated = client.post(

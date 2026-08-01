@@ -32,10 +32,6 @@ class ReductionsExceedPriceError(ValueError):
     pass
 
 
-class ShareBelowZeroError(ValueError):
-    pass
-
-
 @dataclass(frozen=True)
 class PostedPayment:
     payment_id: int
@@ -49,8 +45,7 @@ def post_payment(
     context = _context_or_raise(store, enrollment_id)
     allocations = _base_split(context)
     adjustments = _resolved_adjustments(context)
-    reduced = apply_adjustments(allocations, [adj for _, adj in adjustments])
-    _assert_sponsored_shares_hold(reduced, adjustments)
+    apply_adjustments(allocations, [adj for _, adj in adjustments])  # bearer check
     net_amount = _net_amount(context, adjustments)
     lines = _ledger_lines(net_amount, allocations, adjustments)
     payment_id = store.record(context, net_amount, lines, paid_on)
@@ -71,8 +66,7 @@ def validate_adjustment(
     candidate = replace(context, adjustments=(*context.adjustments, configured))
     allocations = _base_split(candidate)
     adjustments = _resolved_adjustments(candidate)
-    reduced = apply_adjustments(allocations, [adj for _, adj in adjustments])
-    _assert_sponsored_shares_hold(reduced, adjustments)
+    apply_adjustments(allocations, [adj for _, adj in adjustments])  # bearer check
     _net_amount(candidate, adjustments)  # over-reduction check
 
 
@@ -210,9 +204,38 @@ def _resolve_one(
         price=context.price,
         subject_count=len(context.subject_teachers),
     )
+    if configured.category == "gift" and not configured.bearers:
+        # Mois offert: EVERYONE forgoes proportionally — professors, salle
+        # and académie all land on zero for a 100% gift. Nobody earns.
+        allocations = _base_split(context)
+        return Adjustment(
+            reduction=reduction,
+            borne_by=tuple(a.beneficiary for a in allocations),
+            shares=_proportional_shares(allocations, reduction),
+        )
     bearers = configured.bearers or (Beneficiary("owner", context.owner_id),)
     shares = _resolve_shares(configured, reduction)
     return Adjustment(reduction=reduction, borne_by=bearers, shares=shares)
+
+
+def _proportional_shares(
+    allocations: tuple[Allocation, ...], reduction: Centimes
+) -> tuple[Centimes, ...]:
+    """Split the reduction across all beneficiaries, weighted by what each
+    receives; flooring loss goes to the largest remainders so the parts
+    always sum exactly (a full gift therefore zeroes every share)."""
+    total = sum(allocation.amount for allocation in allocations)
+    if total == 0:
+        return tuple(0 for _ in allocations)
+    raw = [(a.amount * reduction) // total for a in allocations]
+    by_remainder = sorted(
+        range(len(allocations)),
+        key=lambda i: (allocations[i].amount * reduction) % total,
+        reverse=True,
+    )
+    for offset in range(reduction - sum(raw)):
+        raw[by_remainder[offset % len(by_remainder)]] += 1
+    return tuple(raw)
 
 
 def _resolve_shares(
@@ -250,31 +273,6 @@ def _resolve_shares(
             f" la réduction ({reduction / 100:.2f} DH)"
         )
     return tuple(resolved)
-
-
-def _assert_sponsored_shares_hold(
-    reduced: tuple[Allocation, ...],
-    adjustments: list[tuple[int, Adjustment]],
-) -> None:
-    """A sponsor who declared an explicit part may end at zero, never below.
-
-    Bearer-less adjustments (gifts, default-owner discounts) keep the
-    owner-absorbs semantics: there the ledger may go negative — it shows
-    reality. NOT enforced in payment_preview, so a legacy over-cap row still
-    renders and can be repaired from the dialog."""
-    sponsored = {
-        bearer
-        for _, adjustment in adjustments
-        if adjustment.shares is not None
-        for bearer in adjustment.borne_by
-    }
-    for allocation in reduced:
-        if allocation.beneficiary in sponsored and allocation.amount < 0:
-            raise ShareBelowZeroError(
-                "la part d'un sponsor dépasse ce qu'il reçoit sur cette"
-                f" inscription (solde {allocation.amount / 100:.2f} DH) —"
-                " une part ne peut pas devenir négative"
-            )
 
 
 def _net_amount(

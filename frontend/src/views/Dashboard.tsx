@@ -17,6 +17,7 @@ import { ConfirmButton } from "@/components/Confirm"
 import { EnrollDialog } from "@/components/EnrollDialog"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { StudentProfile } from "@/components/StudentProfile"
 import { PayDialog } from "@/components/PayDialog"
 import { ReverseDialog } from "@/components/ReverseDialog"
 import { apiGet, apiSend } from "@/lib/api"
@@ -36,6 +37,7 @@ export function Dashboard({ month, setMonth }: Props) {
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
   )
+  const [profileId, setProfileId] = useState<number | null>(null)
   // Browsing an old month: rows of students who were not enrolled then are
   // noise, so the filter switches itself on (still uncheckable).
   const [enrolledOnly, setEnrolledOnly] = useState(false)
@@ -175,6 +177,7 @@ export function Dashboard({ month, setMonth }: Props) {
                   onEnrolled={(id) =>
                     setPayTarget({ id, name: row.student_name })
                   }
+                  onShowProfile={setProfileId}
                 />
               ))}
               {filtered.length === 0 && (
@@ -206,6 +209,8 @@ export function Dashboard({ month, setMonth }: Props) {
           }}
         />
       )}
+
+      <StudentProfile studentId={profileId} onClose={() => setProfileId(null)} />
     </div>
   )
 }
@@ -245,6 +250,7 @@ function StudentRow({
   locked,
   onDone,
   onEnrolled,
+  onShowProfile,
 }: {
   row: OverviewRow
   index: number
@@ -252,6 +258,7 @@ function StudentRow({
   locked: boolean
   onDone: () => void
   onEnrolled: (enrollmentId: number) => void
+  onShowProfile: (studentId: number) => void
 }) {
   const enrollment = row.enrollment
   const reduced =
@@ -268,7 +275,13 @@ function StudentRow({
   return (
     <TableRow className={rowClass} style={{ animationDelay: `${index * 40}ms` }}>
       <TableCell>
-        <p className="font-medium">{row.student_name}</p>
+        <button
+          className="hover:text-foreground/70 font-medium underline-offset-4 transition-colors hover:underline"
+          onClick={() => onShowProfile(row.student_id)}
+          title="Ouvrir le profil"
+        >
+          {row.student_name}
+        </button>
         <p className="text-muted-foreground text-xs">{row.level_name}</p>
         {row.has_arrears && (
           <Badge variant="destructive" className="mt-1 gap-1">

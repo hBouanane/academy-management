@@ -52,16 +52,39 @@ export type SplitChip = {
   name: string
   final_centimes: number
 }
+export type PhoneEntry = { tag: string; number: string }
+export type School = { id: number; name: string }
 export type Student = {
   id: number
   name: string
+  first_name: string | null
   phone: string | null
   level_id: number
   level_name: string
+  annee: number | null
+  filiere: string | null
+  school_name: string | null
+  created_at: string | null
   is_active: number
   unpaid_months: number
   month_enrollment_id: number | null
   month_paid: number
+  ever_enrolled: number
+}
+export type ProfileMonth = {
+  month: string
+  enrollment_id: number
+  price_centimes: number
+  net_centimes: number
+  paid: boolean
+  paid_on: string | null
+  arrival_date: string | null
+  subject_count: number
+  subjects: string[]
+}
+export type StudentProfile = Student & {
+  phones: PhoneEntry[]
+  months: ProfileMonth[]
 }
 export type EnrollmentClass = {
   id: number

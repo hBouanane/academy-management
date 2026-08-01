@@ -10,11 +10,7 @@ from app.ports.payments import (
     EnrollmentContext,
     UnknownEnrollmentError,
 )
-from app.services.payments import (
-    ReductionsExceedPriceError,
-    ShareBelowZeroError,
-    post_payment,
-)
+from app.services.payments import ReductionsExceedPriceError, post_payment
 
 DH = 100
 
@@ -141,9 +137,9 @@ def test_unknown_enrollment_is_refused():
         post_payment(store, 404)
 
 
-def test_explicit_sponsor_share_may_not_overdraw_its_bearer():
-    # A declared sponsor part is a promise bounded by what they receive —
-    # unlike gifts, where the bearer-less owner knowingly absorbs everything.
+def test_explicit_sponsor_share_may_overdraw_its_bearer():
+    # Client rule: a negative share is a WARNING in the UI, never a block —
+    # the ledger shows reality (owner receives 30, sponsors 50 -> -20).
     discount = ConfiguredAdjustment(
         adjustment_id=8,
         spec=AdjustmentSpec(kind="amount", value=70 * DH, scope="package"),
@@ -151,8 +147,13 @@ def test_explicit_sponsor_share_may_not_overdraw_its_bearer():
         shares_spec=((50 * DH, None), (20 * DH, None)),
     )
     store = FakeStore(context(adjustments=[discount]))
-    with pytest.raises(ShareBelowZeroError):
-        post_payment(store, 11)
+    posted = post_payment(store, 11)
+    cuts = {
+        line.beneficiary: line.amount
+        for line in posted.lines
+        if line.entry_type == "adjustment"
+    }
+    assert cuts[OWNER] == -50 * DH
 
 
 def test_reductions_beyond_the_price_are_refused():

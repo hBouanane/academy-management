@@ -157,11 +157,11 @@ export function ReductionForm({
       sponsorCentimes[index] > capFor(sponsor.target),
   )
   const targetsValid = sponsors.every((sponsor) => resolveTarget(sponsor.target))
+  // Client rule: an over-cap part WARNS (red note) but never blocks.
   const valid =
     Number.isFinite(totalCentimes) &&
     totalCentimes > 0 &&
     !mismatch &&
-    overCapIndex === -1 &&
     targetsValid &&
     sponsors.length > 0
 
@@ -326,11 +326,11 @@ export function ReductionForm({
       <Notice
         message={
           overCapIndex !== -1
-            ? `Maximum pour ${
+            ? `Attention : ${
                 resolveTarget(sponsors[overCapIndex].target)?.name
-              } : ${formatDH(
+              } ne reçoit que ${formatDH(
                 capFor(sponsors[overCapIndex].target),
-              )} — une part ne peut pas devenir négative.`
+              )} — sa part deviendra négative. Autorisé, mais vérifiez.`
             : null
         }
       />

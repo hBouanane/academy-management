@@ -171,7 +171,7 @@ class SqlitePaymentStore:
         self, enrollment_id: int, class_ids: list[int]
     ) -> tuple[ConfiguredAdjustment, ...]:
         rows = self._conn.execute(
-            "SELECT id, scope, class_id, kind, value FROM adjustment"
+            "SELECT id, scope, class_id, kind, value, category FROM adjustment"
             " WHERE enrollment_id = ? AND is_active = 1",
             (enrollment_id,),
         ).fetchall()
@@ -195,6 +195,7 @@ class SqlitePaymentStore:
             spec=spec,
             bearers=bearers,
             shares_spec=shares_spec,
+            category=row["category"],
         )
 
     def _bearers(

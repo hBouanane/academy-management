@@ -211,9 +211,9 @@ class TestReviewFixes:
         assert row["enrollment"]["price_centimes"] == 300 * DH  # full again
 
 
-class TestSponsorCaps:
-    def test_sponsor_part_beyond_their_share_is_refused(self, client):
-        # The owner receives 30 DH of a 300 DH package — they cannot cover 50.
+class TestSponsorWarnings:
+    def test_sponsor_part_beyond_their_share_is_accepted(self, client):
+        # Client rule: negative shares warn in the UI but never block money.
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         response = client.post(
@@ -227,10 +227,17 @@ class TestSponsorCaps:
                 ],
             },
         )
-        assert response.status_code == 422
-        assert "négative" in response.json()["detail"]
+        assert response.status_code == 201, response.text
+        owner = next(
+            line
+            for line in client.get(f"/api/enrollments/{enrollment}/preview").json()[
+                "lines"
+            ]
+            if line["kind"] == "owner"
+        )
+        assert owner["final_centimes"] == -20 * DH
 
-    def test_stacked_sponsor_parts_cannot_cross_zero(self, client):
+    def test_stacked_sponsor_parts_may_cross_zero(self, client):
         level, class_id, _, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
 
@@ -247,24 +254,9 @@ class TestSponsorCaps:
             )
 
         assert cover(20 * DH).status_code == 201  # owner: 30 -> 10
-        assert cover(20 * DH).status_code == 422  # 10 - 20 would go below zero
+        assert cover(20 * DH).status_code == 201  # 10 -> -10: warned, not blocked
 
-    def test_gift_month_still_lets_the_owner_fund_everyone(self, client):
-        # « Mois offert » sends no explicit parts: the owner absorbs the whole
-        # price so teachers and the venue still get paid — by design.
-        level, class_id, _, package = setup_base(client)
-        _, enrollment = enroll(client, level, package, class_id)
-        gift = client.post(
-            f"/api/enrollments/{enrollment}/adjustments",
-            json={"kind": "percent", "value": 10_000, "category": "gift"},
-        )
-        assert gift.status_code == 201, gift.text
-        paid = client.post("/api/payments", json={"enrollment_id": enrollment})
-        assert paid.status_code == 201, paid.text
-
-    def test_legacy_over_cap_share_previews_but_refuses_to_post(self, client):
-        # Rows created before the cap existed must still render in the dialog
-        # (that is the repair path) yet refuse to move money.
+    def test_over_cap_share_previews_and_posts(self, client):
         level, class_id, _, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         legacy = sqlite3.connect(client.app.state.db_path)
@@ -287,8 +279,7 @@ class TestSponsorCaps:
         )
         assert owner["final_centimes"] == -20 * DH
         paid = client.post("/api/payments", json={"enrollment_id": enrollment})
-        assert paid.status_code == 422
-        assert "négative" in paid.json()["detail"]
+        assert paid.status_code == 201, paid.text
 
 
 class TestAdjustmentLifecycle:

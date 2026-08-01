@@ -186,7 +186,7 @@ export function PayDialog({
                           size="sm"
                           variant="outline"
                           confirmLabel="Offrir ce mois ?"
-                          description="Le mois passe à 0 DH — l'académie prend le coût en charge pour ne pas pénaliser les professeurs."
+                          description="Le mois passe à 0 DH pour tout le monde — professeurs, salle et académie ne touchent rien sur un mois offert."
                           onConfirm={giftMonth}
                           disabled={busy}
                         >

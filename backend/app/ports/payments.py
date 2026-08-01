@@ -33,6 +33,8 @@ class ConfiguredAdjustment:
     # Per-sponsor parts aligned with bearers: (share_centimes, share_bp) each,
     # (None, None) meaning "equal split". None entirely = legacy equal split.
     shares_spec: tuple[tuple[int | None, int | None], ...] | None = None
+    # 'gift' changes the default bearers: EVERYONE forgoes proportionally.
+    category: str = "discount"
 
 
 @dataclass(frozen=True)
