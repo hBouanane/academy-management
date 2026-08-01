@@ -306,11 +306,6 @@ export function EnrollDialog({
                       }
                     />
                     {classRow.subject_name} — {classRow.teacher_name}
-                    {classRow.name !== "A" && (
-                      <span className="text-muted-foreground text-xs">
-                        (Groupe {classRow.name})
-                      </span>
-                    )}
                   </label>
                 )
               })}

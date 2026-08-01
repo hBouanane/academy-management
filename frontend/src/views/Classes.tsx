@@ -1,6 +1,8 @@
-// Classes are the match between a teachable slot (niveau → année → parcours →
-// matière) and a capable professor. One wizard creates everything in a single
-// flow — matière and professeur can be created inline, no page hopping.
+// The read-mostly overview of open classes, one table per niveau. Creation
+// happens through THE tree (pick one slot) then a capable professor — and
+// most of the time not even here: profs open their classes from their
+// profile. No « Groupe A » : a class alone needs no label; siblings are
+// told apart by their professor.
 
 import { useCallback, useEffect, useState } from "react"
 import {
@@ -8,10 +10,8 @@ import {
   ArchiveRestore,
   Copy,
   FileText,
-  Pencil,
   UserRoundPen,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -41,21 +41,25 @@ import {
 import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { ProgramTree } from "@/components/ProgramTree"
+import type { TreeSlot } from "@/components/ProgramTree"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, ClassRow, Level, Subject, Teacher } from "@/lib/api"
-import {
-  hasFiliere,
-  parcoursOptions,
-  segmentLabel,
-  teachingAnnees,
-} from "@/lib/levels"
+import { anneeLabel } from "@/lib/levels"
 
 const todayIso = () => {
   const now = new Date()
   const month = String(now.getMonth() + 1).padStart(2, "0")
   return `${now.getFullYear()}-${month}-${String(now.getDate()).padStart(2, "0")}`
 }
+
+const sameSlot = (a: ClassRow, b: ClassRow) =>
+  a.level_id === b.level_id &&
+  a.subject_id === b.subject_id &&
+  a.annee === b.annee &&
+  a.parcours === b.parcours &&
+  a.filiere === b.filiere
 
 type Props = { month: string; setMonth: (month: string) => void }
 
@@ -67,10 +71,9 @@ export function Classes({ month, setMonth }: Props) {
   const [capabilities, setCapabilities] = useState<Capability[]>([])
   const [showArchived, setShowArchived] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [wizardOpen, setWizardOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [replaceTarget, setReplaceTarget] = useState<ClassRow | null>(null)
   const [duplicateTarget, setDuplicateTarget] = useState<ClassRow | null>(null)
-  const [editTarget, setEditTarget] = useState<ClassRow | null>(null)
   const [profileTeacher, setProfileTeacher] = useState<number | null>(null)
 
   const reload = useCallback(() => {
@@ -91,138 +94,173 @@ export function Classes({ month, setMonth }: Props) {
       .then(reload)
       .catch((err: Error) => setError(err.message))
 
+  const byLevel = levels
+    .map((level) => ({
+      level,
+      classes: rows.filter((row) => row.level_id === level.id),
+    }))
+    .filter((group) => group.classes.length > 0)
+
+  const rowLabel = (row: ClassRow) => {
+    const siblings = rows.filter(
+      (other) => other.is_active === 1 && sameSlot(other, row),
+    )
+    if (siblings.length <= 1) return ""
+    const sameTeacher = siblings.filter(
+      (other) => other.teacher_name === row.teacher_name,
+    )
+    if (sameTeacher.length <= 1) return ` · groupe de ${row.teacher_name}`
+    const position = sameTeacher.findIndex((other) => other.id === row.id) + 1
+    return ` · groupe de ${row.teacher_name} №${position}`
+  }
+
+  const segment = (row: ClassRow) => {
+    const parts: string[] = []
+    const annee = anneeLabel(row.level_name, row.annee)
+    if (annee) parts.push(annee)
+    if (row.parcours) parts.push(row.parcours)
+    if (row.annee !== null && !row.parcours && row.level_name === "Collège" && row.annee === 3)
+      parts.push("classe commune")
+    if (row.filiere) parts.push(row.filiere)
+    return parts.join(" · ") || "—"
+  }
+
   return (
     <div className="view-enter space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Classes</h2>
           <p className="text-muted-foreground text-sm">
-            Une classe = un créneau (niveau, année, matière) confié à un
-            professeur — tout se crée ici, en une fois
+            Les classes ouvertes — elles naissent surtout depuis le profil des
+            professeurs
           </p>
         </div>
         <div className="flex items-center gap-2">
           <MonthNav month={month} setMonth={setMonth} />
-          <Button onClick={() => setWizardOpen(true)}>Nouvelle classe</Button>
+          <Button onClick={() => setCreateOpen(true)}>Nouvelle classe</Button>
         </div>
       </header>
 
       <Notice message={error} />
 
-      <div className="surface-card p-5">
-        <label className="text-muted-foreground mb-4 flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={showArchived}
-            onCheckedChange={(checked) => setShowArchived(checked === true)}
-          />
-          Afficher les classes archivées
-        </label>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Matière</TableHead>
-              <TableHead>Segment</TableHead>
-              <TableHead>Professeur</TableHead>
-              <TableHead>Inscrits ({month})</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row, index) => (
-              <TableRow
-                key={row.id}
-                className="stagger-row"
-                style={{ animationDelay: `${index * 40}ms` }}
-              >
-                <TableCell className="font-medium">
-                  {row.subject_name}
-                  <Badge variant="outline" className="ml-2">
-                    Groupe {row.name}
-                  </Badge>
-                  {!row.is_active && (
-                    <Badge variant="outline" className="ml-1">
-                      Archivée
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {segmentLabel(row)}
-                </TableCell>
-                <TableCell>
-                  <button
-                    className="underline-offset-4 hover:underline"
-                    onClick={() => setProfileTeacher(row.teacher_id)}
-                    title="Profil du professeur"
-                  >
-                    {row.teacher_name}
-                  </button>
-                </TableCell>
-                <TableCell>{row.enrolled_count ?? 0}</TableCell>
-                <TableCell className="space-x-1 text-right whitespace-nowrap">
-                  <Button size="sm" variant="ghost" asChild title="Liste d'absence (Word)">
-                    <a
-                      href={`/api/classes/${row.id}/absence.docx?month=${month}`}
-                      download
-                    >
-                      <FileText className="size-4" />
-                    </a>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    title="Remplacer le professeur (daté — l'argent suit les jours)"
-                    onClick={() => setReplaceTarget(row)}
-                  >
-                    <UserRoundPen className="size-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    title="Dédoubler — créer le groupe suivant"
-                    onClick={() => setDuplicateTarget(row)}
-                  >
-                    <Copy className="size-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    title="Modifier"
-                    onClick={() => setEditTarget(row)}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <ConfirmButton
-                    size="sm"
-                    variant="ghost"
-                    confirmLabel={
-                      row.is_active ? "Archiver cette classe ?" : "Restaurer ?"
-                    }
-                    description="Réversible — l'historique financier reste intact."
-                    onConfirm={() => setActive(row, !row.is_active)}
-                  >
-                    {row.is_active ? (
-                      <Archive className="size-4" />
-                    ) : (
-                      <ArchiveRestore className="size-4" />
-                    )}
-                  </ConfirmButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-muted-foreground text-center">
-                  Aucune classe — créez la première.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <label className="text-muted-foreground flex items-center gap-2 text-sm">
+        <Checkbox
+          checked={showArchived}
+          onCheckedChange={(checked) => setShowArchived(checked === true)}
+        />
+        Afficher les classes archivées
+      </label>
 
-      <ClassWizard
-        open={wizardOpen}
-        onOpenChange={setWizardOpen}
+      {byLevel.length === 0 && (
+        <div className="surface-card p-8 text-center">
+          <p className="text-muted-foreground text-sm">
+            Aucune classe. Créez un professeur, cochez son arbre, puis « ouvrir
+            la classe » depuis son profil — ou utilisez « Nouvelle classe ».
+          </p>
+        </div>
+      )}
+
+      {byLevel.map(({ level, classes }) => (
+        <div key={level.id} className="surface-card p-5">
+          <h3 className="mb-3 font-medium">{level.name}</h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Matière</TableHead>
+                <TableHead>Année · Parcours</TableHead>
+                <TableHead>Professeur</TableHead>
+                <TableHead>Inscrits ({month})</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {classes.map((row, index) => (
+                <TableRow
+                  key={row.id}
+                  className="stagger-row"
+                  style={{ animationDelay: `${index * 40}ms` }}
+                >
+                  <TableCell className="font-medium">
+                    {row.subject_name}
+                    <span className="text-muted-foreground text-xs">
+                      {rowLabel(row)}
+                    </span>
+                    {!row.is_active && (
+                      <span className="text-muted-foreground text-xs">
+                        {" "}
+                        (archivée)
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {segment(row)}
+                  </TableCell>
+                  <TableCell>
+                    <button
+                      className="underline-offset-4 hover:underline"
+                      onClick={() => setProfileTeacher(row.teacher_id)}
+                      title="Profil du professeur"
+                    >
+                      {row.teacher_name}
+                    </button>
+                  </TableCell>
+                  <TableCell>{row.enrolled_count ?? 0}</TableCell>
+                  <TableCell className="space-x-1 text-right whitespace-nowrap">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      asChild
+                      title="Liste d'absence (Word)"
+                    >
+                      <a
+                        href={`/api/classes/${row.id}/absence.docx?month=${month}`}
+                        download
+                      >
+                        <FileText className="size-4" />
+                      </a>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="Remplacer le professeur (daté — l'argent suit les jours)"
+                      onClick={() => setReplaceTarget(row)}
+                    >
+                      <UserRoundPen className="size-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="Dédoubler — un deuxième groupe du même créneau"
+                      onClick={() => setDuplicateTarget(row)}
+                    >
+                      <Copy className="size-4" />
+                    </Button>
+                    <ConfirmButton
+                      size="sm"
+                      variant="ghost"
+                      confirmLabel={
+                        row.is_active ? "Archiver cette classe ?" : "Restaurer ?"
+                      }
+                      description="Réversible — l'historique financier reste intact."
+                      onConfirm={() => setActive(row, !row.is_active)}
+                    >
+                      {row.is_active ? (
+                        <Archive className="size-4" />
+                      ) : (
+                        <ArchiveRestore className="size-4" />
+                      )}
+                    </ConfirmButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ))}
+
+      <NewClassDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
         levels={levels}
         subjects={subjects}
         teachers={teachers}
@@ -254,28 +292,17 @@ export function Classes({ month, setMonth }: Props) {
         />
       )}
 
-      {editTarget && (
-        <EditClassDialog
-          target={editTarget}
-          teachers={teachers}
-          onClose={() => setEditTarget(null)}
-          onDone={() => {
-            setEditTarget(null)
-            reload()
-          }}
-        />
-      )}
-
       <TeacherProfile
         teacherId={profileTeacher}
         month={month}
         onClose={() => setProfileTeacher(null)}
+        onChanged={reload}
       />
     </div>
   )
 }
 
-function ClassWizard({
+function NewClassDialog({
   open,
   onOpenChange,
   levels,
@@ -292,93 +319,71 @@ function ClassWizard({
   capabilities: Capability[]
   onDone: () => void
 }) {
-  const [levelId, setLevelId] = useState("")
-  const [annee, setAnnee] = useState("")
-  const [parcours, setParcours] = useState("")
-  const [filiere, setFiliere] = useState("")
-  const [subjectId, setSubjectId] = useState("")
-  const [newSubject, setNewSubject] = useState("")
-  const [teacherId, setTeacherId] = useState("")
-  const [showAllTeachers, setShowAllTeachers] = useState(false)
-  const [newTeacherName, setNewTeacherName] = useState("")
-  const [newTeacherPhone, setNewTeacherPhone] = useState("")
+  const [picked, setPicked] = useState<TreeSlot | null>(null)
+  const [teacherId, setTeacherId] = useState<number | null>(null)
+  const [draft, setDraft] = useState("")
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setLevelId("")
-    setAnnee("")
-    setParcours("")
-    setFiliere("")
-    setSubjectId("")
-    setNewSubject("")
-    setTeacherId("")
-    setShowAllTeachers(false)
-    setNewTeacherName("")
-    setNewTeacherPhone("")
+    setPicked(null)
+    setTeacherId(null)
+    setDraft("")
     setNote(null)
     setBusy(false)
   }, [open])
 
-  const levelName = levels.find((level) => String(level.id) === levelId)?.name ?? ""
-  const annees = teachingAnnees(levelName)
-  const parcoursChoices = parcoursOptions(levelName, annee)
-
-  // A prof is proposed when a capability matches the slot (NULL = wildcard).
-  const capableIds = new Set(
-    capabilities
-      .filter(
-        (capability) =>
-          String(capability.level_id) === levelId &&
-          (subjectId === "" || String(capability.subject_id) === subjectId) &&
-          (capability.annee === null ||
-            annee === "" ||
-            String(capability.annee) === annee) &&
-          (capability.parcours === null ||
-            parcours === "" ||
-            capability.parcours === parcours),
+  // Capable = a capability matching the picked slot (NULL acts as wildcard).
+  const capable = picked
+    ? teachers.filter((teacher) =>
+        capabilities.some(
+          (capability) =>
+            capability.teacher_id === teacher.id &&
+            capability.level_id === picked.level_id &&
+            capability.subject_id === picked.subject_id &&
+            (capability.annee === null ||
+              picked.annee === null ||
+              capability.annee === picked.annee) &&
+            (capability.parcours === null ||
+              picked.parcours === null ||
+              capability.parcours === picked.parcours),
+        ),
       )
-      .map((capability) => capability.teacher_id),
-  )
-  const proposedTeachers = showAllTeachers
-    ? teachers
-    : teachers.filter((teacher) => capableIds.has(teacher.id))
+    : []
 
   const submit = async () => {
-    if (!levelId) return setNote("Choisissez un niveau.")
-    if (annees.length > 0 && !annee) return setNote("Choisissez l'année.")
-    if (parcoursChoices.length > 0 && !parcours)
-      return setNote("Choisissez le parcours (Normal ou Râ'ida).")
-    if (!subjectId && !newSubject.trim())
-      return setNote("Choisissez une matière ou saisissez-en une nouvelle.")
-    if (!teacherId && !newTeacherName.trim())
-      return setNote("Choisissez un professeur ou créez-en un.")
+    if (!picked) {
+      setNote("Choisissez un créneau dans l'arbre (une matière).")
+      return
+    }
+    let chosen = teacherId
+    const typed = draft.trim()
+    if (chosen === null && !typed) {
+      setNote("Choisissez un professeur, ou tapez son nom (nouveau ou existant).")
+      return
+    }
     setNote(null)
     setBusy(true)
     try {
-      const subject = newSubject.trim()
-        ? (
-            await apiSend<{ id: number }>("POST", "/api/subjects", {
-              name: newSubject.trim(),
-            })
-          ).id
-        : Number(subjectId)
-      const teacher = newTeacherName.trim()
-        ? (
-            await apiSend<{ id: number }>("POST", "/api/teachers", {
-              name: newTeacherName.trim(),
-              phone: newTeacherPhone.replace(/[\s.-]/g, "") || null,
-            })
-          ).id
-        : Number(teacherId)
+      if (chosen === null) {
+        const existing = teachers.find(
+          (teacher) => teacher.name.toLowerCase() === typed.toLowerCase(),
+        )
+        chosen = existing
+          ? existing.id
+          : (
+              await apiSend<{ id: number }>("POST", "/api/teachers", {
+                name: typed,
+              })
+            ).id
+      }
       await apiSend("POST", "/api/classes", {
-        level_id: Number(levelId),
-        subject_id: subject,
-        teacher_id: teacher,
-        annee: annee ? Number(annee) : null,
-        parcours: parcours || null,
-        filiere: hasFiliere(levelName, annee) ? filiere.trim() || null : null,
+        level_id: picked.level_id,
+        subject_id: picked.subject_id,
+        teacher_id: chosen,
+        annee: picked.annee,
+        parcours: picked.parcours,
       })
       onOpenChange(false)
       onDone()
@@ -390,178 +395,74 @@ function ClassWizard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Nouvelle classe</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-3">
-            <div className="min-w-32 flex-1 space-y-2">
-              <Label>Niveau</Label>
-              <Select
-                value={levelId}
-                onValueChange={(value) => {
-                  setLevelId(value)
-                  setAnnee("")
-                  setParcours("")
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Niveau" />
-                </SelectTrigger>
-                <SelectContent>
-                  {levels.map((level) => (
-                    <SelectItem key={level.id} value={String(level.id)}>
-                      {level.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {annees.length > 0 && (
-              <div className="min-w-32 flex-1 space-y-2">
-                <Label>Année</Label>
-                <Select
-                  value={annee}
-                  onValueChange={(value) => {
-                    setAnnee(value)
-                    setParcours("")
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Année" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {annees.map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {parcoursChoices.length > 0 && (
-              <div className="min-w-32 flex-1 space-y-2">
-                <Label>Parcours</Label>
-                <Select value={parcours} onValueChange={setParcours}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Parcours" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {parcoursChoices.map((choice) => (
-                      <SelectItem key={choice} value={choice}>
-                        {choice}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {hasFiliere(levelName, annee) && (
-              <div className="min-w-36 flex-1 space-y-2">
-                <Label>
-                  Filière <span className="text-muted-foreground">(optionnel)</span>
-                </Label>
-                <Input
-                  value={filiere}
-                  onChange={(event) => setFiliere(event.target.value)}
-                  placeholder="Toutes filières"
-                />
-              </div>
-            )}
+          <div>
+            <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+              1 — Choisissez le créneau dans l'arbre
+            </p>
+            <ProgramTree
+              mode="pick"
+              levels={levels}
+              subjects={subjects}
+              picked={picked}
+              onPick={setPicked}
+              onGrown={onDone}
+            />
           </div>
 
-          <div className="space-y-2">
-            <Label>Matière</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={subjectId}
-                onValueChange={(value) => {
-                  setSubjectId(value)
-                  setNewSubject("")
-                }}
-              >
-                <SelectTrigger className="min-w-40 flex-1">
-                  <SelectValue placeholder="Matière existante" />
-                </SelectTrigger>
-                <SelectContent>
-                  {subjects.map((subject) => (
-                    <SelectItem key={subject.id} value={String(subject.id)}>
-                      {subject.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <span className="text-muted-foreground text-xs">ou</span>
-              <Input
-                value={newSubject}
-                onChange={(event) => {
-                  setNewSubject(event.target.value)
-                  if (event.target.value) setSubjectId("")
-                }}
-                placeholder="Nouvelle matière"
-                className="min-w-36 flex-1"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Professeur</Label>
-              <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                <Checkbox
-                  checked={showAllTeachers}
-                  onCheckedChange={(state) => setShowAllTeachers(state === true)}
-                />
-                Voir tous les professeurs
-              </label>
-            </div>
-            <Select
-              value={teacherId}
-              onValueChange={(value) => {
-                setTeacherId(value)
-                setNewTeacherName("")
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue
-                  placeholder={
-                    proposedTeachers.length
-                      ? "Professeurs compétents pour ce créneau"
-                      : "Aucun professeur compétent — voir tous, ou créer"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {proposedTeachers.map((teacher) => (
-                  <SelectItem key={teacher.id} value={String(teacher.id)}>
+          <div>
+            <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+              2 — Le professeur
+            </p>
+            {picked === null && (
+              <p className="text-muted-foreground text-sm">
+                Les professeurs compétents apparaîtront ici.
+              </p>
+            )}
+            {picked !== null && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {capable.map((teacher) => (
+                  <button
+                    key={teacher.id}
+                    type="button"
+                    onClick={() => {
+                      setTeacherId(teacher.id)
+                      setDraft("")
+                    }}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                      teacherId === teacher.id
+                        ? "border-transparent bg-primary text-primary-foreground"
+                        : "border-border text-muted-foreground hover:border-foreground/40"
+                    }`}
+                  >
+                    {teacherId === teacher.id ? "✓ " : ""}
                     {teacher.name}
-                  </SelectItem>
+                  </button>
                 ))}
-              </SelectContent>
-            </Select>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-muted-foreground text-xs">ou nouveau :</span>
-              <Input
-                value={newTeacherName}
-                onChange={(event) => {
-                  setNewTeacherName(event.target.value)
-                  if (event.target.value) setTeacherId("")
-                }}
-                placeholder="Nom du professeur"
-                className="min-w-36 flex-1"
-              />
-              <Input
-                value={newTeacherPhone}
-                onChange={(event) => setNewTeacherPhone(event.target.value)}
-                placeholder="Téléphone (optionnel)"
-                className="w-44"
-              />
-            </div>
-            <p className="text-muted-foreground text-xs">
-              La compétence du professeur pour ce créneau s'enregistre toute
-              seule.
+                <Input
+                  list="all-teachers"
+                  value={draft}
+                  onChange={(event) => {
+                    setDraft(event.target.value)
+                    if (event.target.value) setTeacherId(null)
+                  }}
+                  placeholder="＋ professeur…"
+                  className="h-7 w-40 text-xs"
+                />
+                <datalist id="all-teachers">
+                  {teachers.map((teacher) => (
+                    <option key={teacher.id} value={teacher.name} />
+                  ))}
+                </datalist>
+              </div>
+            )}
+            <p className="text-muted-foreground mt-1.5 text-xs">
+              Un nom tapé qui n'existe pas crée le professeur ; sa compétence
+              pour ce créneau s'enregistre toute seule.
             </p>
           </div>
 
@@ -569,7 +470,7 @@ function ClassWizard({
         </div>
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>
-            {busy ? "…" : "Créer la classe"}
+            {busy ? "…" : "Ouvrir la classe"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -616,8 +517,7 @@ function ReplaceTeacherDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            Remplacer {target.teacher_name} — {target.subject_name} · Groupe{" "}
-            {target.name}
+            Remplacer {target.teacher_name} — {target.subject_name}
           </DialogTitle>
         </DialogHeader>
         <p className="text-muted-foreground text-sm">
@@ -704,13 +604,11 @@ function DuplicateDialog({
     <Dialog open onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>
-            Dédoubler {target.subject_name} · Groupe {target.name}
-          </DialogTitle>
+          <DialogTitle>Dédoubler {target.subject_name}</DialogTitle>
         </DialogHeader>
         <p className="text-muted-foreground text-sm">
-          Trop d'étudiants ? Un nouveau groupe du même créneau est créé (groupe
-          suivant), avec le même professeur ou un autre.
+          Trop d'étudiants ? Un deuxième groupe du même créneau est créé — les
+          deux se distinguent par leur professeur.
         </p>
         <div className="space-y-2">
           <Label>Professeur du nouveau groupe</Label>
@@ -731,80 +629,6 @@ function DuplicateDialog({
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>
             {busy ? "…" : "Créer le groupe"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function EditClassDialog({
-  target,
-  teachers,
-  onClose,
-  onDone,
-}: {
-  target: ClassRow
-  teachers: Teacher[]
-  onClose: () => void
-  onDone: () => void
-}) {
-  const [name, setName] = useState(target.name)
-  const [teacherId, setTeacherId] = useState(String(target.teacher_id))
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
-
-  const submit = () => {
-    setBusy(true)
-    apiSend("PATCH", `/api/classes/${target.id}`, {
-      name,
-      teacher_id: Number(teacherId),
-    })
-      .then(onDone)
-      .catch((err: Error) => {
-        setNote(err.message)
-        setBusy(false)
-      })
-  }
-
-  return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            Modifier {target.subject_name} · Groupe {target.name}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-2">
-            <Label>Nom du groupe</Label>
-            <Input value={name} onChange={(event) => setName(event.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Professeur</Label>
-            <Select value={teacherId} onValueChange={setTeacherId}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {teachers.map((teacher) => (
-                  <SelectItem key={teacher.id} value={String(teacher.id)}>
-                    {teacher.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-muted-foreground text-xs">
-              Ici c'est une CORRECTION (mauvais nom saisi) : le nouveau nom vaut
-              pour tout le passé. Pour un vrai changement de professeur, utilisez
-              « Remplacer » — l'argent suivra les dates.
-            </p>
-          </div>
-          <Notice message={note} />
-        </div>
-        <DialogFooter>
-          <Button onClick={submit} disabled={busy}>
-            {busy ? "…" : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>

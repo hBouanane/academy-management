@@ -7,7 +7,13 @@ fourth niveau: vocational courses outside the school ladder.
 
 import sqlite3
 
-DEFAULT_LEVELS = ("Primaire", "Collège", "Lycée", "Formation")
+# (name, teaching_annees): 0 = one teaching block, N = split into N années.
+DEFAULT_LEVELS = (
+    ("Primaire", 0),
+    ("Collège", 3),
+    ("Lycée", 3),
+    ("Formation", 0),
+)
 
 
 def seed_default_academy(
@@ -45,6 +51,10 @@ def _insert_venue(connection: sqlite3.Connection, academy_id: int, name: str) ->
 
 def _insert_levels(connection: sqlite3.Connection, academy_id: int) -> None:
     connection.executemany(
-        "INSERT INTO school_level (academy_id, name, sort_order) VALUES (?, ?, ?)",
-        [(academy_id, level, order) for order, level in enumerate(DEFAULT_LEVELS)],
+        "INSERT INTO school_level (academy_id, name, sort_order, teaching_annees)"
+        " VALUES (?, ?, ?, ?)",
+        [
+            (academy_id, name, order, annees)
+            for order, (name, annees) in enumerate(DEFAULT_LEVELS)
+        ],
     )

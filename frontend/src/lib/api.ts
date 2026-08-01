@@ -9,7 +9,7 @@ export type Academy = {
   venue: Venue | null
   proration_bp: number[]
 }
-export type Level = { id: number; name: string }
+export type Level = { id: number; name: string; teaching_annees: number }
 export type Subject = { id: number; name: string }
 export type Teacher = {
   id: number
@@ -50,6 +50,8 @@ export type TeacherProfileClass = {
   parcours: string | null
   is_active: number
   teacher_id: number
+  subject_id: number
+  level_id: number
   subject_name: string
   level_name: string
   enrolled_count: number

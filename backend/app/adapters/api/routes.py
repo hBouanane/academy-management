@@ -112,9 +112,31 @@ def patch_academy(academy_id: int, patch: AcademyPatch, conn: Conn) -> dict:
     return updated
 
 
+class LevelCreate(BaseModel):
+    name: str
+    # 0 = one teaching block (Primaire, Formation); N = split into N années.
+    teaching_annees: int = Field(0, ge=0, le=12)
+
+
 @router.get("/levels")
 def levels(conn: Conn) -> list[dict]:
     return crud.list_levels(conn, default_academy_id(conn))
+
+
+@router.post("/levels", status_code=201)
+def create_level(body: LevelCreate, conn: Conn) -> dict:
+    academy_id = default_academy_id(conn)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Le nom du niveau est requis.")
+    if any(
+        level["name"].lower() == name.lower()
+        for level in crud.list_levels(conn, academy_id)
+    ):
+        raise HTTPException(
+            status_code=422, detail=f"Le niveau « {name} » existe déjà."
+        )
+    return {"id": crud.create_level(conn, academy_id, name, body.teaching_annees)}
 
 
 def _ten_digit_phone(value: str) -> str:

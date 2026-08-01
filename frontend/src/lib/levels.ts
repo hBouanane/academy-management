@@ -34,11 +34,21 @@ export const anneeLabel = (
 export const hasFiliere = (levelName: string, annee: string): boolean =>
   levelName === "Lycée" && (annee === "2" || annee === "3")
 
-// TEACHING granularity: Primaire (one group covers all years) and Formation
-// teach as a single block; Collège and Lycée split per année. Students still
-// record their année everywhere — this only drives classes and capabilities.
-export const teachingAnnees = (levelName: string): [string, string][] =>
-  levelName === "Collège" || levelName === "Lycée" ? anneeOptions(levelName) : []
+// TEACHING granularity is data now: each niveau declares teaching_annees
+// (0 = one block like Primaire/Formation, N = split into N années). Known
+// names keep their real labels; custom niveaux get generic ones.
+export const teachingAnnees = (level: {
+  name: string
+  teaching_annees: number
+}): [string, string][] => {
+  if (level.teaching_annees === 0) return []
+  const known = anneeOptions(level.name)
+  if (known.length === level.teaching_annees) return known
+  return Array.from({ length: level.teaching_annees }, (_, index) => [
+    String(index + 1),
+    `${index + 1}${index === 0 ? "ère" : "ème"} année`,
+  ])
+}
 
 // Parcours: the ministry's new split — programme normal vs râ'ida (back to
 // basics) — currently in 3ème année collège. Distinct from filière.

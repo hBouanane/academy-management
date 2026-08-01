@@ -67,6 +67,22 @@ def list_levels(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
     )
 
 
+def create_level(
+    conn: sqlite3.Connection, academy_id: int, name: str, teaching_annees: int
+) -> int:
+    order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM school_level"
+        " WHERE academy_id = ?",
+        (academy_id,),
+    ).fetchone()[0]
+    return _insert(
+        conn,
+        "INSERT INTO school_level (academy_id, name, sort_order, teaching_annees)"
+        " VALUES (?, ?, ?, ?)",
+        (academy_id, name, order, teaching_annees),
+    )
+
+
 def _active_clause(include_inactive: bool, prefix: str = "") -> str:
     return "" if include_inactive else f" AND {prefix}is_active = 1"
 
@@ -836,7 +852,7 @@ def teacher_profile(
         conn,
         """
         SELECT DISTINCT cg.id, cg.name, cg.annee, cg.filiere, cg.parcours,
-               cg.is_active, cg.teacher_id,
+               cg.is_active, cg.teacher_id, cg.subject_id, cg.level_id,
                sub.name AS subject_name, sl.name AS level_name,
           (SELECT COUNT(*) FROM enrollment_class ec
            JOIN enrollment e ON e.id = ec.enrollment_id

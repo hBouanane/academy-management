@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table"
 import { monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
-import { apiGet } from "@/lib/api"
+import { apiGet, apiSend } from "@/lib/api"
 import type { TeacherProfile as Profile } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
 import { formatDH } from "@/lib/money"
@@ -28,11 +28,13 @@ type Props = {
   teacherId: number | null
   month: string
   onClose: () => void
+  onChanged?: () => void
 }
 
-export function TeacherProfile({ teacherId, month, onClose }: Props) {
+export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
     setError(null)
@@ -43,7 +45,34 @@ export function TeacherProfile({ teacherId, month, onClose }: Props) {
     apiGet<Profile>(`/api/teachers/${teacherId}/profile?month=${month}`)
       .then(setProfile)
       .catch((err: Error) => setError(err.message))
-  }, [teacherId, month])
+  }, [teacherId, month, refresh])
+
+  // A checked leaf becomes a real class in one click — no wizard.
+  const openClass = (capability: Profile["capabilities"][number]) => {
+    apiSend("POST", "/api/classes", {
+      level_id: capability.level_id,
+      subject_id: capability.subject_id,
+      teacher_id: teacherId,
+      annee: capability.annee,
+      parcours: capability.parcours,
+    })
+      .then(() => {
+        setRefresh((count) => count + 1)
+        onChanged?.()
+      })
+      .catch((err: Error) => setError(err.message))
+  }
+
+  const alreadyTeaches = (capability: Profile["capabilities"][number]) =>
+    (profile?.classes ?? []).some(
+      (row) =>
+        row.is_active === 1 &&
+        row.teacher_id === teacherId &&
+        row.subject_id === capability.subject_id &&
+        row.level_id === capability.level_id &&
+        row.annee === capability.annee &&
+        row.parcours === capability.parcours,
+    )
 
   const monthTotal =
     profile?.history.find((entry) => entry.month === month)?.earned ?? 0
@@ -93,7 +122,7 @@ export function TeacherProfile({ teacherId, month, onClose }: Props) {
                     {profile.classes.map((row) => (
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">
-                          {row.subject_name} · Groupe {row.name}
+                          {row.subject_name}
                           {row.teacher_id !== profile.id && (
                             <span className="text-muted-foreground text-xs">
                               {" "}
@@ -144,16 +173,25 @@ export function TeacherProfile({ teacherId, month, onClose }: Props) {
                   {profile.capabilities.map((capability) => (
                     <span
                       key={capability.id}
-                      className="bg-secondary text-secondary-foreground rounded-full px-2.5 py-0.5 text-xs"
+                      className="bg-secondary text-secondary-foreground flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs"
                     >
                       {capability.subject_name} · {capability.level_name}
                       {capability.annee ? ` ${capability.annee}` : ""}
                       {capability.parcours ? ` ${capability.parcours}` : ""}
+                      {!alreadyTeaches(capability) && (
+                        <button
+                          className="text-primary font-medium underline-offset-2 hover:underline"
+                          title="Créer la classe correspondante, enseignée par lui"
+                          onClick={() => openClass(capability)}
+                        >
+                          ouvrir la classe
+                        </button>
+                      )}
                     </span>
                   ))}
                   {profile.capabilities.length === 0 && (
                     <p className="text-muted-foreground text-sm">
-                      Aucune — utilisez « Compétences ».
+                      Aucune — modifiez le professeur pour cocher son arbre.
                     </p>
                   )}
                 </div>
