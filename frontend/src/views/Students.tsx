@@ -139,9 +139,14 @@ export function Students({ month, setMonth }: Props) {
                 </TableCell>
                 <TableCell>
                   {Number(student.unpaid_months) > 0 ? (
-                    <Badge variant="destructive">
-                      {student.unpaid_months} mois
-                    </Badge>
+                    <button
+                      onClick={() => setProfileId(student.id)}
+                      title="Voir et encaisser les mois dus depuis le profil"
+                    >
+                      <Badge variant="destructive">
+                        {student.unpaid_months} mois
+                      </Badge>
+                    </button>
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
                   )}
@@ -251,7 +256,11 @@ export function Students({ month, setMonth }: Props) {
         }}
       />
 
-      <StudentProfile studentId={profileId} onClose={() => setProfileId(null)} />
+      <StudentProfile
+        studentId={profileId}
+        onClose={() => setProfileId(null)}
+        onChanged={reload}
+      />
 
       {justCreated && (
         <EnrollDialog

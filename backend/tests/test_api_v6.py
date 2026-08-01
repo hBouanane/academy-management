@@ -94,6 +94,15 @@ class TestStudentIdentity:
         assert profile["is_active"] == 0
         assert len(profile["months"]) == 1  # history intact
 
+    def test_filieres_used_become_reusable_suggestions(self, client):
+        level = client.get("/api/levels").json()[-1]["id"]  # Lycée
+        for name, filiere in (("A", "Sciences Maths"), ("B", "Lettres"), ("C", "Sciences Maths")):
+            client.post(
+                "/api/students",
+                json={"name": name, "level_id": level, "annee": 3, "filiere": filiere},
+            )
+        assert client.get("/api/filieres").json() == ["Lettres", "Sciences Maths"]
+
     def test_students_expose_the_pre_inscrit_state(self, client):
         level, class_id, _, package = setup_base(client)
         enroll(client, level, package, class_id)

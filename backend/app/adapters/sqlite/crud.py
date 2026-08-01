@@ -397,6 +397,15 @@ def get_or_create_school(conn: sqlite3.Connection, academy_id: int, name: str) -
     )
 
 
+def list_filieres(conn: sqlite3.Connection, academy_id: int) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT filiere FROM student WHERE academy_id = ?"
+        " AND filiere IS NOT NULL AND filiere != '' ORDER BY filiere",
+        (academy_id,),
+    ).fetchall()
+    return [row["filiere"] for row in rows]
+
+
 def list_schools(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
     return _rows(
         conn,

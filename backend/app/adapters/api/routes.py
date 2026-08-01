@@ -418,6 +418,12 @@ def schools(conn: Conn) -> list[dict]:
     return crud.list_schools(conn, default_academy_id(conn))
 
 
+@router.get("/filieres")
+def filieres(conn: Conn) -> list[str]:
+    """Every filière ever typed — the dropdown suggests them back."""
+    return crud.list_filieres(conn, default_academy_id(conn))
+
+
 @router.get("/students/{student_id}/profile")
 def student_profile(student_id: int, conn: Conn) -> dict:
     profile = crud.student_profile(conn, student_id)

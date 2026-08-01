@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/table"
 import { monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { PayDialog } from "@/components/PayDialog"
 import { apiGet } from "@/lib/api"
 import type { StudentProfile as Profile } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
@@ -27,20 +29,27 @@ import { formatDH } from "@/lib/money"
 type Props = {
   studentId: number | null
   onClose: () => void
+  /** Called after a payment made from the profile — refresh the page behind. */
+  onChanged?: () => void
 }
 
-export function StudentProfile({ studentId, onClose }: Props) {
+export function StudentProfile({ studentId, onClose, onChanged }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Any unpaid month is payable right here, no month navigation needed.
+  const [payId, setPayId] = useState<number | null>(null)
+  const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
-    setProfile(null)
     setError(null)
-    if (studentId === null) return
+    if (studentId === null) {
+      setProfile(null)
+      return
+    }
     apiGet<Profile>(`/api/students/${studentId}/profile`)
       .then(setProfile)
       .catch((err: Error) => setError(err.message))
-  }, [studentId])
+  }, [studentId, refresh])
 
   const fullName = profile
     ? [profile.first_name, profile.name].filter(Boolean).join(" ")
@@ -139,7 +148,15 @@ export function StudentProfile({ studentId, onClose }: Props) {
                               Payé{month.paid_on ? ` · ${month.paid_on}` : ""}
                             </Badge>
                           ) : (
-                            <Badge variant="destructive">Impayé</Badge>
+                            <span className="flex items-center gap-2">
+                              <Badge variant="destructive">Impayé</Badge>
+                              <Button
+                                size="sm"
+                                onClick={() => setPayId(month.enrollment_id)}
+                              >
+                                Encaisser
+                              </Button>
+                            </span>
                           )}
                         </TableCell>
                       </TableRow>
@@ -155,6 +172,22 @@ export function StudentProfile({ studentId, onClose }: Props) {
           </div>
         )}
       </DialogContent>
+
+      {payId !== null && (
+        <PayDialog
+          enrollmentId={payId}
+          studentName={fullName}
+          open
+          onOpenChange={(next) => {
+            if (!next) setPayId(null)
+          }}
+          onDone={() => {
+            setPayId(null)
+            setRefresh((count) => count + 1)
+            onChanged?.()
+          }}
+        />
+      )}
     </Dialog>
   )
 }

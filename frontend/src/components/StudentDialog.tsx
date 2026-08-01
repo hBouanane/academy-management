@@ -23,7 +23,7 @@ import {
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, PhoneEntry, School, Student } from "@/lib/api"
-import { anneeOptions, hasFiliere } from "@/lib/levels"
+import { anneeOptions, filiereDefaults, hasFiliere } from "@/lib/levels"
 
 const PHONE_TAGS = ["étudiant", "mère", "père", "tuteur", "autre"]
 
@@ -54,12 +54,14 @@ export function StudentDialog({
   const [school, setSchool] = useState("")
   const [phones, setPhones] = useState<PhoneEntry[]>([])
   const [schools, setSchools] = useState<School[]>([])
+  const [filieres, setFilieres] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     apiGet<School[]>("/api/schools").then(setSchools).catch(() => {})
+    apiGet<string[]>("/api/filieres").then(setFilieres).catch(() => {})
     setName(initial?.name ?? "")
     setFirstName(initial?.first_name ?? "")
     setLevelId(initial ? String(initial.level_id) : "")
@@ -202,10 +204,18 @@ export function StudentDialog({
               <div className="min-w-40 flex-1 space-y-2">
                 <Label>Filière</Label>
                 <Input
+                  list="filiere-options"
                   value={filiere}
                   onChange={(event) => setFiliere(event.target.value)}
-                  placeholder="Sciences Maths, SVT…"
+                  placeholder="Choisir ou saisir une filière"
                 />
+                <datalist id="filiere-options">
+                  {[...new Set([...filiereDefaults(annee), ...filieres])].map(
+                    (option) => (
+                      <option key={option} value={option} />
+                    ),
+                  )}
+                </datalist>
               </div>
             )}
           </div>

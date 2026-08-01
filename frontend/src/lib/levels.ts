@@ -33,3 +33,11 @@ export const anneeLabel = (
 
 export const hasFiliere = (levelName: string, annee: string): boolean =>
   levelName === "Lycée" && (annee === "2" || annee === "3")
+
+// The ministry's usual branches per Bac year — the dropdown seeds, on top of
+// which any filière ever typed in the academy is suggested back.
+export const filiereDefaults = (annee: string): string[] => {
+  if (annee === "2") return ["Sciences Ex", "Sciences Maths"]
+  if (annee === "3") return ["Sciences Physiques", "SVT", "Sciences Maths"]
+  return []
+}

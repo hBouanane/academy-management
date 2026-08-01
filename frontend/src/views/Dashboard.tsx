@@ -210,7 +210,11 @@ export function Dashboard({ month, setMonth }: Props) {
         />
       )}
 
-      <StudentProfile studentId={profileId} onClose={() => setProfileId(null)} />
+      <StudentProfile
+        studentId={profileId}
+        onClose={() => setProfileId(null)}
+        onChanged={reload}
+      />
     </div>
   )
 }
@@ -284,9 +288,14 @@ function StudentRow({
         </button>
         <p className="text-muted-foreground text-xs">{row.level_name}</p>
         {row.has_arrears && (
-          <Badge variant="destructive" className="mt-1 gap-1">
-            <AlertTriangle className="size-3" /> Impayés antérieurs
-          </Badge>
+          <button
+            onClick={() => onShowProfile(row.student_id)}
+            title="Voir et encaisser les mois dus depuis le profil"
+          >
+            <Badge variant="destructive" className="mt-1 gap-1">
+              <AlertTriangle className="size-3" /> Impayés antérieurs
+            </Badge>
+          </button>
         )}
       </TableCell>
       <TableCell className="text-muted-foreground">
