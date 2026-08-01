@@ -277,25 +277,23 @@ function StudentRow({
     .join(" ")
 
   return (
-    <TableRow className={rowClass} style={{ animationDelay: `${index * 40}ms` }}>
+    <TableRow
+      className={`${rowClass} cursor-pointer`}
+      style={{ animationDelay: `${index * 40}ms` }}
+      title="Ouvrir le profil"
+      onClick={(event) => {
+        // Anywhere on the row opens the profile — except the buttons.
+        if ((event.target as HTMLElement).closest("button, a")) return
+        onShowProfile(row.student_id)
+      }}
+    >
       <TableCell>
-        <button
-          className="hover:text-foreground/70 font-medium underline-offset-4 transition-colors hover:underline"
-          onClick={() => onShowProfile(row.student_id)}
-          title="Ouvrir le profil"
-        >
-          {row.student_name}
-        </button>
+        <p className="font-medium">{row.student_name}</p>
         <p className="text-muted-foreground text-xs">{row.level_name}</p>
         {row.has_arrears && (
-          <button
-            onClick={() => onShowProfile(row.student_id)}
-            title="Voir et encaisser les mois dus depuis le profil"
-          >
-            <Badge variant="destructive" className="mt-1 gap-1">
-              <AlertTriangle className="size-3" /> Impayés antérieurs
-            </Badge>
-          </button>
+          <Badge variant="destructive" className="mt-1 gap-1">
+            <AlertTriangle className="size-3" /> Impayés antérieurs
+          </Badge>
         )}
       </TableCell>
       <TableCell className="text-muted-foreground">

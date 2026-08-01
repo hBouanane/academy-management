@@ -116,6 +116,15 @@ class TestStudentIdentity:
         assert rows["Sami"]["ever_enrolled"] == 1
 
 
+class TestPreviewMonth:
+    def test_preview_names_the_month_being_paid(self, client):
+        # The pay dialog must say WHICH month the money is for.
+        level, class_id, _, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id, month="2026-10")
+        preview = client.get(f"/api/enrollments/{enrollment}/preview").json()
+        assert preview["month"] == "2026-10"
+
+
 class TestGiftZeroForEveryone:
     def test_gifted_month_pays_nobody(self, client):
         # Client rule: on a mois offert, professors, salle AND académie get 0.

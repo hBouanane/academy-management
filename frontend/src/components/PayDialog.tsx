@@ -9,6 +9,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { ConfirmButton } from "@/components/Confirm"
+import { monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { useMotifs } from "@/components/MotifInput"
 import { ReductionForm } from "@/components/ReductionForm"
@@ -145,7 +146,15 @@ export function PayDialog({
       )}
       <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Encaisser — {studentName}</DialogTitle>
+          <DialogTitle>
+            Encaisser — {studentName}
+            {preview && (
+              <span className="text-muted-foreground capitalize">
+                {" "}
+                · {monthLabel(preview.month)}
+              </span>
+            )}
+          </DialogTitle>
         </DialogHeader>
 
         {preview && (

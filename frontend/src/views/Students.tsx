@@ -108,17 +108,19 @@ export function Students({ month, setMonth }: Props) {
             {students.map((student, index) => (
               <TableRow
                 key={student.id}
-                className={`stagger-row ${Number(student.unpaid_months) > 0 ? "row-unpaid" : ""}`}
+                className={`stagger-row cursor-pointer ${Number(student.unpaid_months) > 0 ? "row-unpaid" : ""}`}
                 style={{ animationDelay: `${index * 40}ms` }}
+                title="Ouvrir le profil"
+                onClick={(event) => {
+                  // Anywhere on the row opens the profile — except the buttons.
+                  if ((event.target as HTMLElement).closest("button, a")) return
+                  setProfileId(student.id)
+                }}
               >
                 <TableCell>
-                  <button
-                    className="hover:text-foreground/70 font-medium underline-offset-4 transition-colors hover:underline"
-                    onClick={() => setProfileId(student.id)}
-                    title="Ouvrir le profil"
-                  >
+                  <p className="font-medium">
                     {[student.first_name, student.name].filter(Boolean).join(" ")}
-                  </button>
+                  </p>
                   {student.school_name && (
                     <p className="text-muted-foreground text-xs">
                       {student.school_name}
@@ -139,14 +141,9 @@ export function Students({ month, setMonth }: Props) {
                 </TableCell>
                 <TableCell>
                   {Number(student.unpaid_months) > 0 ? (
-                    <button
-                      onClick={() => setProfileId(student.id)}
-                      title="Voir et encaisser les mois dus depuis le profil"
-                    >
-                      <Badge variant="destructive">
-                        {student.unpaid_months} mois
-                      </Badge>
-                    </button>
+                    <Badge variant="destructive">
+                      {student.unpaid_months} mois
+                    </Badge>
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
                   )}

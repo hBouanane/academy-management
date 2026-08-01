@@ -744,6 +744,7 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
         }
 
     return {
+        "month": crud.enrollment_month(conn, enrollment_id),
         "price_centimes": preview.price,
         "net_centimes": preview.net,
         "lines": [

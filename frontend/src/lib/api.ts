@@ -134,6 +134,7 @@ export type PreviewAdjustment = {
   })[]
 }
 export type PaymentPreview = {
+  month: string
   price_centimes: number
   net_centimes: number
   lines: PreviewLine[]
