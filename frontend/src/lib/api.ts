@@ -10,7 +10,12 @@ export type Academy = {
   proration_bp: number[]
 }
 export type Level = { id: number; name: string; teaching_annees: number }
-export type Subject = { id: number; name: string }
+export type Subject = {
+  id: number
+  name: string
+  level_id: number | null
+  level_name?: string | null
+}
 export type Teacher = {
   id: number
   name: string

@@ -189,7 +189,6 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
               Ce qu'il peut enseigner — cochez dans l'arbre
             </p>
             <ProgramTree
-              mode="check"
               levels={levels}
               subjects={subjects}
               checked={checked}

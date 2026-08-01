@@ -39,3 +39,59 @@ class TestCustomLevels:
         )
         assert response.status_code == 422
         assert "existe déjà" in response.json()["detail"]
+
+
+class TestSubjectsPerNiveau:
+    def test_same_matiere_name_lives_once_per_niveau(self, client):
+        levels = {lv["name"]: lv["id"] for lv in client.get("/api/levels").json()}
+        first = client.post(
+            "/api/subjects",
+            json={"name": "Mathématique", "level_id": levels["Primaire"]},
+        )
+        assert first.status_code == 201, first.text
+        second = client.post(
+            "/api/subjects",
+            json={"name": "Mathématique", "level_id": levels["Collège"]},
+        )
+        assert second.status_code == 201, second.text  # the copy IS a new row
+        again = client.post(
+            "/api/subjects",
+            json={"name": "Mathématique", "level_id": levels["Primaire"]},
+        )
+        assert again.status_code == 409  # same niveau: already there
+        rows = client.get("/api/subjects").json()
+        assert [(row["name"], row["level_id"]) for row in rows] == [
+            ("Mathématique", levels["Primaire"]),
+            ("Mathématique", levels["Collège"]),
+        ]
+        assert rows[0]["level_name"] == "Primaire"
+
+
+class TestClassNameCollision:
+    def test_same_teacher_same_matiere_in_two_annees(self, client):
+        # The screenshot bug: UNIQUE(level, subject, teacher, name) exploded
+        # when one prof opened the same matière in two années.
+        levels = {lv["name"]: lv["id"] for lv in client.get("/api/levels").json()}
+        subject = client.post(
+            "/api/subjects",
+            json={"name": "Mathématique", "level_id": levels["Collège"]},
+        ).json()["id"]
+        teacher = client.post("/api/teachers", json={"name": "Haitam"}).json()["id"]
+
+        def open_class(annee, parcours=None):
+            return client.post(
+                "/api/classes",
+                json={
+                    "level_id": levels["Collège"],
+                    "subject_id": subject,
+                    "teacher_id": teacher,
+                    "annee": annee,
+                    "parcours": parcours,
+                },
+            )
+
+        assert open_class(1).status_code == 201
+        assert open_class(2).status_code == 201
+        assert open_class(3, "Normal").status_code == 201
+        assert open_class(3, "Râ'ida").status_code == 201
+        assert len(client.get("/api/classes").json()) == 4

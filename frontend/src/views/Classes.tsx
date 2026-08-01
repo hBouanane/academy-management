@@ -41,12 +41,11 @@ import {
 import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
-import { ProgramTree } from "@/components/ProgramTree"
-import type { TreeSlot } from "@/components/ProgramTree"
+import { subjectsOfLevel } from "@/components/ProgramTree"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, ClassRow, Level, Subject, Teacher } from "@/lib/api"
-import { anneeLabel } from "@/lib/levels"
+import { anneeLabel, parcoursOptions, teachingAnnees } from "@/lib/levels"
 
 const todayIso = () => {
   const now = new Date()
@@ -302,6 +301,54 @@ export function Classes({ month, setMonth }: Props) {
   )
 }
 
+const COMMUNE = "__commune__"
+
+function StepChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+        active
+          ? "border-transparent bg-primary text-primary-foreground"
+          : "border-border text-muted-foreground hover:border-foreground/40"
+      }`}
+    >
+      {active ? "✓ " : ""}
+      {children}
+    </button>
+  )
+}
+
+function Step({
+  number,
+  title,
+  children,
+}: {
+  number: number
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="border-border rounded-xl border p-3">
+      <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+        {number} — {title}
+      </p>
+      {children}
+    </div>
+  )
+}
+
+// One class = one créneau + one matière + one professeur, so the form is a
+// cascade: each choice reveals the next step. No tree dump, no double fields.
 function NewClassDialog({
   open,
   onOpenChange,
@@ -319,48 +366,101 @@ function NewClassDialog({
   capabilities: Capability[]
   onDone: () => void
 }) {
-  const [picked, setPicked] = useState<TreeSlot | null>(null)
+  const [levelId, setLevelId] = useState<number | null>(null)
+  const [annee, setAnnee] = useState<number | null>(null)
+  const [parcours, setParcours] = useState<string | null>(null) // COMMUNE = mixed
+  const [subjectId, setSubjectId] = useState<number | null>(null)
+  const [subjectDraft, setSubjectDraft] = useState("")
   const [teacherId, setTeacherId] = useState<number | null>(null)
-  const [draft, setDraft] = useState("")
+  const [teacherDraft, setTeacherDraft] = useState("")
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setPicked(null)
+    setLevelId(null)
+    setAnnee(null)
+    setParcours(null)
+    setSubjectId(null)
+    setSubjectDraft("")
     setTeacherId(null)
-    setDraft("")
+    setTeacherDraft("")
     setNote(null)
     setBusy(false)
   }, [open])
 
-  // Capable = a capability matching the picked slot (NULL acts as wildcard).
-  const capable = picked
-    ? teachers.filter((teacher) =>
-        capabilities.some(
-          (capability) =>
-            capability.teacher_id === teacher.id &&
-            capability.level_id === picked.level_id &&
-            capability.subject_id === picked.subject_id &&
-            (capability.annee === null ||
-              picked.annee === null ||
-              capability.annee === picked.annee) &&
-            (capability.parcours === null ||
-              picked.parcours === null ||
-              capability.parcours === picked.parcours),
-        ),
-      )
-    : []
+  const level = levels.find((entry) => entry.id === levelId)
+  const annees = level ? teachingAnnees(level) : []
+  const forks =
+    level && annee !== null ? parcoursOptions(level.name, String(annee)) : []
+  const levelSubjects = level ? subjectsOfLevel(subjects, level.id) : []
+
+  const anneeDone = annees.length === 0 || annee !== null
+  const parcoursDone = forks.length === 0 || parcours !== null
+  const slotDone = level !== undefined && anneeDone && parcoursDone
+  const slotParcours = parcours === COMMUNE ? null : parcours
+
+  const isCapable = (teacher: Teacher) =>
+    subjectId !== null &&
+    capabilities.some(
+      (capability) =>
+        capability.teacher_id === teacher.id &&
+        capability.level_id === levelId &&
+        capability.subject_id === subjectId &&
+        (capability.annee === null || annee === null ||
+          capability.annee === annee) &&
+        (capability.parcours === null || slotParcours === null ||
+          capability.parcours === slotParcours),
+    )
+  const orderedTeachers = [...teachers].sort(
+    (a, b) => Number(isCapable(b)) - Number(isCapable(a)),
+  )
+
+  const pickLevel = (id: number) => {
+    setLevelId(id)
+    setAnnee(null)
+    setParcours(null)
+    setSubjectId(null)
+    setSubjectDraft("")
+    setTeacherId(null)
+  }
+
+  const addSubject = async () => {
+    const name = subjectDraft.trim()
+    if (!name || levelId === null) return
+    const mine = levelSubjects.find(
+      (subject) => subject.name.toLowerCase() === name.toLowerCase(),
+    )
+    try {
+      const id = mine
+        ? mine.id
+        : (
+            await apiSend<{ id: number }>("POST", "/api/subjects", {
+              name,
+              level_id: levelId,
+            })
+          ).id
+      setSubjectDraft("")
+      setSubjectId(id)
+      onDone()
+    } catch (err) {
+      setNote((err as Error).message)
+    }
+  }
 
   const submit = async () => {
-    if (!picked) {
-      setNote("Choisissez un créneau dans l'arbre (une matière).")
+    if (!slotDone || levelId === null) {
+      setNote("Complétez le créneau : niveau, année, parcours.")
+      return
+    }
+    if (subjectId === null) {
+      setNote("Choisissez la matière (ou tapez-la puis Entrée).")
       return
     }
     let chosen = teacherId
-    const typed = draft.trim()
+    const typed = teacherDraft.trim()
     if (chosen === null && !typed) {
-      setNote("Choisissez un professeur, ou tapez son nom (nouveau ou existant).")
+      setNote("Choisissez un professeur, ou tapez son nom pour le créer.")
       return
     }
     setNote(null)
@@ -379,11 +479,11 @@ function NewClassDialog({
             ).id
       }
       await apiSend("POST", "/api/classes", {
-        level_id: picked.level_id,
-        subject_id: picked.subject_id,
+        level_id: levelId,
+        subject_id: subjectId,
         teacher_id: chosen,
-        annee: picked.annee,
-        parcours: picked.parcours,
+        annee,
+        parcours: slotParcours,
       })
       onOpenChange(false)
       onDone()
@@ -393,78 +493,156 @@ function NewClassDialog({
     }
   }
 
+  let step = 1
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Nouvelle classe</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
-              1 — Choisissez le créneau dans l'arbre
-            </p>
-            <ProgramTree
-              mode="pick"
-              levels={levels}
-              subjects={subjects}
-              picked={picked}
-              onPick={setPicked}
-              onGrown={onDone}
-            />
-          </div>
+        <div className="space-y-3">
+          <Step number={step++} title="Le niveau">
+            <div className="flex flex-wrap gap-1.5">
+              {levels.map((entry) => (
+                <StepChip
+                  key={entry.id}
+                  active={levelId === entry.id}
+                  onClick={() => pickLevel(entry.id)}
+                >
+                  {entry.name}
+                </StepChip>
+              ))}
+            </div>
+          </Step>
 
-          <div>
-            <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
-              2 — Le professeur
-            </p>
-            {picked === null && (
-              <p className="text-muted-foreground text-sm">
-                Les professeurs compétents apparaîtront ici.
-              </p>
-            )}
-            {picked !== null && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {capable.map((teacher) => (
-                  <button
-                    key={teacher.id}
-                    type="button"
+          {level && annees.length > 0 && (
+            <Step number={step++} title="L'année">
+              <div className="flex flex-wrap gap-1.5">
+                {annees.map(([value, label]) => (
+                  <StepChip
+                    key={value}
+                    active={annee === Number(value)}
                     onClick={() => {
-                      setTeacherId(teacher.id)
-                      setDraft("")
+                      setAnnee(Number(value))
+                      setParcours(null)
+                      setTeacherId(null)
                     }}
-                    className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
-                      teacherId === teacher.id
-                        ? "border-transparent bg-primary text-primary-foreground"
-                        : "border-border text-muted-foreground hover:border-foreground/40"
-                    }`}
                   >
-                    {teacherId === teacher.id ? "✓ " : ""}
-                    {teacher.name}
-                  </button>
+                    {label}
+                  </StepChip>
+                ))}
+              </div>
+            </Step>
+          )}
+
+          {forks.length > 0 && (
+            <Step number={step++} title="Le parcours">
+              <div className="flex flex-wrap gap-1.5">
+                {forks.map((fork) => (
+                  <StepChip
+                    key={fork}
+                    active={parcours === fork}
+                    onClick={() => {
+                      setParcours(fork)
+                      setTeacherId(null)
+                    }}
+                  >
+                    {fork}
+                  </StepChip>
+                ))}
+                <StepChip
+                  active={parcours === COMMUNE}
+                  onClick={() => {
+                    setParcours(COMMUNE)
+                    setTeacherId(null)
+                  }}
+                >
+                  Classe commune ({forks.join(" + ")})
+                </StepChip>
+              </div>
+            </Step>
+          )}
+
+          {slotDone && (
+            <Step number={step++} title="La matière">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {levelSubjects.map((subject) => (
+                  <StepChip
+                    key={subject.id}
+                    active={subjectId === subject.id}
+                    onClick={() => {
+                      setSubjectId(subject.id)
+                      setSubjectDraft("")
+                    }}
+                  >
+                    {subject.name}
+                  </StepChip>
                 ))}
                 <Input
-                  list="all-teachers"
-                  value={draft}
+                  list="class-subject-options"
+                  value={subjectDraft}
                   onChange={(event) => {
-                    setDraft(event.target.value)
+                    setSubjectDraft(event.target.value)
+                    if (event.target.value) setSubjectId(null)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      void addSubject()
+                    }
+                  }}
+                  placeholder="＋ matière…"
+                  className="h-8 w-36 text-sm"
+                />
+                <datalist id="class-subject-options">
+                  {[...new Set(subjects.map((subject) => subject.name))].map(
+                    (name) => (
+                      <option key={name} value={name} />
+                    ),
+                  )}
+                </datalist>
+              </div>
+            </Step>
+          )}
+
+          {slotDone && subjectId !== null && (
+            <Step number={step++} title="Le professeur">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {orderedTeachers.map((teacher) => (
+                  <StepChip
+                    key={teacher.id}
+                    active={teacherId === teacher.id}
+                    onClick={() => {
+                      setTeacherId(teacher.id)
+                      setTeacherDraft("")
+                    }}
+                  >
+                    {teacher.name}
+                    {isCapable(teacher) ? " ★" : ""}
+                  </StepChip>
+                ))}
+                <Input
+                  list="class-teacher-options"
+                  value={teacherDraft}
+                  onChange={(event) => {
+                    setTeacherDraft(event.target.value)
                     if (event.target.value) setTeacherId(null)
                   }}
                   placeholder="＋ professeur…"
-                  className="h-7 w-40 text-xs"
+                  className="h-8 w-40 text-sm"
                 />
-                <datalist id="all-teachers">
+                <datalist id="class-teacher-options">
                   {teachers.map((teacher) => (
                     <option key={teacher.id} value={teacher.name} />
                   ))}
                 </datalist>
               </div>
-            )}
-            <p className="text-muted-foreground mt-1.5 text-xs">
-              Un nom tapé qui n'existe pas crée le professeur ; sa compétence
-              pour ce créneau s'enregistre toute seule.
-            </p>
-          </div>
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                ★ = compétent pour ce créneau. Un nom nouveau crée le
+                professeur ; sa compétence s'enregistre toute seule.
+              </p>
+            </Step>
+          )}
 
           <Notice message={note} />
         </div>

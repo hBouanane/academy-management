@@ -203,9 +203,18 @@ def subjects(conn: Conn, include_inactive: bool = False) -> list[dict]:
     return crud.list_subjects(conn, default_academy_id(conn), include_inactive)
 
 
+class SubjectCreate(BaseModel):
+    name: str
+    level_id: int | None = None  # the niveau owning this matière
+
+
 @router.post("/subjects", status_code=201)
-def create_subject(body: NamedCreate, conn: Conn) -> dict:
-    return {"id": crud.create_subject(conn, default_academy_id(conn), body.name)}
+def create_subject(body: SubjectCreate, conn: Conn) -> dict:
+    return {
+        "id": crud.create_subject(
+            conn, default_academy_id(conn), body.name, body.level_id
+        )
+    }
 
 
 @router.patch("/subjects/{subject_id}")

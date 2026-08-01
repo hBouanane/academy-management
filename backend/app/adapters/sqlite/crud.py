@@ -93,23 +93,28 @@ def list_subjects(
     return _rows(
         conn,
         f"""
-        SELECT s.*,
+        SELECT s.*, sl.name AS level_name,
           (SELECT COUNT(*) FROM class_group cg
            WHERE cg.subject_id = s.id AND cg.is_active = 1) AS class_count,
-          (SELECT GROUP_CONCAT(DISTINCT sl.name) FROM class_group cg
-           JOIN school_level sl ON sl.id = cg.level_id
+          (SELECT GROUP_CONCAT(DISTINCT sl2.name) FROM class_group cg
+           JOIN school_level sl2 ON sl2.id = cg.level_id
            WHERE cg.subject_id = s.id AND cg.is_active = 1) AS levels
         FROM subject s
+        LEFT JOIN school_level sl ON sl.id = s.level_id
         WHERE s.academy_id = ?{_active_clause(include_inactive, "s.")}
-        ORDER BY s.name
+        ORDER BY COALESCE(sl.sort_order, 99), s.name
         """,
         (academy_id,),
     )
 
 
-def create_subject(conn: sqlite3.Connection, academy_id: int, name: str) -> int:
+def create_subject(
+    conn: sqlite3.Connection, academy_id: int, name: str, level_id: int | None = None
+) -> int:
     return _insert(
-        conn, "INSERT INTO subject (academy_id, name) VALUES (?, ?)", (academy_id, name)
+        conn,
+        "INSERT INTO subject (academy_id, name, level_id) VALUES (?, ?, ?)",
+        (academy_id, name, level_id),
     )
 
 
@@ -242,7 +247,14 @@ def create_class(conn: sqlite3.Connection, academy_id: int, fields: dict) -> int
                 fields["level_id"],
                 fields["subject_id"],
                 fields["teacher_id"],
-                fields.get("name", "A"),
+                _free_class_name(
+                    conn,
+                    academy_id,
+                    fields["level_id"],
+                    fields["subject_id"],
+                    fields["teacher_id"],
+                    fields.get("name", "A"),
+                ),
                 fields.get("annee"),
                 fields.get("filiere"),
                 fields.get("parcours"),
@@ -256,6 +268,37 @@ def create_class(conn: sqlite3.Connection, academy_id: int, fields: dict) -> int
         )
         _learn_capability_from_class(conn, class_id, fields["teacher_id"])
         return class_id
+
+
+def _free_class_name(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    level_id: int,
+    subject_id: int,
+    teacher_id: int,
+    wanted: str,
+) -> str:
+    """The legacy UNIQUE(level, subject, teacher, name) predates années: one
+    prof opening the same matière in two années collided on the internal
+    name. Bump to the next free letter — the name is invisible in the UI."""
+    used = {
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM class_group WHERE academy_id = ? AND level_id = ?"
+            " AND subject_id = ? AND teacher_id = ?",
+            (academy_id, level_id, subject_id, teacher_id),
+        )
+    }
+    if wanted not in used:
+        return wanted
+    for offset in range(26):
+        candidate = chr(ord("A") + offset)
+        if candidate not in used:
+            return candidate
+    suffix = 2
+    while f"A{suffix}" in used:
+        suffix += 1
+    return f"A{suffix}"
 
 
 def _learn_capability_from_class(

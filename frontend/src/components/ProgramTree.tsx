@@ -1,11 +1,9 @@
 // THE tree (the client's sketch): one stacked section per niveau, année rows
-// inside (3ème collège forks Normal / Râ'ida), matière chips on every row.
-// One single add-field per row: type to reuse an existing matière or create
-// a new one with Entrée. « Ajouter un niveau » grows the tree itself.
-//
-// Two modes: "check" (professor capabilities — checkbox chips) and "pick"
-// (choose ONE slot for a class — the parcours fork gains a third "classe
-// commune" row that groups Normal + Râ'ida together).
+// inside (3ème collège forks Normal / Râ'ida), matière chips on every row —
+// but each niveau shows ONLY ITS OWN matières. The single add-field per row
+// reuses this niveau's matière or creates it here (typing a name that exists
+// elsewhere creates this niveau's own copy). « Ajouter un niveau » grows the
+// tree itself. Used to declare what a professor can teach.
 
 import { useState } from "react"
 import { Plus } from "lucide-react"
@@ -23,25 +21,19 @@ import { apiSend } from "@/lib/api"
 import type { Level, Subject } from "@/lib/api"
 import { parcoursOptions, teachingAnnees } from "@/lib/levels"
 
-export type TreeSlot = {
-  level_id: number
-  annee: number | null
-  parcours: string | null
-  subject_id: number
-}
-
-export const slotKey = (slot: Omit<TreeSlot, "subject_id">, subjectId: number) =>
-  `${slot.level_id}|${slot.annee ?? ""}|${slot.parcours ?? ""}|${subjectId}`
+export const slotKey = (
+  slot: { level_id: number; annee: number | null; parcours: string | null },
+  subjectId: number,
+) => `${slot.level_id}|${slot.annee ?? ""}|${slot.parcours ?? ""}|${subjectId}`
 
 type Node = {
   level: Level
   label: string
   annee: number | null
   parcours: string | null
-  commun?: boolean
 }
 
-const levelNodes = (level: Level, mode: "check" | "pick"): Node[] => {
+const levelNodes = (level: Level): Node[] => {
   const annees = teachingAnnees(level)
   if (annees.length === 0)
     return [{ level, label: "", annee: null, parcours: null }]
@@ -49,77 +41,55 @@ const levelNodes = (level: Level, mode: "check" | "pick"): Node[] => {
     const forks = parcoursOptions(level.name, value)
     if (forks.length === 0)
       return [{ level, label, annee: Number(value), parcours: null }]
-    const rows: Node[] = forks.map((fork) => ({
+    return forks.map((fork) => ({
       level,
       label: `${label} — ${fork}`,
       annee: Number(value),
       parcours: fork,
     }))
-    if (mode === "pick")
-      rows.push({
-        level,
-        label: `${label} — classe commune (${forks.join(" + ")})`,
-        annee: Number(value),
-        parcours: null,
-        commun: true,
-      })
-    return rows
   })
 }
 
+// A niveau shows its own matières (plus legacy unscoped ones).
+export const subjectsOfLevel = (subjects: Subject[], levelId: number) =>
+  subjects.filter(
+    (subject) => subject.level_id === levelId || subject.level_id === null,
+  )
+
 type Props = {
-  mode: "check" | "pick"
   levels: Level[]
   subjects: Subject[]
-  /** check mode: the set of checked slot keys. */
-  checked?: Set<string>
-  onToggle?: (slots: { key: string; subjectId: number }[], on: boolean) => void
-  /** pick mode: the selected slot. */
-  picked?: TreeSlot | null
-  onPick?: (slot: TreeSlot) => void
+  checked: Set<string>
+  onToggle: (slots: { key: string; subjectId: number }[], on: boolean) => void
   /** Called after a matière or niveau was created here (refetch lists). */
   onGrown: () => void
 }
 
-export function ProgramTree({
-  mode,
-  levels,
-  subjects,
-  checked,
-  onToggle,
-  picked,
-  onPick,
-  onGrown,
-}: Props) {
+export function ProgramTree({ levels, subjects, checked, onToggle, onGrown }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   return (
     <div className="space-y-4">
       <Notice message={error} />
-      {levels.map((level) => {
-        const nodes = levelNodes(level, mode)
-        return (
-          <div key={level.id} className="border-border rounded-xl border p-3">
-            <p className="mb-2 text-sm font-semibold">{level.name}</p>
-            <div className="space-y-2.5">
-              {nodes.map((node) => (
-                <NodeRow
-                  key={`${node.label}|${node.commun ?? false}`}
-                  node={node}
-                  mode={mode}
-                  subjects={subjects}
-                  checked={checked}
-                  onToggle={onToggle}
-                  picked={picked}
-                  onPick={onPick}
-                  onGrown={onGrown}
-                  onError={setError}
-                />
-              ))}
-            </div>
+      {levels.map((level) => (
+        <div key={level.id} className="border-border rounded-xl border p-3">
+          <p className="mb-2 text-sm font-semibold">{level.name}</p>
+          <div className="space-y-2.5">
+            {levelNodes(level).map((node) => (
+              <NodeRow
+                key={node.label || "bloc"}
+                node={node}
+                subjects={subjectsOfLevel(subjects, level.id)}
+                allNames={[...new Set(subjects.map((subject) => subject.name))]}
+                checked={checked}
+                onToggle={onToggle}
+                onGrown={onGrown}
+                onError={setError}
+              />
+            ))}
           </div>
-        )
-      })}
+        </div>
+      ))}
       <AddLevel onGrown={onGrown} onError={setError} />
     </div>
   )
@@ -127,22 +97,18 @@ export function ProgramTree({
 
 function NodeRow({
   node,
-  mode,
   subjects,
+  allNames,
   checked,
   onToggle,
-  picked,
-  onPick,
   onGrown,
   onError,
 }: {
   node: Node
-  mode: "check" | "pick"
   subjects: Subject[]
-  checked?: Set<string>
-  onToggle?: (slots: { key: string; subjectId: number }[], on: boolean) => void
-  picked?: TreeSlot | null
-  onPick?: (slot: TreeSlot) => void
+  allNames: string[]
+  checked: Set<string>
+  onToggle: (slots: { key: string; subjectId: number }[], on: boolean) => void
   onGrown: () => void
   onError: (message: string) => void
 }) {
@@ -153,52 +119,25 @@ function NodeRow({
     parcours: node.parcours,
   }
 
-  const isPicked = (subjectId: number) =>
-    picked !== null &&
-    picked !== undefined &&
-    picked.level_id === coords.level_id &&
-    picked.annee === coords.annee &&
-    picked.parcours === coords.parcours &&
-    picked.subject_id === subjectId
-
-  const chipFor = (subject: Subject) => {
-    const key = slotKey(coords, subject.id)
-    const active = mode === "check" ? checked?.has(key) : isPicked(subject.id)
-    return (
-      <button
-        key={subject.id}
-        type="button"
-        onClick={() =>
-          mode === "check"
-            ? onToggle?.([{ key, subjectId: subject.id }], !checked?.has(key))
-            : onPick?.({ ...coords, subject_id: subject.id })
-        }
-        className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
-          active
-            ? "border-transparent bg-primary text-primary-foreground"
-            : "border-border text-muted-foreground hover:border-foreground/40"
-        }`}
-      >
-        {active ? "✓ " : ""}
-        {subject.name}
-      </button>
-    )
-  }
-
   const addSubject = async () => {
     const name = draft.trim()
     if (!name) return
-    const existing = subjects.find(
+    const mine = subjects.find(
       (subject) => subject.name.toLowerCase() === name.toLowerCase(),
     )
     try {
-      const id = existing
-        ? existing.id
-        : (await apiSend<{ id: number }>("POST", "/api/subjects", { name })).id
+      // Same name in ANOTHER niveau? Creating here IS the copy.
+      const id = mine
+        ? mine.id
+        : (
+            await apiSend<{ id: number }>("POST", "/api/subjects", {
+              name,
+              level_id: node.level.id,
+            })
+          ).id
       setDraft("")
       onGrown()
-      if (mode === "check") onToggle?.([{ key: slotKey(coords, id), subjectId: id }], true)
-      else onPick?.({ ...coords, subject_id: id })
+      onToggle([{ key: slotKey(coords, id), subjectId: id }], true)
     } catch (err) {
       onError((err as Error).message)
     }
@@ -212,7 +151,27 @@ function NodeRow({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        {subjects.map(chipFor)}
+        {subjects.map((subject) => {
+          const key = slotKey(coords, subject.id)
+          const active = checked.has(key)
+          return (
+            <button
+              key={subject.id}
+              type="button"
+              onClick={() =>
+                onToggle([{ key, subjectId: subject.id }], !active)
+              }
+              className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                active
+                  ? "border-transparent bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:border-foreground/40"
+              }`}
+            >
+              {active ? "✓ " : ""}
+              {subject.name}
+            </button>
+          )
+        })}
         <Input
           list="tree-subject-options"
           value={draft}
@@ -227,8 +186,8 @@ function NodeRow({
           className="h-7 w-32 text-xs"
         />
         <datalist id="tree-subject-options">
-          {subjects.map((subject) => (
-            <option key={subject.id} value={subject.name} />
+          {allNames.map((name) => (
+            <option key={name} value={name} />
           ))}
         </datalist>
       </div>
