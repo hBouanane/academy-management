@@ -184,6 +184,7 @@ def _base_split(context: EnrollmentContext) -> tuple[Allocation, ...]:
         venue_id=context.venue_id,
         owner_id=context.owner_id,
         subject_teachers=list(context.subject_teachers),
+        teacher_weights=context.teacher_weights,
     )
 
 

@@ -148,7 +148,8 @@ def create_teacher(
 ) -> int:
     return _insert(
         conn,
-        "INSERT INTO teacher (academy_id, name, phone) VALUES (?, ?, ?)",
+        "INSERT INTO teacher (academy_id, name, phone, created_at)"
+        " VALUES (?, ?, ?, datetime('now'))",
         (academy_id, name, phone),
     )
 
@@ -181,37 +182,207 @@ def list_classes(
 
 
 def update_class(conn: sqlite3.Connection, class_id: int, fields: dict) -> None:
-    _update(
-        conn,
-        "class_group",
-        class_id,
-        fields,
-        {
+    with _transaction(conn):
+        if "teacher_id" in fields:
+            # The pencil is a CORRECTION ("wrong name"), not a handover: the
+            # open assignment is rewritten as if this teacher always taught.
+            conn.execute(
+                "UPDATE class_teacher SET teacher_id = ? WHERE class_id = ?"
+                " AND to_date IS NULL",
+                (fields["teacher_id"], class_id),
+            )
+            _learn_capability_from_class(conn, class_id, fields["teacher_id"])
+        allowed = {
             "name",
             "level_id",
             "subject_id",
             "teacher_id",
+            "annee",
+            "filiere",
+            "parcours",
             "day_of_week",
             "start_time",
             "is_active",
-        },
-    )
+        }
+        changes = {key: value for key, value in fields.items() if key in allowed}
+        if changes:
+            assignments = ", ".join(f"{column} = ?" for column in changes)
+            updated = conn.execute(
+                f"UPDATE class_group SET {assignments} WHERE id = ?",
+                (*changes.values(), class_id),
+            )
+            if updated.rowcount == 0:
+                raise LookupError(f"no class_group {class_id}")
 
 
 def create_class(conn: sqlite3.Connection, academy_id: int, fields: dict) -> int:
-    return _insert(
+    with _transaction(conn):
+        class_id = conn.execute(
+            "INSERT INTO class_group (academy_id, level_id, subject_id, teacher_id,"
+            " name, annee, filiere, parcours, day_of_week, start_time)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                academy_id,
+                fields["level_id"],
+                fields["subject_id"],
+                fields["teacher_id"],
+                fields.get("name", "A"),
+                fields.get("annee"),
+                fields.get("filiere"),
+                fields.get("parcours"),
+                fields.get("day_of_week"),
+                fields.get("start_time"),
+            ),
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO class_teacher (class_id, teacher_id) VALUES (?, ?)",
+            (class_id, fields["teacher_id"]),
+        )
+        _learn_capability_from_class(conn, class_id, fields["teacher_id"])
+        return class_id
+
+
+def _learn_capability_from_class(
+    conn: sqlite3.Connection, class_id: int, teacher_id: int
+) -> None:
+    """A class someone teaches is proof of capability — record it silently."""
+    row = conn.execute(
+        "SELECT level_id, subject_id, annee, parcours FROM class_group WHERE id = ?",
+        (class_id,),
+    ).fetchone()
+    if row is None:
+        return
+    ensure_capability(
         conn,
-        "INSERT INTO class_group (academy_id, level_id, subject_id, teacher_id,"
-        " name, day_of_week, start_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        teacher_id,
+        row["level_id"],
+        row["annee"],
+        row["parcours"],
+        row["subject_id"],
+    )
+
+
+def ensure_capability(
+    conn: sqlite3.Connection,
+    teacher_id: int,
+    level_id: int,
+    annee: int | None,
+    parcours: str | None,
+    subject_id: int,
+) -> None:
+    existing = conn.execute(
+        "SELECT 1 FROM teacher_capability WHERE teacher_id = ? AND level_id = ?"
+        " AND annee IS ? AND parcours IS ? AND subject_id = ?",
+        (teacher_id, level_id, annee, parcours, subject_id),
+    ).fetchone()
+    if existing is None:
+        conn.execute(
+            "INSERT INTO teacher_capability (teacher_id, level_id, annee,"
+            " parcours, subject_id) VALUES (?, ?, ?, ?, ?)",
+            (teacher_id, level_id, annee, parcours, subject_id),
+        )
+
+
+def set_capabilities(
+    conn: sqlite3.Connection, teacher_id: int, items: list[dict]
+) -> None:
+    with _transaction(conn):
+        conn.execute(
+            "DELETE FROM teacher_capability WHERE teacher_id = ?", (teacher_id,)
+        )
+        conn.executemany(
+            "INSERT INTO teacher_capability (teacher_id, level_id, annee,"
+            " parcours, subject_id) VALUES (?, ?, ?, ?, ?)",
+            [
+                (
+                    teacher_id,
+                    item["level_id"],
+                    item.get("annee"),
+                    item.get("parcours"),
+                    item["subject_id"],
+                )
+                for item in items
+            ],
+        )
+
+
+def list_capabilities(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+    return _rows(
+        conn,
+        """
+        SELECT tc.*, sub.name AS subject_name, sl.name AS level_name
+        FROM teacher_capability tc
+        JOIN teacher t ON t.id = tc.teacher_id
+        JOIN subject sub ON sub.id = tc.subject_id
+        JOIN school_level sl ON sl.id = tc.level_id
+        WHERE t.academy_id = ?
+        """,
+        (academy_id,),
+    )
+
+
+def replace_teacher(
+    conn: sqlite3.Connection, class_id: int, date: str, successor_ids: list[int]
+) -> None:
+    """Dated handover: the money splits by days taught around `date`. The
+    outgoing teacher keeps earning whenever his old months get collected."""
+    from datetime import date as date_type
+    from datetime import timedelta
+
+    day_before = str(date_type.fromisoformat(date) - timedelta(days=1))
+    with _transaction(conn):
+        conn.execute(
+            "UPDATE class_teacher SET to_date = ? WHERE class_id = ?"
+            " AND to_date IS NULL",
+            (day_before, class_id),
+        )
+        conn.executemany(
+            "INSERT INTO class_teacher (class_id, teacher_id, from_date)"
+            " VALUES (?, ?, ?)",
+            [(class_id, successor, date) for successor in successor_ids],
+        )
+        conn.execute(
+            "UPDATE class_group SET teacher_id = ? WHERE id = ?",
+            (successor_ids[0], class_id),
+        )
+        for successor in successor_ids:
+            _learn_capability_from_class(conn, class_id, successor)
+
+
+def duplicate_class(
+    conn: sqlite3.Connection, class_id: int, teacher_id: int | None
+) -> int:
+    """« Dédoubler » : a second group of the same class — next letter, chosen
+    teacher (or the same one) — for when one group overflows."""
+    row = conn.execute("SELECT * FROM class_group WHERE id = ?", (class_id,)).fetchone()
+    if row is None:
+        raise LookupError(f"no class_group {class_id}")
+    siblings = conn.execute(
+        "SELECT name FROM class_group WHERE academy_id = ? AND level_id = ?"
+        " AND subject_id = ? AND annee IS ? AND parcours IS ? AND is_active = 1",
         (
-            academy_id,
-            fields["level_id"],
-            fields["subject_id"],
-            fields["teacher_id"],
-            fields.get("name", "A"),
-            fields.get("day_of_week"),
-            fields.get("start_time"),
+            row["academy_id"],
+            row["level_id"],
+            row["subject_id"],
+            row["annee"],
+            row["parcours"],
         ),
+    ).fetchall()
+    next_name = chr(max(ord(s["name"][:1] or "A") for s in siblings) + 1)
+    return create_class(
+        conn,
+        row["academy_id"],
+        {
+            "level_id": row["level_id"],
+            "subject_id": row["subject_id"],
+            "teacher_id": teacher_id or row["teacher_id"],
+            "name": next_name,
+            "annee": row["annee"],
+            "filiere": row["filiere"],
+            "parcours": row["parcours"],
+            "day_of_week": row["day_of_week"],
+            "start_time": row["start_time"],
+        },
     )
 
 
@@ -325,8 +496,8 @@ def create_student(conn: sqlite3.Connection, academy_id: int, fields: dict) -> i
     with _transaction(conn):
         student_id = conn.execute(
             "INSERT INTO student (academy_id, level_id, name, first_name, annee,"
-            " filiere, school_id, phone, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            " filiere, parcours, school_id, phone, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
             (
                 academy_id,
                 fields["level_id"],
@@ -334,6 +505,7 @@ def create_student(conn: sqlite3.Connection, academy_id: int, fields: dict) -> i
                 fields.get("first_name"),
                 fields.get("annee"),
                 fields.get("filiere"),
+                fields.get("parcours"),
                 fields.get("school_id"),
                 fields.get("phone"),
             ),
@@ -350,6 +522,7 @@ def update_student(conn: sqlite3.Connection, student_id: int, fields: dict) -> N
         "level_id",
         "annee",
         "filiere",
+        "parcours",
         "school_id",
         "phone",
         "is_active",
@@ -649,6 +822,125 @@ def delete_adjustment(conn: sqlite3.Connection, adjustment_id: int) -> None:
         )
 
 
+def teacher_profile(
+    conn: sqlite3.Connection, teacher_id: int, month: str
+) -> dict | None:
+    """One teacher, whole story: identity, capabilities, every class with its
+    student count and what the month actually paid them, plus history."""
+    teacher = conn.execute(
+        "SELECT * FROM teacher WHERE id = ?", (teacher_id,)
+    ).fetchone()
+    if teacher is None:
+        return None
+    classes = _rows(
+        conn,
+        """
+        SELECT DISTINCT cg.id, cg.name, cg.annee, cg.filiere, cg.parcours,
+               cg.is_active, cg.teacher_id,
+               sub.name AS subject_name, sl.name AS level_name,
+          (SELECT COUNT(*) FROM enrollment_class ec
+           JOIN enrollment e ON e.id = ec.enrollment_id
+           JOIN student st ON st.id = e.student_id
+           WHERE ec.class_id = cg.id AND e.month = ? AND st.is_active = 1
+          ) AS enrolled_count
+        FROM class_group cg
+        JOIN subject sub ON sub.id = cg.subject_id
+        JOIN school_level sl ON sl.id = cg.level_id
+        WHERE cg.id IN (SELECT class_id FROM class_teacher WHERE teacher_id = ?)
+           OR cg.teacher_id = ?
+        ORDER BY sl.sort_order, sub.name, cg.name
+        """,
+        (month, teacher_id, teacher_id),
+    )
+    earnings = _teacher_class_earnings(
+        conn, teacher_id, month, [c["id"] for c in classes]
+    )
+    for entry in classes:
+        entry["earned_centimes"] = earnings.get(entry["id"], 0)
+    return {
+        **dict(teacher),
+        "capabilities": _rows(
+            conn,
+            """
+            SELECT tc.*, sub.name AS subject_name, sl.name AS level_name
+            FROM teacher_capability tc
+            JOIN subject sub ON sub.id = tc.subject_id
+            JOIN school_level sl ON sl.id = tc.level_id
+            WHERE tc.teacher_id = ?
+            """,
+            (teacher_id,),
+        ),
+        "classes": classes,
+        "history": [
+            {"month": past, "earned": _teacher_month_total(conn, teacher_id, past)}
+            for past in _months_back(month, 6)
+        ],
+        "assignments": _rows(
+            conn,
+            """
+            SELECT ct.from_date, ct.to_date, sub.name AS subject_name,
+                   cg.name AS group_name, sl.name AS level_name
+            FROM class_teacher ct
+            JOIN class_group cg ON cg.id = ct.class_id
+            JOIN subject sub ON sub.id = cg.subject_id
+            JOIN school_level sl ON sl.id = cg.level_id
+            WHERE ct.teacher_id = ?
+            ORDER BY ct.id
+            """,
+            (teacher_id,),
+        ),
+    }
+
+
+def _teacher_class_earnings(
+    conn: sqlite3.Connection, teacher_id: int, month: str, class_ids: list[int]
+) -> dict[int, int]:
+    """Attribute the teacher's ledger lines to his classes: each payment's
+    line is split across the classes he taught within that enrollment."""
+    earnings = dict.fromkeys(class_ids, 0)
+    lines = conn.execute(
+        """
+        SELECT le.amount_centimes, p.enrollment_id
+        FROM ledger_entry le
+        JOIN payment p ON p.id = le.payment_id
+        WHERE le.beneficiary_kind = 'teacher' AND le.beneficiary_id = ?
+          AND le.month = ?
+        """,
+        (teacher_id, month),
+    ).fetchall()
+    for line in lines:
+        mine = sorted(
+            class_id
+            for class_id in enrollment_class_ids(conn, line["enrollment_id"])
+            if class_id in earnings
+        )
+        if not mine:
+            continue
+        share, remainder = divmod(line["amount_centimes"], len(mine))
+        for index, class_id in enumerate(mine):
+            earnings[class_id] += share + (remainder if index == 0 else 0)
+    return earnings
+
+
+def _teacher_month_total(conn: sqlite3.Connection, teacher_id: int, month: str) -> int:
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+        " WHERE beneficiary_kind = 'teacher' AND beneficiary_id = ?"
+        " AND month = ?",
+        (teacher_id, month),
+    ).fetchone()
+    return row[0]
+
+
+def _months_back(month: str, count: int) -> list[str]:
+    year, month_number = int(month[:4]), int(month[5:7])
+    total = year * 12 + (month_number - 1)
+    return [
+        f"{(total - offset) // 12:04d}-{(total - offset) % 12 + 1:02d}"
+        for offset in range(count - 1, -1, -1)
+    ]
+
+
 def month_overview(
     conn: sqlite3.Connection,
     academy_id: int,
@@ -662,7 +954,7 @@ def month_overview(
         conn,
         f"""
         SELECT s.id AS student_id, s.name AS student_name, s.level_id,
-               sl.name AS level_name,
+               s.annee, s.parcours, sl.name AS level_name,
                e.id AS enrollment_id, e.price_centimes, e.arrival_date,
                p.id AS payment_id,
                EXISTS(
@@ -769,6 +1061,8 @@ def _overview_row(conn, store, row) -> dict:
         "student_name": row["student_name"],
         "level_id": row["level_id"],
         "level_name": row["level_name"],
+        "annee": row["annee"],
+        "parcours": row["parcours"],
         "has_arrears": bool(row["has_arrears"]),
     }
     if row["enrollment_id"] is None:

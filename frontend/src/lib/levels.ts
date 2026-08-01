@@ -34,6 +34,31 @@ export const anneeLabel = (
 export const hasFiliere = (levelName: string, annee: string): boolean =>
   levelName === "Lycée" && (annee === "2" || annee === "3")
 
+// TEACHING granularity: Primaire (one group covers all years) and Formation
+// teach as a single block; Collège and Lycée split per année. Students still
+// record their année everywhere — this only drives classes and capabilities.
+export const teachingAnnees = (levelName: string): [string, string][] =>
+  levelName === "Collège" || levelName === "Lycée" ? anneeOptions(levelName) : []
+
+// Parcours: the ministry's new split — programme normal vs râ'ida (back to
+// basics) — currently in 3ème année collège. Distinct from filière.
+export const parcoursOptions = (levelName: string, annee: string): string[] =>
+  levelName === "Collège" && annee === "3" ? ["Normal", "Râ'ida"] : []
+
+export const segmentLabel = (row: {
+  level_name: string
+  annee: number | null
+  parcours: string | null
+  filiere: string | null
+}): string => {
+  const parts = [row.level_name]
+  const annee = anneeLabel(row.level_name, row.annee)
+  if (annee) parts.push(annee)
+  if (row.parcours) parts.push(`parcours ${row.parcours}`)
+  if (row.filiere) parts.push(row.filiere)
+  return parts.join(" · ")
+}
+
 // The ministry's usual branches per Bac year — the dropdown seeds, on top of
 // which any filière ever typed in the academy is suggested back.
 export const filiereDefaults = (annee: string): string[] => {

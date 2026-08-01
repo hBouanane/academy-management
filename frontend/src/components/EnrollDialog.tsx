@@ -29,6 +29,8 @@ type Props = {
   studentId: number
   studentName: string
   levelId: number
+  annee?: number | null
+  parcours?: string | null
   month: string
   onDone: () => void
   /** Called with the new enrollment id — used to chain into the pay dialog. */
@@ -54,6 +56,8 @@ export function EnrollDialog({
   studentId,
   studentName,
   levelId,
+  annee = null,
+  parcours = null,
   month,
   onDone,
   onEnrolled,
@@ -71,6 +75,7 @@ export function EnrollDialog({
   const [packageId, setPackageId] = useState<string>("")
   const [selectedClasses, setSelectedClasses] = useState<number[]>([])
   const [arrival, setArrival] = useState("")
+  const [showAllClasses, setShowAllClasses] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -102,8 +107,17 @@ export function EnrollDialog({
     setNote(null)
   }
 
-  // A Primaire student only sees Primaire classes and Primaire packages.
-  const levelClasses = classes.filter((row) => row.level_id === levelId)
+  // The student sees his own segment: niveau, and année/parcours when both
+  // sides declare them (NULL = the class covers everyone at that niveau).
+  const levelClasses = classes.filter(
+    (row) =>
+      row.level_id === levelId &&
+      (showAllClasses ||
+        ((row.annee === null || annee === null || row.annee === annee) &&
+          (row.parcours === null ||
+            parcours === null ||
+            row.parcours === parcours))),
+  )
   const levelPackages = packages.filter(
     (pack) => pack.level_id === null || pack.level_id === levelId,
   )
@@ -258,14 +272,23 @@ export function EnrollDialog({
             )}
           </div>
           <div className="space-y-2">
-            <Label>
-              Matières{" "}
-              {chosenPackage && (
-                <span className="text-muted-foreground">
-                  ({selectedClasses.length}/{capacity})
-                </span>
-              )}
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label>
+                Matières{" "}
+                {chosenPackage && (
+                  <span className="text-muted-foreground">
+                    ({selectedClasses.length}/{capacity})
+                  </span>
+                )}
+              </Label>
+              <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                <Checkbox
+                  checked={showAllClasses}
+                  onCheckedChange={(state) => setShowAllClasses(state === true)}
+                />
+                Tout le niveau
+              </label>
+            </div>
             <div className="border-border max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
               {levelClasses.map((classRow) => {
                 const checked = selectedClasses.includes(classRow.id)
@@ -283,6 +306,11 @@ export function EnrollDialog({
                       }
                     />
                     {classRow.subject_name} — {classRow.teacher_name}
+                    {classRow.name !== "A" && (
+                      <span className="text-muted-foreground text-xs">
+                        (Groupe {classRow.name})
+                      </span>
+                    )}
                   </label>
                 )
               })}

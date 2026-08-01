@@ -1,12 +1,13 @@
-"""Default state: one academy, one venue, the three Moroccan school levels.
+"""Default state: one academy, one venue, the Moroccan school levels.
 
 Mirrors the client's current Excel reality so the app works out of the box;
-everything seeded here is editable through the app later.
+everything seeded here is editable through the app later. Formation is the
+fourth niveau: vocational courses outside the school ladder.
 """
 
 import sqlite3
 
-DEFAULT_LEVELS = ("Primaire", "Collège", "Lycée")
+DEFAULT_LEVELS = ("Primaire", "Collège", "Lycée", "Formation")
 
 
 def seed_default_academy(

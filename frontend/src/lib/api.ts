@@ -26,6 +26,47 @@ export type ClassRow = {
   level_id: number
   subject_id: number
   teacher_id: number
+  annee: number | null
+  filiere: string | null
+  parcours: string | null
+  enrolled_count?: number
+  is_active: number
+}
+export type Capability = {
+  id: number
+  teacher_id: number
+  level_id: number
+  annee: number | null
+  parcours: string | null
+  subject_id: number
+  subject_name: string
+  level_name: string
+}
+export type TeacherProfileClass = {
+  id: number
+  name: string
+  annee: number | null
+  filiere: string | null
+  parcours: string | null
+  is_active: number
+  teacher_id: number
+  subject_name: string
+  level_name: string
+  enrolled_count: number
+  earned_centimes: number
+}
+export type TeacherProfile = Teacher & {
+  created_at: string | null
+  capabilities: Capability[]
+  classes: TeacherProfileClass[]
+  history: { month: string; earned: number }[]
+  assignments: {
+    from_date: string | null
+    to_date: string | null
+    subject_name: string
+    group_name: string
+    level_name: string
+  }[]
 }
 export type Package = {
   id: number
@@ -63,6 +104,7 @@ export type Student = {
   level_name: string
   annee: number | null
   filiere: string | null
+  parcours: string | null
   school_name: string | null
   created_at: string | null
   is_active: number
@@ -106,6 +148,8 @@ export type OverviewRow = {
   student_name: string
   level_id: number
   level_name: string
+  annee: number | null
+  parcours: string | null
   has_arrears: boolean
   enrollment: OverviewEnrollment | null
 }
@@ -196,7 +240,7 @@ export async function apiGet<T>(url: string): Promise<T> {
 }
 
 export async function apiSend<T>(
-  method: "POST" | "PATCH" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   url: string,
   body?: unknown,
 ): Promise<T> {

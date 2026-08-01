@@ -23,7 +23,12 @@ import {
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, PhoneEntry, School, Student } from "@/lib/api"
-import { anneeOptions, filiereDefaults, hasFiliere } from "@/lib/levels"
+import {
+  anneeOptions,
+  filiereDefaults,
+  hasFiliere,
+  parcoursOptions,
+} from "@/lib/levels"
 
 const PHONE_TAGS = ["étudiant", "mère", "père", "tuteur", "autre"]
 
@@ -36,7 +41,13 @@ type Props = {
   onOpenChange: (open: boolean) => void
   /** Present = edit that student; absent = create. */
   initial?: Student | null
-  onSaved: (created?: { id: number; name: string; levelId: number }) => void
+  onSaved: (created?: {
+    id: number
+    name: string
+    levelId: number
+    annee: number | null
+    parcours: string | null
+  }) => void
 }
 
 export function StudentDialog({
@@ -50,6 +61,7 @@ export function StudentDialog({
   const [firstName, setFirstName] = useState("")
   const [levelId, setLevelId] = useState("")
   const [annee, setAnnee] = useState("")
+  const [parcours, setParcours] = useState("")
   const [filiere, setFiliere] = useState("")
   const [school, setSchool] = useState("")
   const [phones, setPhones] = useState<PhoneEntry[]>([])
@@ -66,6 +78,7 @@ export function StudentDialog({
     setFirstName(initial?.first_name ?? "")
     setLevelId(initial ? String(initial.level_id) : "")
     setAnnee(initial?.annee ? String(initial.annee) : "")
+    setParcours(initial?.parcours ?? "")
     setFiliere(initial?.filiere ?? "")
     setSchool(initial?.school_name ?? "")
     setPhones(
@@ -82,6 +95,7 @@ export function StudentDialog({
 
   const levelName = levels.find((level) => String(level.id) === levelId)?.name ?? ""
   const annees = anneeOptions(levelName)
+  const parcoursChoices = parcoursOptions(levelName, annee)
 
   const updatePhone = (index: number, patch: Partial<PhoneEntry>) =>
     setPhones((current) =>
@@ -103,6 +117,7 @@ export function StudentDialog({
       first_name: firstName.trim() || null,
       level_id: Number(levelId),
       annee: annee ? Number(annee) : null,
+      parcours: parcoursChoices.length > 0 ? parcours || null : null,
       filiere: hasFiliere(levelName, annee) ? filiere.trim() || null : null,
       school: school.trim(),
       phones: phones.map((phone) => ({
@@ -123,6 +138,8 @@ export function StudentDialog({
                 id: (created as { id: number }).id,
                 name: [firstName.trim(), name.trim()].filter(Boolean).join(" "),
                 levelId: Number(levelId),
+                annee: annee ? Number(annee) : null,
+                parcours: parcoursChoices.length > 0 ? parcours || null : null,
               },
         )
       })
@@ -200,6 +217,23 @@ export function StudentDialog({
                 </SelectContent>
               </Select>
             </div>
+            {parcoursChoices.length > 0 && (
+              <div className="min-w-32 flex-1 space-y-2">
+                <Label>Parcours</Label>
+                <Select value={parcours} onValueChange={setParcours}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Parcours" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {parcoursChoices.map((choice) => (
+                      <SelectItem key={choice} value={choice}>
+                        {choice}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {hasFiliere(levelName, annee) && (
               <div className="min-w-40 flex-1 space-y-2">
                 <Label>Filière</Label>

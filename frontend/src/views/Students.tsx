@@ -38,6 +38,8 @@ export function Students({ month, setMonth }: Props) {
     id: number
     name: string
     levelId: number
+    annee: number | null
+    parcours: string | null
   } | null>(null)
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
@@ -180,6 +182,8 @@ export function Students({ month, setMonth }: Props) {
                       studentId={student.id}
                       studentName={student.name}
                       levelId={student.level_id}
+                      annee={student.annee}
+                      parcours={student.parcours}
                       month={month}
                       onDone={reload}
                       onEnrolled={(id) =>
@@ -264,6 +268,8 @@ export function Students({ month, setMonth }: Props) {
           studentId={justCreated.id}
           studentName={justCreated.name}
           levelId={justCreated.levelId}
+          annee={justCreated.annee}
+          parcours={justCreated.parcours}
           month={month}
           open={justCreated !== null}
           onOpenChange={(open) => {

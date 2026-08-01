@@ -362,6 +362,8 @@ function StudentRow({
             studentId={row.student_id}
             studentName={row.student_name}
             levelId={row.level_id}
+            annee={row.annee}
+            parcours={row.parcours}
             month={month}
             onDone={onDone}
             onEnrolled={onEnrolled}

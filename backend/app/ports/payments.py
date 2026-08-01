@@ -49,6 +49,9 @@ class EnrollmentContext:
     owner_bp: int
     subject_teachers: tuple[int, ...]  # one teacher per subject, class order
     adjustments: tuple[ConfiguredAdjustment, ...]
+    # Per subject: the teachers who actually taught this month with their
+    # day weights (succession/co-teaching). None = subject_teachers as-is.
+    teacher_weights: tuple[tuple[tuple[int, int], ...], ...] | None = None
 
 
 @dataclass(frozen=True)

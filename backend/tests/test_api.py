@@ -71,7 +71,7 @@ class TestStructure:
 
     def test_seeded_levels(self, client):
         names = [level["name"] for level in client.get("/api/levels").json()]
-        assert names == ["Primaire", "Collège", "Lycée"]
+        assert names == ["Primaire", "Collège", "Lycée", "Formation"]
 
     def test_crud_teacher_subject_class(self, client):
         class_id, _ = setup_class_and_student(client)

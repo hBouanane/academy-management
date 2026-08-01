@@ -221,6 +221,9 @@ class ClassCreate(BaseModel):
     subject_id: int
     teacher_id: int
     name: str = "A"
+    annee: int | None = Field(None, ge=1, le=6)
+    filiere: str | None = None
+    parcours: str | None = None
     day_of_week: int | None = None
     start_time: str | None = None
 
@@ -230,9 +233,32 @@ class ClassPatch(BaseModel):
     level_id: int | None = None
     subject_id: int | None = None
     teacher_id: int | None = None
+    annee: int | None = Field(None, ge=1, le=6)
+    filiere: str | None = None
+    parcours: str | None = None
     day_of_week: int | None = None
     start_time: str | None = None
     is_active: bool | None = None
+
+
+class ReplaceTeacherBody(BaseModel):
+    date: Annotated[str, StringConstraints(pattern=DATE_PATTERN)]
+    successor_ids: list[int] = Field(min_length=1)
+
+
+class DuplicateBody(BaseModel):
+    teacher_id: int | None = None
+
+
+class CapabilityIn(BaseModel):
+    level_id: int
+    annee: int | None = Field(None, ge=1, le=6)
+    parcours: str | None = None
+    subject_id: int
+
+
+class CapabilitiesBody(BaseModel):
+    items: list[CapabilityIn]
 
 
 @router.get("/classes")
@@ -257,6 +283,53 @@ def create_class(body: ClassCreate, conn: Conn) -> dict:
 def patch_class(class_id: int, patch: ClassPatch, conn: Conn) -> dict:
     crud.update_class(conn, class_id, _lifecycle_fields(patch))
     return {"id": class_id}
+
+
+@router.post("/classes/{class_id}/replace-teacher")
+def replace_teacher(class_id: int, body: ReplaceTeacherBody, conn: Conn) -> dict:
+    """Dated handover: the outgoing teacher earns up to the day before,
+    successors from that day on — old months keep paying whoever taught."""
+    crud.replace_teacher(conn, class_id, body.date, body.successor_ids)
+    return {"id": class_id}
+
+
+@router.post("/classes/{class_id}/duplicate", status_code=201)
+def duplicate_class(class_id: int, body: DuplicateBody, conn: Conn) -> dict:
+    return {"id": crud.duplicate_class(conn, class_id, body.teacher_id)}
+
+
+@router.get("/capabilities")
+def capabilities(conn: Conn) -> list[dict]:
+    return crud.list_capabilities(conn, default_academy_id(conn))
+
+
+@router.put("/teachers/{teacher_id}/capabilities")
+def put_capabilities(teacher_id: int, body: CapabilitiesBody, conn: Conn) -> dict:
+    crud.set_capabilities(conn, teacher_id, [item.model_dump() for item in body.items])
+    return {"id": teacher_id}
+
+
+@router.get("/teachers/{teacher_id}/profile")
+def teacher_profile(
+    teacher_id: int, conn: Conn, month: MonthQuery | None = None
+) -> dict:
+    profile = crud.teacher_profile(conn, teacher_id, month or clock.current_month())
+    if profile is None:
+        raise LookupError(f"no teacher {teacher_id}")
+    return profile
+
+
+@router.get("/classes/{class_id}/absence.docx")
+def absence_sheet_route(class_id: int, month: MonthQuery, conn: Conn) -> Response:
+    from app.adapters.docx.absence_sheet import absence_sheet
+
+    content = absence_sheet(conn, class_id, month)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument"
+        ".wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="absence-{month}.docx"'},
+    )
 
 
 class MotifBody(BaseModel):
@@ -353,6 +426,7 @@ class StudentCreate(PhoneField):
     level_id: int
     annee: int | None = Field(None, ge=1, le=6)
     filiere: str | None = None
+    parcours: str | None = None
     school: str | None = None
     phones: list[PhoneIn] = []
 
@@ -363,6 +437,7 @@ class StudentPatch(PhoneField):
     level_id: int | None = None
     annee: int | None = Field(None, ge=1, le=6)
     filiere: str | None = None
+    parcours: str | None = None
     school: str | None = None
     phones: list[PhoneIn] | None = None
     is_active: bool | None = None

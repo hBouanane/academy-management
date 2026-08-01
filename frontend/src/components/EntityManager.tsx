@@ -59,6 +59,10 @@ type Props = {
   query?: string
   /** Rendered on the right of the header — e.g. a month navigator. */
   headerExtra?: ReactNode
+  /** Extra per-row action buttons, rendered before the pencil. */
+  extraActions?: (row: Row) => ReactNode
+  /** Clicking anywhere on a row (except buttons) triggers this. */
+  onRowClick?: (row: Row) => void
 }
 
 const identityBody = (values: Record<string, string>) => values
@@ -75,6 +79,8 @@ export function EntityManager({
   onChanged,
   query = "",
   headerExtra,
+  extraActions,
+  onRowClick,
 }: Props) {
   const [rows, setRows] = useState<Row[]>([])
   const [showArchived, setShowArchived] = useState(false)
@@ -193,8 +199,13 @@ export function EntityManager({
             {rows.map((row, index) => (
               <TableRow
                 key={row.id}
-                className="group stagger-row"
+                className={`group stagger-row ${onRowClick ? "cursor-pointer" : ""}`}
                 style={{ animationDelay: `${index * 40}ms` }}
+                onClick={(event) => {
+                  if (!onRowClick) return
+                  if ((event.target as HTMLElement).closest("button, a")) return
+                  onRowClick(row)
+                }}
               >
                 {columns.map((column) => (
                   <TableCell key={column.key}>
@@ -210,7 +221,8 @@ export function EntityManager({
                     <Badge variant="outline">Archivé</Badge>
                   )}
                 </TableCell>
-                <TableCell className="space-x-1 text-right">
+                <TableCell className="space-x-1 text-right whitespace-nowrap">
+                  {extraActions?.(row)}
                   <Button
                     size="sm"
                     variant="ghost"

@@ -1,6 +1,7 @@
 """SQLite implementation of the PaymentStore port."""
 
 import sqlite3
+from calendar import monthrange
 from collections.abc import Sequence
 
 from app.domain.adjustments import AdjustmentSpec
@@ -47,7 +48,42 @@ class SqlitePaymentStore:
             owner_bp=row["owner_bp"],
             subject_teachers=tuple(teacher_id for _, teacher_id in classes),
             adjustments=self._adjustments(enrollment_id, class_ids),
+            teacher_weights=tuple(
+                self._month_teacher_weights(class_id, teacher_id, row["month"])
+                for class_id, teacher_id in classes
+            ),
         )
+
+    # Each day of the month belongs to whoever was assigned that day (split
+    # equally among co-teachers); 2520 units/day divides evenly for up to
+    # nine concurrent teachers. Money then follows these weights exactly.
+    _DAY_UNITS = 2520
+
+    def _month_teacher_weights(
+        self, class_id: int, current_teacher: int, month: str
+    ) -> tuple[tuple[int, int], ...]:
+        assignments = self._conn.execute(
+            "SELECT teacher_id, from_date, to_date FROM class_teacher"
+            " WHERE class_id = ?",
+            (class_id,),
+        ).fetchall()
+        days = monthrange(int(month[:4]), int(month[5:7]))[1]
+        shares: dict[int, int] = {}
+        for day in range(1, days + 1):
+            date = f"{month}-{day:02d}"
+            active = sorted(
+                row["teacher_id"]
+                for row in assignments
+                if (row["from_date"] is None or row["from_date"] <= date)
+                and (row["to_date"] is None or date <= row["to_date"])
+            )
+            if not active:
+                active = [current_teacher]
+            per_teacher, extra = divmod(self._DAY_UNITS, len(active))
+            for index, teacher_id in enumerate(active):
+                bonus = 1 if index < extra else 0
+                shares[teacher_id] = shares.get(teacher_id, 0) + per_teacher + bonus
+        return tuple(sorted(shares.items()))
 
     def record(
         self,
