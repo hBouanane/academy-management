@@ -9,6 +9,8 @@ import sqlite3
 from contextlib import contextmanager
 
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
+from app.domain.money import percent_of, split_equally
+from app.domain.splitting import _proportional_parts
 from app.services.payments import net_price
 from app.services.proration import DEFAULT_SEGMENTS_BP
 
@@ -119,7 +121,25 @@ def create_subject(
 
 
 def update_subject(conn: sqlite3.Connection, subject_id: int, fields: dict) -> None:
-    _update(conn, "subject", subject_id, fields, {"name", "is_active"})
+    # No archive on matières: they are delete-with-guardrails only.
+    _update(conn, "subject", subject_id, fields, {"name"})
+
+
+def subject_class_count(conn: sqlite3.Connection, subject_id: int) -> int:
+    _require_row(conn, "subject", subject_id)
+    return conn.execute(
+        "SELECT COUNT(*) FROM class_group WHERE subject_id = ?", (subject_id,)
+    ).fetchone()[0]
+
+
+def delete_subject(conn: sqlite3.Connection, subject_id: int) -> None:
+    """Only for matières with zero classes — capabilities go with them, so
+    no ghost ✓ chips survive on any professor profile."""
+    with _transaction(conn):
+        conn.execute(
+            "DELETE FROM teacher_capability WHERE subject_id = ?", (subject_id,)
+        )
+        conn.execute("DELETE FROM subject WHERE id = ?", (subject_id,))
 
 
 def list_teachers(
@@ -193,7 +213,7 @@ def list_classes(
           ) AS enrolled_count
         FROM class_group cg
         JOIN subject sub ON sub.id = cg.subject_id
-        JOIN teacher t ON t.id = cg.teacher_id
+        LEFT JOIN teacher t ON t.id = cg.teacher_id
         JOIN school_level sl ON sl.id = cg.level_id
         WHERE cg.academy_id = ?{_active_clause(include_inactive, "cg.")}
         ORDER BY sl.sort_order, sub.name, cg.name
@@ -406,6 +426,282 @@ def replace_teacher(
         )
         for successor in successor_ids:
             _learn_capability_from_class(conn, class_id, successor)
+
+
+def vacate_teacher(conn: sqlite3.Connection, class_id: int, date: str) -> None:
+    """The teacher leaves with no successor yet: his assignment closes the
+    day before, the class survives loudly marked « Sans professeur ». From
+    `date` on, paid months escrow the teacher share to the académie."""
+    from datetime import date as date_type
+    from datetime import timedelta
+
+    _require_row(conn, "class_group", class_id)
+    day_before = str(date_type.fromisoformat(date) - timedelta(days=1))
+    with _transaction(conn):
+        conn.execute(
+            "UPDATE class_teacher SET to_date = ? WHERE class_id = ?"
+            " AND to_date IS NULL",
+            (day_before, class_id),
+        )
+        conn.execute(
+            "UPDATE class_group SET teacher_id = NULL WHERE id = ?", (class_id,)
+        )
+
+
+def teacher_open_class_count(conn: sqlite3.Connection, teacher_id: int) -> int:
+    """Active classes this teacher still holds — as current teacher or via an
+    open assignment. Archiving him is refused while this is non-zero."""
+    return conn.execute(
+        """
+        SELECT COUNT(DISTINCT cg.id) FROM class_group cg
+        LEFT JOIN class_teacher ct ON ct.class_id = cg.id
+            AND ct.teacher_id = ? AND ct.to_date IS NULL
+        WHERE cg.is_active = 1 AND (cg.teacher_id = ? OR ct.id IS NOT NULL)
+        """,
+        (teacher_id, teacher_id),
+    ).fetchone()[0]
+
+
+def class_has_enrollments(conn: sqlite3.Connection, class_id: int) -> bool:
+    _require_row(conn, "class_group", class_id)
+    row = conn.execute(
+        "SELECT 1 FROM enrollment_class WHERE class_id = ? LIMIT 1", (class_id,)
+    ).fetchone()
+    return row is not None
+
+
+def delete_class(conn: sqlite3.Connection, class_id: int) -> None:
+    """Only for classes NO student was ever enrolled in — the 'created by
+    mistake' case. Anything with history archives instead."""
+    with _transaction(conn):
+        conn.execute("DELETE FROM class_teacher WHERE class_id = ?", (class_id,))
+        conn.execute("DELETE FROM class_group WHERE id = ?", (class_id,))
+
+
+def archive_class_with_refunds(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    class_id: int,
+    date: str,
+    refunds: list[dict],
+    current_month: str,
+) -> list[int]:
+    """No teacher was found: the class dies. From the current month on,
+    paid students keep their history and get a pending refund (their chosen
+    percentage of the class's slice of what they ACTUALLY paid); unpaid
+    students simply lose the class — an impayé gets no money back."""
+    from datetime import date as date_type
+    from datetime import timedelta
+
+    _require_row(conn, "class_group", class_id)
+    percent_by_enrollment = {r["enrollment_id"]: r["percent_bp"] for r in refunds}
+    day_before = str(date_type.fromisoformat(date) - timedelta(days=1))
+    refund_ids: list[int] = []
+    with _transaction(conn):
+        conn.execute(
+            "UPDATE class_teacher SET to_date = ? WHERE class_id = ?"
+            " AND to_date IS NULL",
+            (day_before, class_id),
+        )
+        conn.execute("UPDATE class_group SET is_active = 0 WHERE id = ?", (class_id,))
+        affected = conn.execute(
+            """
+            SELECT e.id, e.student_id,
+                   (SELECT p.id FROM payment p WHERE p.enrollment_id = e.id
+                      AND p.reversed_at IS NULL) AS payment_id,
+                   EXISTS(SELECT 1 FROM payment p2
+                          WHERE p2.enrollment_id = e.id) AS has_history,
+                   e.month
+            FROM enrollment e
+            JOIN enrollment_class ec ON ec.enrollment_id = e.id
+            WHERE ec.class_id = ? AND e.month >= ?
+            """,
+            (class_id, current_month),
+        ).fetchall()
+        for enrollment in affected:
+            if enrollment["payment_id"] is not None:
+                refund_id = _create_refund(
+                    conn,
+                    academy_id,
+                    enrollment,
+                    class_id,
+                    percent_by_enrollment.get(enrollment["id"], 0),
+                )
+                if refund_id is not None:
+                    refund_ids.append(refund_id)
+            else:
+                _drop_class_from_enrollment(conn, enrollment, class_id)
+    return refund_ids
+
+
+def _drop_class_from_enrollment(
+    conn: sqlite3.Connection, enrollment: sqlite3.Row, class_id: int
+) -> None:
+    conn.execute(
+        "DELETE FROM enrollment_class WHERE enrollment_id = ? AND class_id = ?",
+        (enrollment["id"], class_id),
+    )
+    remaining = enrollment_class_ids(conn, enrollment["id"])
+    if not remaining and not enrollment["has_history"]:
+        # His only class died before any money moved: fully un-enrolled.
+        conn.execute(
+            "DELETE FROM adjustment_bearer WHERE adjustment_id IN"
+            " (SELECT id FROM adjustment WHERE enrollment_id = ?)",
+            (enrollment["id"],),
+        )
+        conn.execute(
+            "DELETE FROM adjustment WHERE enrollment_id = ?", (enrollment["id"],)
+        )
+        conn.execute("DELETE FROM enrollment WHERE id = ?", (enrollment["id"],))
+    elif remaining:
+        _refit_package(conn, enrollment["id"], len(remaining))
+
+
+def _refit_package(
+    conn: sqlite3.Connection, enrollment_id: int, subject_count: int
+) -> None:
+    """An unpaid enrollment that lost a class re-prices from the matching
+    package (same niveau, right subject count) when one exists — the student
+    must not silently keep paying for a matière that no longer exists."""
+    row = conn.execute(
+        """
+        SELECT pk.id, pk.monthly_price_centimes FROM package pk
+        JOIN enrollment e ON e.id = ?
+        JOIN student s ON s.id = e.student_id
+        WHERE pk.academy_id = s.academy_id AND pk.is_active = 1
+          AND pk.subject_count = ?
+          AND (pk.level_id IS NULL OR pk.level_id = s.level_id)
+        ORDER BY pk.level_id IS NULL, pk.id
+        LIMIT 1
+        """,
+        (enrollment_id, subject_count),
+    ).fetchone()
+    if row is not None:
+        conn.execute(
+            "UPDATE enrollment SET package_id = ?, price_centimes = ? WHERE id = ?",
+            (row["id"], row["monthly_price_centimes"], enrollment_id),
+        )
+
+
+def _create_refund(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    enrollment: sqlite3.Row,
+    class_id: int,
+    percent_bp: int,
+) -> int | None:
+    """percent_bp of the class's equal-split slice of the cash actually
+    received (net of reductions, partial if an avance) — never of the list
+    price. 0% or a zero slice creates nothing."""
+    if percent_bp <= 0:
+        return None
+    cash = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+        " WHERE payment_id = ? AND entry_type = 'payment_in'",
+        (enrollment["payment_id"],),
+    ).fetchone()[0]
+    class_ids = enrollment_class_ids(conn, enrollment["id"])
+    slices = split_equally(cash, len(class_ids))
+    amount = percent_of(slices[class_ids.index(class_id)], percent_bp)
+    if amount <= 0:
+        return None
+    return conn.execute(
+        "INSERT INTO refund (academy_id, enrollment_id, class_id, student_id,"
+        " month, percent_bp, amount_centimes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            academy_id,
+            enrollment["id"],
+            class_id,
+            enrollment["student_id"],
+            enrollment["month"],
+            percent_bp,
+            amount,
+        ),
+    ).lastrowid
+
+
+def list_refunds(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+    return _rows(
+        conn,
+        """
+        SELECT r.*, s.name AS student_name, s.first_name,
+               sub.name AS subject_name, sl.name AS level_name
+        FROM refund r
+        JOIN student s ON s.id = r.student_id
+        JOIN class_group cg ON cg.id = r.class_id
+        JOIN subject sub ON sub.id = cg.subject_id
+        JOIN school_level sl ON sl.id = cg.level_id
+        WHERE r.academy_id = ?
+        ORDER BY r.status DESC, r.created_at DESC
+        """,
+        (academy_id,),
+    )
+
+
+def refund_row(conn: sqlite3.Connection, refund_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM refund WHERE id = ?", (refund_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def settle_refund(conn: sqlite3.Connection, refund: dict, ledger_month: str) -> None:
+    """The cash leaves the drawer NOW: one refund cash-out line plus clawback
+    lines taken proportionally from what this payment's beneficiaries had
+    actually received (largest-remainder, so the sum is exact)."""
+    payment = conn.execute(
+        "SELECT id FROM payment WHERE enrollment_id = ? AND reversed_at IS NULL",
+        (refund["enrollment_id"],),
+    ).fetchone()
+    if payment is None:
+        raise LookupError(f"no live payment for enrollment {refund['enrollment_id']}")
+    received = conn.execute(
+        """
+        SELECT beneficiary_kind, beneficiary_id, SUM(amount_centimes) AS total
+        FROM ledger_entry
+        WHERE payment_id = ? AND entry_type IN ('allocation', 'adjustment')
+        GROUP BY beneficiary_kind, beneficiary_id
+        """,
+        (payment["id"],),
+    ).fetchall()
+    weights = tuple((index, max(row["total"], 0)) for index, row in enumerate(received))
+    if sum(weight for _, weight in weights) <= 0:
+        raise ValueError("ce paiement n'a rien distribué — rien à reprendre")
+    parts = _proportional_parts(weights, refund["amount_centimes"])
+    note = f"Remboursement — élève {refund['student_id']}"
+    with _transaction(conn):
+        conn.execute(
+            "INSERT INTO ledger_entry (academy_id, month, entry_type,"
+            " amount_centimes, payment_id, note) VALUES (?, ?, 'refund', ?, ?, ?)",
+            (
+                refund["academy_id"],
+                ledger_month,
+                -refund["amount_centimes"],
+                payment["id"],
+                note,
+            ),
+        )
+        conn.executemany(
+            "INSERT INTO ledger_entry (academy_id, month, entry_type,"
+            " beneficiary_kind, beneficiary_id, amount_centimes, payment_id,"
+            " note) VALUES (?, ?, 'refund', ?, ?, ?, ?, ?)",
+            [
+                (
+                    refund["academy_id"],
+                    ledger_month,
+                    received[index]["beneficiary_kind"],
+                    received[index]["beneficiary_id"],
+                    -part,
+                    payment["id"],
+                    note,
+                )
+                for index, part in parts
+                if part != 0
+            ],
+        )
+        conn.execute(
+            "UPDATE refund SET status = 'settled', settled_at = datetime('now')"
+            " WHERE id = ?",
+            (refund["id"],),
+        )
 
 
 def duplicate_class(
@@ -673,6 +969,8 @@ def student_profile(conn: sqlite3.Connection, student_id: int) -> dict | None:
             ),
             "paid": enrollment["payment_id"] is not None,
             "paid_on": enrollment["paid_on"],
+            "payment_id": enrollment["payment_id"],
+            "remaining_centimes": payment_remaining(conn, enrollment["payment_id"]),
             "arrival_date": enrollment["arrival_date"],
             "subject_count": enrollment["subject_count"],
             "subjects": [
@@ -1148,8 +1446,16 @@ def copy_month(
         """,
         (academy_id, from_month, to_month),
     )
+    copied = 0
     with _transaction(conn):
         for enrollment in source:
+            # Archived classes stay in the past: they are not extended. An
+            # enrollment whose every class died is not extended at all.
+            class_ids = _active_class_ids(
+                conn, enrollment_class_ids(conn, enrollment["id"])
+            )
+            if not class_ids:
+                continue
             # A prorated first month is a one-off concession: the extension
             # re-prices from the package. Manual overrides carry over.
             price = (
@@ -1162,11 +1468,24 @@ def copy_month(
                 enrollment["student_id"],
                 to_month,
                 enrollment["package_id"],
-                enrollment_class_ids(conn, enrollment["id"]),
+                class_ids,
                 price,
             )
             _copy_recurring_adjustments(conn, enrollment["id"], new_id)
-    return len(source)
+            copied += 1
+    return copied
+
+
+def _active_class_ids(conn: sqlite3.Connection, class_ids: list[int]) -> list[int]:
+    if not class_ids:
+        return []
+    placeholders = ", ".join("?" for _ in class_ids)
+    rows = conn.execute(
+        f"SELECT id FROM class_group WHERE id IN ({placeholders})"
+        " AND is_active = 1 ORDER BY id",
+        class_ids,
+    )
+    return [row["id"] for row in rows]
 
 
 def _overview_row(conn, store, row) -> dict:
@@ -1193,10 +1512,29 @@ def _overview_row(conn, store, row) -> dict:
             ),
             "paid": row["payment_id"] is not None,
             "payment_id": row["payment_id"],
+            "remaining_centimes": payment_remaining(conn, row["payment_id"]),
             "classes": _enrollment_classes(conn, row["enrollment_id"]),
             "split": _row_split(conn, store, row["enrollment_id"]),
         },
     }
+
+
+def payment_remaining(conn: sqlite3.Connection, payment_id: int | None) -> int:
+    """What an avance still owes: due minus every payment_in posted so far.
+    0 for a complete payment; 0 too when nothing was paid (that is an
+    impayé, not an avance)."""
+    if payment_id is None:
+        return 0
+    row = conn.execute(
+        "SELECT COALESCE(due_centimes, amount_centimes) AS due,"
+        " (SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+        "  WHERE payment_id = payment.id AND entry_type = 'payment_in') AS cash"
+        " FROM payment WHERE id = ?",
+        (payment_id,),
+    ).fetchone()
+    if row is None:
+        return 0
+    return max(row["due"] - row["cash"], 0)
 
 
 def _row_split(conn, store, enrollment_id: int) -> list[dict]:
@@ -1238,7 +1576,7 @@ def _enrollment_classes(conn: sqlite3.Connection, enrollment_id: int) -> list[di
         FROM enrollment_class ec
         JOIN class_group cg ON cg.id = ec.class_id
         JOIN subject sub ON sub.id = cg.subject_id
-        JOIN teacher t ON t.id = cg.teacher_id
+        LEFT JOIN teacher t ON t.id = cg.teacher_id
         WHERE ec.enrollment_id = ?
         ORDER BY ec.class_id
         """,

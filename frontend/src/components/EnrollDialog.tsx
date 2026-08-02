@@ -310,7 +310,10 @@ export function EnrollDialog({
                         toggleClass(classRow.id, state === true)
                       }
                     />
-                    {classRow.subject_name} — {classRow.teacher_name}
+                    {classRow.subject_name} —{" "}
+                    {classRow.teacher_name ?? (
+                      <span className="text-destructive">sans professeur</span>
+                    )}
                   </label>
                 )
               })}

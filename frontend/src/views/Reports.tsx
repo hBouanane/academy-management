@@ -10,15 +10,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CashBars } from "@/components/charts"
+import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
-import { apiGet } from "@/lib/api"
+import { apiGet, apiSend } from "@/lib/api"
 import type {
   ArrearsEntry,
   BeneficiaryTotal,
   HistoryEntry,
   MonthlyReport,
+  Refund,
   Teacher,
 } from "@/lib/api"
 import { useCountUp, useGrowIn } from "@/lib/anim"
@@ -40,6 +42,7 @@ export function Reports({ month, setMonth }: Props) {
   const [report, setReport] = useState<MonthlyReport | null>(null)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [owing, setOwing] = useState<ArrearsEntry[]>([])
+  const [refunds, setRefunds] = useState<Refund[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
@@ -61,6 +64,9 @@ export function Reports({ month, setMonth }: Props) {
     apiGet<ArrearsEntry[]>(`/api/reports/arrears?up_to_month=${month}`)
       .then(setOwing)
       .catch(() => setOwing([]))
+    apiGet<Refund[]>("/api/refunds")
+      .then(setRefunds)
+      .catch(() => setRefunds([]))
     apiGet<Teacher[]>("/api/teachers")
       .then(setTeachers)
       .catch(() => setTeachers([]))
@@ -79,6 +85,16 @@ export function Reports({ month, setMonth }: Props) {
     report?.last_entry_at != null &&
     report.last_entry_at > exportedAt
 
+  const settleRefund = (refund: Refund) =>
+    apiSend("POST", `/api/refunds/${refund.id}/settle`)
+      .then(() => setRefresh((count) => count + 1))
+      .catch((err: Error) => setError(err.message))
+
+  const pendingRefunds = refunds.filter((refund) => refund.status === "pending")
+  const totalToRefund = pendingRefunds.reduce(
+    (sum, refund) => sum + refund.amount_centimes,
+    0,
+  )
   const totalOwed = owing.reduce((sum, entry) => sum + entry.total_owed, 0)
   const teacherTotal = (report?.totals ?? [])
     .filter((total) => total.kind === "teacher")
@@ -234,6 +250,91 @@ export function Reports({ month, setMonth }: Props) {
           </Table>
         </div>
       </div>
+
+      {refunds.length > 0 && (
+        <div className="surface-card p-5">
+          <h3 className="font-medium">Remboursements</h3>
+          <p className="text-muted-foreground mb-3 text-sm">
+            Promis lors de l'archivage d'une classe — l'argent ne bouge dans le
+            registre qu'au moment où vous le rendez réellement.
+            {totalToRefund > 0 && (
+              <>
+                {" "}
+                Reste à rendre :{" "}
+                <span className="text-destructive font-medium">
+                  {formatDH(totalToRefund)}
+                </span>
+              </>
+            )}
+          </p>
+          <div className="table-wrap">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Étudiant</TableHead>
+                  <TableHead>Classe</TableHead>
+                  <TableHead>Mois</TableHead>
+                  <TableHead className="text-right">Montant</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {refunds.map((refund, index) => (
+                  <TableRow
+                    key={refund.id}
+                    className="stagger-row"
+                    style={{ animationDelay: `${index * 40}ms` }}
+                  >
+                    <TableCell className="font-medium">
+                      {[refund.first_name, refund.student_name]
+                        .filter(Boolean)
+                        .join(" ")}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {refund.subject_name} · {refund.level_name}
+                    </TableCell>
+                    <TableCell className="capitalize">
+                      {monthLabel(refund.month)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatDH(refund.amount_centimes)}
+                      <span className="text-muted-foreground ml-1 text-xs">
+                        ({refund.percent_bp / 100}%)
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {refund.status === "pending" ? (
+                        <Badge variant="destructive">À rembourser</Badge>
+                      ) : (
+                        <Badge className="bg-success/15 text-success border-success/20 border">
+                          Remboursé
+                          {refund.settled_at
+                            ? ` · ${refund.settled_at.slice(0, 10)}`
+                            : ""}
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {refund.status === "pending" && (
+                        <ConfirmButton
+                          size="sm"
+                          variant="outline"
+                          confirmLabel={`Rendre ${formatDH(refund.amount_centimes)} ?`}
+                          description="L'argent sort de la caisse maintenant — repris proportionnellement à ceux qui avaient reçu ce paiement."
+                          onConfirm={() => settleRefund(refund)}
+                        >
+                          Marquer remboursé
+                        </ConfirmButton>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
 
       {payTarget && (
         <PayDialog

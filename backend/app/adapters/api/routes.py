@@ -16,6 +16,7 @@ from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
 from app.services import clock
 from app.services.payments import (
+    complete_payment,
     payment_preview,
     post_payment,
     reverse_payment,
@@ -178,8 +179,9 @@ class NamedCreate(PhoneField):
 
 
 class SubjectPatch(BaseModel):
+    # No is_active here: matières cannot be archived — only renamed, or
+    # deleted while no class references them.
     name: str | None = None
-    is_active: bool | None = None
 
 
 class LifecyclePatch(PhoneField):
@@ -223,6 +225,21 @@ def patch_subject(subject_id: int, patch: SubjectPatch, conn: Conn) -> dict:
     return {"id": subject_id}
 
 
+@router.delete("/subjects/{subject_id}")
+def delete_subject(subject_id: int, conn: Conn) -> dict:
+    """A matière created by mistake deletes outright (capabilities too);
+    one with classes must have them handled first — no half-states."""
+    count = crud.subject_class_count(conn, subject_id)
+    if count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cette matière a {count} classe(s) — gérez d'abord ses"
+            " classes (remplacez le professeur, archivez ou supprimez-les).",
+        )
+    crud.delete_subject(conn, subject_id)
+    return {"deleted": subject_id}
+
+
 @router.get("/teachers")
 def teachers(
     conn: Conn, include_inactive: bool = False, month: MonthQuery | None = None
@@ -243,6 +260,15 @@ def create_teacher(body: NamedCreate, conn: Conn) -> dict:
 
 @router.patch("/teachers/{teacher_id}")
 def patch_teacher(teacher_id: int, patch: LifecyclePatch, conn: Conn) -> dict:
+    if patch.is_active is False:
+        count = crud.teacher_open_class_count(conn, teacher_id)
+        if count:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ce professeur enseigne encore {count} classe(s) —"
+                " remplacez-le, laissez la classe sans professeur, ou"
+                " archivez la classe d'abord.",
+            )
     crud.update_teacher(conn, teacher_id, _lifecycle_fields(patch))
     return {"id": teacher_id}
 
@@ -327,6 +353,82 @@ def replace_teacher(class_id: int, body: ReplaceTeacherBody, conn: Conn) -> dict
 @router.post("/classes/{class_id}/duplicate", status_code=201)
 def duplicate_class(class_id: int, body: DuplicateBody, conn: Conn) -> dict:
     return {"id": crud.duplicate_class(conn, class_id, body.teacher_id)}
+
+
+@router.delete("/classes/{class_id}")
+def delete_class(class_id: int, conn: Conn) -> dict:
+    """The 'created by mistake' escape hatch — refused the moment any
+    student was ever enrolled: history archives, it never disappears."""
+    if crud.class_has_enrollments(conn, class_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Des élèves ont été inscrits dans cette classe — archivez"
+            " plutôt, l'historique doit rester.",
+        )
+    crud.delete_class(conn, class_id)
+    return {"deleted": class_id}
+
+
+class VacateBody(BaseModel):
+    date: Annotated[str, StringConstraints(pattern=DATE_PATTERN)]
+
+
+@router.post("/classes/{class_id}/vacate-teacher")
+def vacate_teacher(class_id: int, body: VacateBody, conn: Conn) -> dict:
+    """No successor yet: the class survives « Sans professeur »; vacant days
+    escrow the teacher share to the académie until someone is named."""
+    crud.vacate_teacher(conn, class_id, body.date)
+    return {"id": class_id}
+
+
+class RefundChoice(BaseModel):
+    enrollment_id: int
+    percent_bp: Annotated[int, Field(ge=0, le=10_000)]
+
+
+class ArchiveClassBody(BaseModel):
+    date: Annotated[str, StringConstraints(pattern=DATE_PATTERN)]
+    refunds: list[RefundChoice] = []
+
+
+@router.post("/classes/{class_id}/archive")
+def archive_class(class_id: int, body: ArchiveClassBody, conn: Conn) -> dict:
+    """The class dies: paid students get pending refunds at their chosen
+    percentage of what they actually paid; unpaid students simply lose the
+    class (an impayé gets no money back — he never paid)."""
+    for choice in body.refunds:
+        if not crud.enrollment_is_paid(conn, choice.enrollment_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Cette inscription est en impayé — on ne rembourse"
+                " pas un mois jamais encaissé.",
+            )
+    refund_ids = crud.archive_class_with_refunds(
+        conn,
+        default_academy_id(conn),
+        class_id,
+        body.date,
+        [choice.model_dump() for choice in body.refunds],
+        clock.current_month(),
+    )
+    return {"id": class_id, "refund_ids": refund_ids}
+
+
+@router.get("/refunds")
+def refunds(conn: Conn) -> list[dict]:
+    """The « Remboursements » place: every promise, pending first."""
+    return crud.list_refunds(conn, default_academy_id(conn))
+
+
+@router.post("/refunds/{refund_id}/settle")
+def settle_refund(refund_id: int, conn: Conn) -> dict:
+    refund = crud.refund_row(conn, refund_id)
+    if refund is None:
+        raise LookupError(f"no refund {refund_id}")
+    if refund["status"] == "settled":
+        raise HTTPException(status_code=409, detail="Déjà remboursé.")
+    crud.settle_refund(conn, refund, clock.current_month())
+    return {"id": refund_id, "status": "settled"}
 
 
 @router.get("/capabilities")
@@ -915,16 +1017,38 @@ def ensure_month(month: MonthPath, conn: Conn) -> dict:
 class PaymentCreate(BaseModel):
     enrollment_id: int
     paid_on: Annotated[str, StringConstraints(pattern=DATE_PATTERN)] | None = None
+    # Less than the net = an avance: every beneficiary gets his FULL share,
+    # the académie fronts the missing part until the student completes.
+    amount_centimes: int | None = None
 
 
 class ReverseBody(BaseModel):
     reason: str | None = None
 
 
+class CompleteBody(BaseModel):
+    amount_centimes: int | None = None  # None = the whole remaining amount
+
+
 @router.post("/payments", status_code=201)
 def create_payment(body: PaymentCreate, conn: Conn) -> dict:
-    posted = post_payment(SqlitePaymentStore(conn), body.enrollment_id, body.paid_on)
+    posted = post_payment(
+        SqlitePaymentStore(conn),
+        body.enrollment_id,
+        body.paid_on,
+        amount=body.amount_centimes,
+    )
     return {"payment_id": posted.payment_id, "net_centimes": posted.net_amount}
+
+
+@router.post("/payments/{payment_id}/complete")
+def complete(payment_id: int, body: CompleteBody, conn: Conn) -> dict:
+    """A later installment on an avance — cash in, straight back to the
+    académie that fronted it."""
+    posted = complete_payment(
+        SqlitePaymentStore(conn), payment_id, body.amount_centimes
+    )
+    return {"payment_id": payment_id, "posted_centimes": posted}
 
 
 @router.post("/payments/{payment_id}/reverse")

@@ -41,7 +41,7 @@ class FakeStore:
     def enrollment_context(self, enrollment_id):
         return self.ctx if enrollment_id == self.ctx.enrollment_id else None
 
-    def record(self, ctx, net_amount, lines, paid_on):
+    def record(self, ctx, net_amount, lines, paid_on, due=None):
         if self.recorded is not None:
             raise AlreadyPaidError(ctx.enrollment_id)
         self.recorded = (net_amount, lines, paid_on)

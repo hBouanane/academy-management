@@ -12,6 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { EnrollDialog } from "@/components/EnrollDialog"
+import { LevelFilter, matchesLevelFilter } from "@/components/LevelFilter"
+import type { LevelFilterValue } from "@/components/LevelFilter"
 import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
@@ -26,6 +28,10 @@ type Props = { month: string; setMonth: (month: string) => void }
 export function Students({ month, setMonth }: Props) {
   const [students, setStudents] = useState<Student[]>([])
   const [levels, setLevels] = useState<Level[]>([])
+  const [filter, setFilter] = useState<LevelFilterValue>({
+    levelId: null,
+    annee: null,
+  })
   const [showInactive, setShowInactive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -88,13 +94,16 @@ export function Students({ month, setMonth }: Props) {
       <Notice message={error} />
 
       <div className="surface-card p-5">
-        <label className="text-muted-foreground mb-4 flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={showInactive}
-            onCheckedChange={(checked) => setShowInactive(checked === true)}
-          />
-          Afficher les étudiants archivés
-        </label>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <LevelFilter levels={levels} value={filter} onChange={setFilter} />
+          <label className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={showInactive}
+              onCheckedChange={(checked) => setShowInactive(checked === true)}
+            />
+            Afficher les étudiants archivés
+          </label>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -108,7 +117,7 @@ export function Students({ month, setMonth }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {students.map((student, index) => (
+            {students.filter((s) => matchesLevelFilter(filter, s)).map((student, index) => (
               <TableRow
                 key={student.id}
                 className={`stagger-row cursor-pointer ${Number(student.unpaid_months) > 0 ? "row-unpaid" : ""}`}

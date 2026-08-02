@@ -26,11 +26,13 @@ export type ClassRow = {
   id: number
   name: string
   subject_name: string
-  teacher_name: string
+  // null = « Sans professeur » : the class survives while a replacement is
+  // sought; vacant days escrow the teacher share to the académie.
+  teacher_name: string | null
   level_name: string
   level_id: number
   subject_id: number
-  teacher_id: number
+  teacher_id: number | null
   annee: number | null
   filiere: string | null
   parcours: string | null
@@ -128,6 +130,8 @@ export type ProfileMonth = {
   net_centimes: number
   paid: boolean
   paid_on: string | null
+  payment_id: number | null
+  remaining_centimes: number // > 0 = avance still to complete
   arrival_date: string | null
   subject_count: number
   subjects: string[]
@@ -139,7 +143,7 @@ export type StudentProfile = Student & {
 export type EnrollmentClass = {
   id: number
   subject_name: string
-  teacher_name: string
+  teacher_name: string | null
 }
 export type OverviewEnrollment = {
   id: number
@@ -148,6 +152,7 @@ export type OverviewEnrollment = {
   net_centimes: number
   paid: boolean
   payment_id: number | null
+  remaining_centimes: number // > 0 = avance still to complete
   classes: EnrollmentClass[]
   split: SplitChip[]
 }
@@ -206,6 +211,22 @@ export type MonthlyReport = {
   last_entry_at: string | null
   totals: BeneficiaryTotal[]
   by_level: { level_id: number; level_name: string; totals: BeneficiaryTotal[] }[]
+}
+export type Refund = {
+  id: number
+  enrollment_id: number
+  class_id: number
+  student_id: number
+  student_name: string
+  first_name: string | null
+  subject_name: string
+  level_name: string
+  month: string
+  percent_bp: number
+  amount_centimes: number
+  status: "pending" | "settled"
+  created_at: string
+  settled_at: string | null
 }
 export type ArrearsEntry = {
   student_id: number

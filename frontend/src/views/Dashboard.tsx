@@ -13,15 +13,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CashBars, CollectionRing } from "@/components/charts"
+import { CompleteDialog } from "@/components/CompleteDialog"
 import { ConfirmButton } from "@/components/Confirm"
 import { EnrollDialog } from "@/components/EnrollDialog"
+import { LevelFilter, matchesLevelFilter } from "@/components/LevelFilter"
+import type { LevelFilterValue } from "@/components/LevelFilter"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { StudentProfile } from "@/components/StudentProfile"
 import { PayDialog } from "@/components/PayDialog"
 import { ReverseDialog } from "@/components/ReverseDialog"
 import { apiGet, apiSend } from "@/lib/api"
-import type { HistoryEntry, MonthlyReport, OverviewRow } from "@/lib/api"
+import type { HistoryEntry, Level, MonthlyReport, OverviewRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
 import { currentMonth, formatDH } from "@/lib/money"
 
@@ -29,14 +32,25 @@ type Props = { month: string; setMonth: (month: string) => void }
 
 export function Dashboard({ month, setMonth }: Props) {
   const [rows, setRows] = useState<OverviewRow[]>([])
+  const [levels, setLevels] = useState<Level[]>([])
   const [report, setReport] = useState<MonthlyReport | null>(null)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [search, setSearch] = useState("")
+  const [filter, setFilter] = useState<LevelFilterValue>({
+    levelId: null,
+    annee: null,
+  })
   const [error, setError] = useState<string | null>(null)
   // A fresh enrollment chains straight into its pay dialog.
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
   )
+  // Completing an avance from the row.
+  const [completeTarget, setCompleteTarget] = useState<{
+    paymentId: number
+    name: string
+    remaining: number
+  } | null>(null)
   const [profileId, setProfileId] = useState<number | null>(null)
   // Browsing an old month: rows of students who were not enrolled then are
   // noise, so the filter switches itself on (still uncheckable).
@@ -73,6 +87,9 @@ export function Dashboard({ month, setMonth }: Props) {
   }, [month])
 
   useEffect(reload, [reload])
+  useEffect(() => {
+    apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
+  }, [])
 
   const prepareMonth = () => {
     setError(null)
@@ -86,7 +103,8 @@ export function Dashboard({ month, setMonth }: Props) {
   const filtered = rows.filter(
     (row) =>
       row.student_name.toLowerCase().includes(search.trim().toLowerCase()) &&
-      (!enrolledOnly || row.enrollment !== null),
+      (!enrolledOnly || row.enrollment !== null) &&
+      matchesLevelFilter(filter, row),
   )
 
   return (
@@ -153,6 +171,9 @@ export function Dashboard({ month, setMonth }: Props) {
             />
           </div>
         </div>
+        <div className="mb-4">
+          <LevelFilter levels={levels} value={filter} onChange={setFilter} />
+        </div>
         <div className="table-wrap">
           <Table>
             <TableHeader>
@@ -176,6 +197,13 @@ export function Dashboard({ month, setMonth }: Props) {
                   onDone={reload}
                   onEnrolled={(id) =>
                     setPayTarget({ id, name: row.student_name })
+                  }
+                  onComplete={(paymentId, remaining) =>
+                    setCompleteTarget({
+                      paymentId,
+                      remaining,
+                      name: row.student_name,
+                    })
                   }
                   onShowProfile={setProfileId}
                 />
@@ -205,6 +233,19 @@ export function Dashboard({ month, setMonth }: Props) {
           }}
           onDone={() => {
             setPayTarget(null)
+            reload()
+          }}
+        />
+      )}
+
+      {completeTarget && (
+        <CompleteDialog
+          paymentId={completeTarget.paymentId}
+          studentName={completeTarget.name}
+          remainingCentimes={completeTarget.remaining}
+          onClose={() => setCompleteTarget(null)}
+          onDone={() => {
+            setCompleteTarget(null)
             reload()
           }}
         />
@@ -254,6 +295,7 @@ function StudentRow({
   locked,
   onDone,
   onEnrolled,
+  onComplete,
   onShowProfile,
 }: {
   row: OverviewRow
@@ -262,12 +304,15 @@ function StudentRow({
   locked: boolean
   onDone: () => void
   onEnrolled: (enrollmentId: number) => void
+  onComplete: (paymentId: number, remainingCentimes: number) => void
   onShowProfile: (studentId: number) => void
 }) {
   const enrollment = row.enrollment
   const reduced =
     enrollment !== null && enrollment.net_centimes !== enrollment.price_centimes
   const unpaid = enrollment !== null && !enrollment.paid
+  const avance =
+    enrollment !== null && enrollment.paid && enrollment.remaining_centimes > 0
   const rowClass = [
     "stagger-row",
     unpaid ? "row-unpaid" : "",
@@ -349,7 +394,12 @@ function StudentRow({
       </TableCell>
       <TableCell>
         {!enrollment && <Badge variant="outline">Non inscrit</Badge>}
-        {enrollment?.paid && (
+        {avance && (
+          <Badge className="border-amber-500/25 bg-amber-500/15 text-amber-600 border">
+            Avance · reste {formatDH(enrollment.remaining_centimes)}
+          </Badge>
+        )}
+        {enrollment?.paid && !avance && (
           <Badge className="bg-success/15 text-success border-success/20 border">
             Payé
           </Badge>
@@ -394,6 +444,17 @@ function StudentRow({
               </ConfirmButton>
             )}
           </>
+        )}
+        {avance && enrollment.payment_id && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              onComplete(enrollment.payment_id!, enrollment.remaining_centimes)
+            }
+          >
+            Compléter
+          </Button>
         )}
         {enrollment?.paid &&
           enrollment.payment_id &&

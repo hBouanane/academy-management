@@ -41,7 +41,7 @@ def absence_sheet(conn: sqlite3.Connection, class_id: int, month: str) -> bytes:
         FROM class_group cg
         JOIN subject sub ON sub.id = cg.subject_id
         JOIN school_level sl ON sl.id = cg.level_id
-        JOIN teacher t ON t.id = cg.teacher_id
+        LEFT JOIN teacher t ON t.id = cg.teacher_id
         WHERE cg.id = ?
         """,
         (class_id,),
@@ -67,7 +67,8 @@ def absence_sheet(conn: sqlite3.Connection, class_id: int, month: str) -> bytes:
     )
     document.add_paragraph(_segment_line(facts))
     document.add_paragraph(
-        f"Professeur : {facts['teacher_name']}    Mois : {_month_label(month)}"
+        f"Professeur : {facts['teacher_name'] or 'Sans professeur'}"
+        f"    Mois : {_month_label(month)}"
     )
 
     table = document.add_table(rows=1, cols=3 + SESSION_COLUMNS)

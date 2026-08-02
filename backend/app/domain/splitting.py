@@ -36,7 +36,9 @@ class SplitPolicy:
 # Per subject: (teacher_id, weight) pairs — arbitrary positive proportions.
 # Used when a class changed hands mid-month (weights = days taught) or is
 # co-taught (equal weights). None/one pair = the whole slice to one teacher.
-TeacherWeights = tuple[tuple[tuple[int, int], ...], ...]
+# A None teacher id means « sans professeur »: those days' share escrows to
+# the académie (the owner) instead of any teacher.
+TeacherWeights = tuple[tuple[tuple[int | None, int], ...], ...]
 
 
 def split_payment(
@@ -45,33 +47,38 @@ def split_payment(
     *,
     venue_id: int,
     owner_id: int,
-    subject_teachers: list[int],
+    subject_teachers: list[int | None],
     teacher_weights: TeacherWeights | None = None,
 ) -> tuple[Allocation, ...]:
     """subject_teachers holds one teacher id per subject; a teacher covering
     several of the student's subjects appears once per subject and earns
     one slice each, aggregated into a single allocation. teacher_weights,
     when given, splits each subject's slice among the teachers who actually
-    taught that month."""
+    taught that month; vacant portions (None) land on the owner."""
     if not subject_teachers:
         raise ValueError("a payment must cover at least one subject")
     venue_amount = percent_of(amount, policy.venue_bp)
     owner_amount = percent_of(amount, policy.owner_bp)
     teachers_total = amount - venue_amount - owner_amount
+    totals = _teacher_totals(subject_teachers, teachers_total, teacher_weights)
+    escrow = totals.pop(None, 0)
     return (
         Allocation(Beneficiary("venue", venue_id), venue_amount),
-        Allocation(Beneficiary("owner", owner_id), owner_amount),
-        *_teacher_allocations(subject_teachers, teachers_total, teacher_weights),
+        Allocation(Beneficiary("owner", owner_id), owner_amount + escrow),
+        *(
+            Allocation(Beneficiary("teacher", teacher_id), total)
+            for teacher_id, total in totals.items()
+        ),
     )
 
 
-def _teacher_allocations(
-    subject_teachers: list[int],
+def _teacher_totals(
+    subject_teachers: list[int | None],
     total: Centimes,
     teacher_weights: TeacherWeights | None,
-) -> list[Allocation]:
+) -> dict[int | None, Centimes]:
     slices = split_equally(total, len(subject_teachers))
-    totals: dict[int, Centimes] = {}
+    totals: dict[int | None, Centimes] = {}
     for index, subject_slice in enumerate(slices):
         entries = (
             teacher_weights[index]
@@ -80,15 +87,12 @@ def _teacher_allocations(
         )
         for teacher_id, part in _proportional_parts(entries, subject_slice):
             totals[teacher_id] = totals.get(teacher_id, 0) + part
-    return [
-        Allocation(Beneficiary("teacher", teacher_id), amount)
-        for teacher_id, amount in totals.items()
-    ]
+    return totals
 
 
 def _proportional_parts(
-    entries: tuple[tuple[int, int], ...], amount: Centimes
-) -> list[tuple[int, Centimes]]:
+    entries: tuple[tuple[int | None, int], ...], amount: Centimes
+) -> list[tuple[int | None, Centimes]]:
     """Split `amount` by integer weights, exactly: floors first, then the
     flooring loss goes to the largest remainders (ties: first listed)."""
     weight_total = sum(weight for _, weight in entries)

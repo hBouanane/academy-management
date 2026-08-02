@@ -11,14 +11,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
 import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
-import type { Teacher } from "@/lib/api"
-import { formatDH } from "@/lib/money"
+import type { ClassRow, Teacher } from "@/lib/api"
+import { currentMonth, formatDH } from "@/lib/money"
 
 type Row = Teacher & {
   created_at: string | null
@@ -37,6 +38,8 @@ export function Teachers({ month, setMonth }: Props) {
   // "new" opens creation; a row opens edition (identity + capability tree).
   const [editing, setEditing] = useState<Row | "new" | null>(null)
   const [profileId, setProfileId] = useState<number | null>(null)
+  // Archiving someone who still teaches opens the guided departure instead.
+  const [departing, setDeparting] = useState<Row | null>(null)
 
   const reload = useCallback(() => {
     apiGet<Row[]>(`/api/teachers?include_inactive=${showArchived}&month=${month}`)
@@ -45,10 +48,30 @@ export function Teachers({ month, setMonth }: Props) {
   }, [showArchived, month])
   useEffect(reload, [reload])
 
-  const setActive = (row: Row, active: boolean) => {
+  const restore = (row: Row) => {
     setBusy(true)
-    apiSend("PATCH", `/api/teachers/${row.id}`, { is_active: active })
+    apiSend("PATCH", `/api/teachers/${row.id}`, { is_active: true })
       .then(reload)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false))
+  }
+
+  const startArchive = (row: Row) => {
+    setBusy(true)
+    apiGet<ClassRow[]>(`/api/classes?month=${currentMonth()}`)
+      .then((classes) => {
+        const teaches = classes.some(
+          (entry) => entry.is_active === 1 && entry.teacher_id === row.id,
+        )
+        if (teaches) {
+          // The guided flow: each class gets a fate, then he is archived.
+          setDeparting(row)
+        } else {
+          return apiSend("PATCH", `/api/teachers/${row.id}`, {
+            is_active: false,
+          }).then(reload)
+        }
+      })
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false))
   }
@@ -142,21 +165,29 @@ export function Teachers({ month, setMonth }: Props) {
                   >
                     <Pencil className="size-4" />
                   </Button>
-                  <ConfirmButton
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    confirmLabel={row.is_active ? "Archiver ?" : "Restaurer ?"}
-                    description="Réversible — il continue de recevoir ses anciens mois quand ils sont encaissés."
-                    title={row.is_active ? "Archiver (réversible)" : "Restaurer"}
-                    onConfirm={() => setActive(row, !row.is_active)}
-                  >
-                    {row.is_active ? (
+                  {row.is_active ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      title="Archiver — s'il enseigne encore, chaque classe reçoit d'abord un sort"
+                      onClick={() => startArchive(row)}
+                    >
                       <UserMinus className="size-4" />
-                    ) : (
+                    </Button>
+                  ) : (
+                    <ConfirmButton
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      confirmLabel="Restaurer ?"
+                      description="Il redevient actif — ses anciennes classes ne lui sont pas réattribuées automatiquement."
+                      title="Restaurer"
+                      onConfirm={() => restore(row)}
+                    >
                       <UserPlus className="size-4" />
-                    )}
-                  </ConfirmButton>
+                    </ConfirmButton>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -187,6 +218,18 @@ export function Teachers({ month, setMonth }: Props) {
         onClose={() => setProfileId(null)}
         onChanged={reload}
       />
+
+      {departing && (
+        <ArchiveTeacherDialog
+          teacher={departing}
+          teachers={rows.filter((row) => row.is_active === 1)}
+          onClose={() => setDeparting(null)}
+          onDone={() => {
+            setDeparting(null)
+            reload()
+          }}
+        />
+      )}
     </div>
   )
 }

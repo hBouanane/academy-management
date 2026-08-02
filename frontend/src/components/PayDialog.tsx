@@ -14,9 +14,10 @@ import { Notice } from "@/components/Notice"
 import { useMotifs } from "@/components/MotifInput"
 import { ReductionForm } from "@/components/ReductionForm"
 import type { ReductionPayload } from "@/components/ReductionForm"
+import { Input } from "@/components/ui/input"
 import { ApiError, apiGet, apiSend } from "@/lib/api"
 import type { PaymentPreview, PreviewAdjustment, PreviewLine } from "@/lib/api"
-import { formatDH } from "@/lib/money"
+import { dhToCentimes, formatDH } from "@/lib/money"
 
 type Props = {
   enrollmentId: number
@@ -52,10 +53,14 @@ export function PayDialog({
   const [giftOpen, setGiftOpen] = useState(false)
   const { motifs, ensure } = useMotifs()
 
+  // The amount actually handed over — less than the net posts an avance.
+  const [amount, setAmount] = useState("")
+
   const reload = useCallback(() => {
     apiGet<PaymentPreview>(`/api/enrollments/${enrollmentId}/preview`)
       .then((data) => {
         setPreview(data)
+        setAmount(String(data.net_centimes / 100))
         setError(null)
       })
       .catch((err: Error) => setError(err.message))
@@ -98,11 +103,32 @@ export function PayDialog({
       .finally(() => setBusy(false))
   }
 
-  const pay = () =>
-    run(() => apiSend("POST", "/api/payments", { enrollment_id: enrollmentId }), {
-      closeAfter: true,
-      isPayment: true,
-    })
+  const pay = () => {
+    const centimes = dhToCentimes(amount)
+    if (!Number.isFinite(centimes) || centimes <= 0) {
+      setError("Entrez un montant valide.")
+      return
+    }
+    const partial =
+      preview !== null && centimes < preview.net_centimes
+        ? { amount_centimes: centimes }
+        : {}
+    run(
+      () =>
+        apiSend("POST", "/api/payments", {
+          enrollment_id: enrollmentId,
+          ...partial,
+        }),
+      { closeAfter: true, isPayment: true },
+    )
+  }
+
+  const partialCentimes = preview ? dhToCentimes(amount) : 0
+  const isAvance =
+    preview !== null &&
+    Number.isFinite(partialCentimes) &&
+    partialCentimes > 0 &&
+    partialCentimes < preview.net_centimes
 
   const submitReduction = async (
     payload: ReductionPayload,
@@ -257,20 +283,44 @@ export function PayDialog({
 
             <Notice message={error} />
 
-            <footer className="border-border flex items-center justify-between border-t pt-4">
-              <div>
-                {preview.net_centimes !== preview.price_centimes && (
-                  <p className="text-muted-foreground text-sm line-through">
-                    {formatDH(preview.price_centimes)}
+            <footer className="border-border space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  {preview.net_centimes !== preview.price_centimes && (
+                    <p className="text-muted-foreground text-sm line-through">
+                      {formatDH(preview.price_centimes)}
+                    </p>
+                  )}
+                  <p className="text-2xl font-semibold">
+                    {formatDH(preview.net_centimes)}
                   </p>
-                )}
-                <p className="text-2xl font-semibold">
-                  {formatDH(preview.net_centimes)}
-                </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <p className="text-muted-foreground text-xs">Montant reçu (DH)</p>
+                    <Input
+                      value={amount}
+                      onChange={(event) => setAmount(event.target.value)}
+                      inputMode="decimal"
+                      className="h-9 w-28 text-right"
+                    />
+                  </div>
+                  <Button size="lg" onClick={pay} disabled={busy}>
+                    {busy ? "…" : isAvance ? "Encaisser l'avance" : "Encaisser"}
+                  </Button>
+                </div>
               </div>
-              <Button size="lg" onClick={pay} disabled={busy}>
-                {busy ? "…" : "Encaisser"}
-              </Button>
+              {isAvance && (
+                <p className="text-muted-foreground text-xs">
+                  Avance : chacun (professeurs, salle) reçoit sa part{" "}
+                  <span className="font-medium">entière</span> — l'académie avance
+                  les{" "}
+                  <span className="font-medium">
+                    {formatDH(preview.net_centimes - partialCentimes)}
+                  </span>{" "}
+                  manquants jusqu'à ce que l'étudiant complète.
+                </p>
+              )}
             </footer>
           </div>
         )}

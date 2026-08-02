@@ -10,6 +10,7 @@ import {
   ArchiveRestore,
   Copy,
   FileText,
+  Trash2,
   UserRoundPen,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -38,8 +39,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ArchiveClassDialog } from "@/components/ArchiveClassDialog"
 import { ConfirmButton } from "@/components/Confirm"
-import { MonthNav } from "@/components/MonthNav"
+import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { subjectsOfLevel } from "@/components/ProgramTree"
 import { TeacherProfile } from "@/components/TeacherProfile"
@@ -80,6 +82,7 @@ export function Classes({ month, setMonth }: Props) {
   const [createOpen, setCreateOpen] = useState(false)
   const [replaceTarget, setReplaceTarget] = useState<ClassRow | null>(null)
   const [duplicateTarget, setDuplicateTarget] = useState<ClassRow | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<ClassRow | null>(null)
   const [profileTeacher, setProfileTeacher] = useState<number | null>(null)
 
   const reload = useCallback(() => {
@@ -96,8 +99,13 @@ export function Classes({ month, setMonth }: Props) {
   }, [month, showArchived])
   useEffect(reload, [reload])
 
-  const setActive = (row: ClassRow, active: boolean) =>
-    apiSend("PATCH", `/api/classes/${row.id}`, { is_active: active })
+  const restore = (row: ClassRow) =>
+    apiSend("PATCH", `/api/classes/${row.id}`, { is_active: true })
+      .then(reload)
+      .catch((err: Error) => setError(err.message))
+
+  const deleteClass = (row: ClassRow) =>
+    apiSend("DELETE", `/api/classes/${row.id}`)
       .then(reload)
       .catch((err: Error) => setError(err.message))
 
@@ -108,28 +116,41 @@ export function Classes({ month, setMonth }: Props) {
     }))
     .filter((group) => group.classes.length > 0)
 
+  // The owner's brain is année-first: inside each niveau, one sub-section
+  // per année (3ème collège forks per parcours; Bac rows carry la filière).
+  const sectionsOf = (level: Level, classes: ClassRow[]) => {
+    if (level.teaching_annees === 0)
+      return [{ key: "bloc", label: null as string | null, entries: classes }]
+    const keyed = new Map<string, { label: string | null; entries: ClassRow[] }>()
+    for (const row of classes) {
+      const base = anneeLabel(level.name, row.annee) ?? "Sans année"
+      const fork = row.parcours
+        ? ` — ${row.parcours}`
+        : row.level_name === "Collège" && row.annee === 3
+          ? " — Commune"
+          : ""
+      const label = `${base}${fork}`
+      const key = `${row.annee ?? 0}|${row.parcours ?? ""}`
+      if (!keyed.has(key)) keyed.set(key, { label, entries: [] })
+      keyed.get(key)!.entries.push(row)
+    }
+    return [...keyed.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, "fr", { numeric: true }))
+      .map(([key, section]) => ({ key, ...section }))
+  }
+
   const rowLabel = (row: ClassRow) => {
     const siblings = rows.filter(
       (other) => other.is_active === 1 && sameSlot(other, row),
     )
     if (siblings.length <= 1) return ""
+    if (row.teacher_name === null) return " · groupe sans professeur"
     const sameTeacher = siblings.filter(
       (other) => other.teacher_name === row.teacher_name,
     )
     if (sameTeacher.length <= 1) return ` · groupe de ${row.teacher_name}`
     const position = sameTeacher.findIndex((other) => other.id === row.id) + 1
     return ` · groupe de ${row.teacher_name} №${position}`
-  }
-
-  const segment = (row: ClassRow) => {
-    const parts: string[] = []
-    const annee = anneeLabel(row.level_name, row.annee)
-    if (annee) parts.push(annee)
-    if (row.parcours) parts.push(row.parcours)
-    if (row.annee !== null && !row.parcours && row.level_name === "Collège" && row.annee === 3)
-      parts.push("classe commune")
-    if (row.filiere) parts.push(row.filiere)
-    return parts.join(" · ") || "—"
   }
 
   return (
@@ -170,98 +191,141 @@ export function Classes({ month, setMonth }: Props) {
       {byLevel.map(({ level, classes }) => (
         <div key={level.id} className="surface-card p-5">
           <h3 className="mb-3 font-medium">{level.name}</h3>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Matière</TableHead>
-                <TableHead>Année · Parcours</TableHead>
-                <TableHead>Professeur</TableHead>
-                <TableHead>Inscrits ({month})</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {classes.map((row, index) => (
-                <TableRow
-                  key={row.id}
-                  className="stagger-row"
-                  style={{ animationDelay: `${index * 40}ms` }}
-                >
-                  <TableCell className="font-medium">
-                    {row.subject_name}
-                    <span className="text-muted-foreground text-xs">
-                      {rowLabel(row)}
-                    </span>
-                    {!row.is_active && (
-                      <span className="text-muted-foreground text-xs">
-                        {" "}
-                        (archivée)
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {segment(row)}
-                  </TableCell>
-                  <TableCell>
-                    <button
-                      className="underline-offset-4 hover:underline"
-                      onClick={() => setProfileTeacher(row.teacher_id)}
-                      title="Profil du professeur"
-                    >
-                      {row.teacher_name}
-                    </button>
-                  </TableCell>
-                  <TableCell>{row.enrolled_count ?? 0}</TableCell>
-                  <TableCell className="space-x-1 text-right whitespace-nowrap">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      asChild
-                      title="Liste d'absence (Word)"
-                    >
-                      <a
-                        href={`/api/classes/${row.id}/absence.docx?month=${month}`}
-                        download
+          <div className="space-y-4">
+            {sectionsOf(level, classes).map((section) => (
+              <div key={section.key}>
+                {section.label && (
+                  <h4 className="text-muted-foreground mb-1.5 text-sm font-medium">
+                    {section.label}
+                  </h4>
+                )}
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Matière</TableHead>
+                      <TableHead>Filière</TableHead>
+                      <TableHead>Professeur</TableHead>
+                      <TableHead className="capitalize">
+                        Inscrits — {monthLabel(month)}
+                      </TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {section.entries.map((row, index) => (
+                      <TableRow
+                        key={row.id}
+                        className="stagger-row"
+                        style={{ animationDelay: `${index * 40}ms` }}
                       >
-                        <FileText className="size-4" />
-                      </a>
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Remplacer le professeur (daté — l'argent suit les jours)"
-                      onClick={() => setReplaceTarget(row)}
-                    >
-                      <UserRoundPen className="size-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Dédoubler — un deuxième groupe du même créneau"
-                      onClick={() => setDuplicateTarget(row)}
-                    >
-                      <Copy className="size-4" />
-                    </Button>
-                    <ConfirmButton
-                      size="sm"
-                      variant="ghost"
-                      confirmLabel={
-                        row.is_active ? "Archiver cette classe ?" : "Restaurer ?"
-                      }
-                      description="Réversible — l'historique financier reste intact."
-                      onConfirm={() => setActive(row, !row.is_active)}
-                    >
-                      {row.is_active ? (
-                        <Archive className="size-4" />
-                      ) : (
-                        <ArchiveRestore className="size-4" />
-                      )}
-                    </ConfirmButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                        <TableCell className="font-medium">
+                          {row.subject_name}
+                          <span className="text-muted-foreground text-xs">
+                            {rowLabel(row)}
+                          </span>
+                          {!row.is_active && (
+                            <span className="text-muted-foreground text-xs">
+                              {" "}
+                              (archivée)
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {row.filiere ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          {row.teacher_id === null ? (
+                            <button
+                              className="bg-destructive/10 text-destructive rounded-full px-2.5 py-0.5 text-xs font-medium"
+                              title="Sans professeur — cliquez pour en nommer un"
+                              onClick={() => setReplaceTarget(row)}
+                            >
+                              Sans professeur — à pourvoir
+                            </button>
+                          ) : (
+                            <button
+                              className="underline-offset-4 hover:underline"
+                              onClick={() => setProfileTeacher(row.teacher_id)}
+                              title="Profil du professeur"
+                            >
+                              {row.teacher_name}
+                            </button>
+                          )}
+                        </TableCell>
+                        <TableCell>{row.enrolled_count ?? 0}</TableCell>
+                        <TableCell className="space-x-1 text-right whitespace-nowrap">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            asChild
+                            title="Liste d'absence (Word)"
+                          >
+                            <a
+                              href={`/api/classes/${row.id}/absence.docx?month=${month}`}
+                              download
+                            >
+                              <FileText className="size-4" />
+                            </a>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title={
+                              row.teacher_id === null
+                                ? "Nommer un professeur (daté)"
+                                : "Remplacer le professeur (daté — l'argent suit les jours)"
+                            }
+                            onClick={() => setReplaceTarget(row)}
+                          >
+                            <UserRoundPen className="size-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="Dédoubler — un deuxième groupe du même créneau"
+                            onClick={() => setDuplicateTarget(row)}
+                          >
+                            <Copy className="size-4" />
+                          </Button>
+                          {row.is_active ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Archiver — désinscrit les étudiants du mois, remboursements au choix"
+                              onClick={() => setArchiveTarget(row)}
+                            >
+                              <Archive className="size-4" />
+                            </Button>
+                          ) : (
+                            <ConfirmButton
+                              size="sm"
+                              variant="ghost"
+                              title="Restaurer"
+                              confirmLabel="Restaurer cette classe ?"
+                              description="Elle redevient active — les étudiants ne sont pas réinscrits automatiquement."
+                              onConfirm={() => restore(row)}
+                            >
+                              <ArchiveRestore className="size-4" />
+                            </ConfirmButton>
+                          )}
+                          <ConfirmButton
+                            size="sm"
+                            variant="ghost"
+                            title="Supprimer (uniquement si personne n'y a jamais été inscrit)"
+                            confirmLabel="Supprimer cette classe ?"
+                            description="Réservé aux classes créées par erreur — refusé dès qu'un étudiant y a été inscrit."
+                            onConfirm={() => deleteClass(row)}
+                          >
+                            <Trash2 className="size-4" />
+                          </ConfirmButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ))}
+          </div>
         </div>
       ))}
 
@@ -295,6 +359,17 @@ export function Classes({ month, setMonth }: Props) {
           onClose={() => setDuplicateTarget(null)}
           onDone={() => {
             setDuplicateTarget(null)
+            reload()
+          }}
+        />
+      )}
+
+      {archiveTarget && (
+        <ArchiveClassDialog
+          target={archiveTarget}
+          onClose={() => setArchiveTarget(null)}
+          onDone={() => {
+            setArchiveTarget(null)
             reload()
           }}
         />
@@ -769,6 +844,7 @@ function ReplaceTeacherDialog({
   const [successors, setSuccessors] = useState<Set<number>>(new Set())
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const vacant = target.teacher_id === null
 
   const submit = () => {
     if (successors.size === 0) {
@@ -788,19 +864,35 @@ function ReplaceTeacherDialog({
       })
   }
 
+  const vacate = () => {
+    setNote(null)
+    setBusy(true)
+    apiSend("POST", `/api/classes/${target.id}/vacate-teacher`, { date })
+      .then(onDone)
+      .catch((err: Error) => {
+        setNote(err.message)
+        setBusy(false)
+      })
+  }
+
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            Remplacer {target.teacher_name} — {target.subject_name}
+            {vacant
+              ? `Nommer un professeur — ${target.subject_name}`
+              : `Remplacer ${target.teacher_name} — ${target.subject_name}`}
           </DialogTitle>
         </DialogHeader>
         <p className="text-muted-foreground text-sm">
-          {target.teacher_name} est payé jusqu'à la veille de cette date, les
-          successeurs à partir de celle-ci — même quand un vieux mois impayé se
-          règle plus tard. L'ancien professeur peut ensuite être archivé sans
-          rien perdre.
+          {vacant
+            ? "La classe est sans professeur : ses jours vacants reviennent à " +
+              "l'académie. Le professeur nommé est payé à partir de cette date."
+            : `${target.teacher_name} est payé jusqu'à la veille de cette date, ` +
+              "les successeurs à partir de celle-ci — même quand un vieux mois " +
+              "impayé se règle plus tard. L'ancien professeur peut ensuite être " +
+              "archivé sans rien perdre."}
         </p>
         <div className="space-y-3">
           <div className="space-y-2">
@@ -839,9 +931,14 @@ function ReplaceTeacherDialog({
           </div>
           <Notice message={note} />
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex-wrap gap-2">
+          {!vacant && (
+            <Button variant="outline" onClick={vacate} disabled={busy}>
+              {busy ? "…" : "Laisser sans professeur"}
+            </Button>
+          )}
           <Button onClick={submit} disabled={busy}>
-            {busy ? "…" : "Remplacer"}
+            {busy ? "…" : vacant ? "Nommer" : "Remplacer"}
           </Button>
         </DialogFooter>
       </DialogContent>

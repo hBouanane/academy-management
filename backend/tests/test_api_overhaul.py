@@ -120,7 +120,8 @@ class TestEntityLifecycle:
     @pytest.mark.parametrize(
         ("collection", "create_body", "patch_body"),
         [
-            ("subjects", {"name": "Math"}, {"name": "Mathématiques"}),
+            # Matières left this list on purpose: they can no longer be
+            # archived — only renamed, or deleted while class-free (v9).
             (
                 "teachers",
                 {"name": "Ahmed"},

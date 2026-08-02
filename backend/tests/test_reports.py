@@ -1,12 +1,12 @@
 """Read-side tests: monthly money report and arrears — written first (TDD)."""
 
 import pytest
+from support import DH, Scenario
 
 from app.adapters.sqlite.db import connect, init_db
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
 from app.adapters.sqlite.reports import arrears, monthly_report
 from app.services.payments import post_payment
-from tests.support import DH, Scenario
 
 
 @pytest.fixture

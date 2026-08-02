@@ -32,6 +32,10 @@ class ReductionsExceedPriceError(ValueError):
     pass
 
 
+class AvanceOutOfRangeError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class PostedPayment:
     payment_id: int
@@ -40,16 +44,53 @@ class PostedPayment:
 
 
 def post_payment(
-    store: PaymentStore, enrollment_id: int, paid_on: str | None = None
+    store: PaymentStore,
+    enrollment_id: int,
+    paid_on: str | None = None,
+    amount: Centimes | None = None,
 ) -> PostedPayment:
+    """amount < net posts an avance: every beneficiary is allocated his FULL
+    share, the shortfall sits on the owner ('avance' line) until completed."""
     context = _context_or_raise(store, enrollment_id)
     allocations = _base_split(context)
     adjustments = _resolved_adjustments(context)
     apply_adjustments(allocations, [adj for _, adj in adjustments])  # bearer check
     net_amount = _net_amount(context, adjustments)
-    lines = _ledger_lines(net_amount, allocations, adjustments)
-    payment_id = store.record(context, net_amount, lines, paid_on)
+    cash = net_amount if amount is None else amount
+    if amount is not None and not 0 < amount <= net_amount:
+        raise AvanceOutOfRangeError(
+            f"l'avance doit être entre 0.01 et {net_amount / 100:.2f} DH"
+            f" (le net dû) — reçu {amount / 100:.2f} DH"
+        )
+    lines = _ledger_lines(cash, net_amount, allocations, adjustments, context)
+    payment_id = store.record(context, cash, lines, paid_on, due=net_amount)
     return PostedPayment(payment_id, net_amount, lines)
+
+
+def complete_payment(
+    store: PaymentStore, payment_id: int, amount: Centimes | None = None
+) -> Centimes:
+    """A later installment on an avance: cash in, straight back to the owner
+    who fronted it. Returns the amount posted."""
+    state = store.avance_state(payment_id)
+    if state is None:
+        raise UnknownPaymentError(f"no payment {payment_id}")
+    if state["reversed"]:
+        raise AlreadyReversedError(f"payment {payment_id} is reversed")
+    remaining = state["due"] - state["cash"]
+    installment = remaining if amount is None else amount
+    if not 0 < installment <= remaining:
+        raise AvanceOutOfRangeError(
+            f"il reste {remaining / 100:.2f} DH à compléter —"
+            f" impossible d'encaisser {installment / 100:.2f} DH"
+        )
+    owner = Beneficiary("owner", state["owner_id"])
+    lines = (
+        LedgerLine("payment_in", installment),
+        LedgerLine("avance", installment, beneficiary=owner),
+    )
+    store.record_completion(state, lines)
+    return installment
 
 
 def net_price(context: EnrollmentContext) -> Centimes:
@@ -288,14 +329,22 @@ def _net_amount(
 
 
 def _ledger_lines(
+    cash: Centimes,
     net_amount: Centimes,
     allocations: tuple[Allocation, ...],
     adjustments: list[tuple[int, Adjustment]],
+    context: EnrollmentContext,
 ) -> tuple[LedgerLine, ...]:
+    front = net_amount - cash  # avance: the owner fronts what's missing
     lines = (
-        LedgerLine("payment_in", net_amount),
+        LedgerLine("payment_in", cash),
         *_allocation_lines(allocations),
         *_adjustment_lines(adjustments),
+        *(
+            (LedgerLine("avance", -front, Beneficiary("owner", context.owner_id)),)
+            if front > 0
+            else ()
+        ),
     )
     _check_balance(lines)
     return lines

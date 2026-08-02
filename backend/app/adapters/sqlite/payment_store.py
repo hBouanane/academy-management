@@ -60,30 +60,34 @@ class SqlitePaymentStore:
     _DAY_UNITS = 2520
 
     def _month_teacher_weights(
-        self, class_id: int, current_teacher: int, month: str
-    ) -> tuple[tuple[int, int], ...]:
+        self, class_id: int, current_teacher: int | None, month: str
+    ) -> tuple[tuple[int | None, int], ...]:
         assignments = self._conn.execute(
             "SELECT teacher_id, from_date, to_date FROM class_teacher"
             " WHERE class_id = ?",
             (class_id,),
         ).fetchall()
         days = monthrange(int(month[:4]), int(month[5:7]))[1]
-        shares: dict[int, int] = {}
+        shares: dict[int | None, int] = {}
         for day in range(1, days + 1):
             date = f"{month}-{day:02d}"
-            active = sorted(
+            active: list[int | None] = sorted(
                 row["teacher_id"]
                 for row in assignments
                 if (row["from_date"] is None or row["from_date"] <= date)
                 and (row["to_date"] is None or date <= row["to_date"])
             )
             if not active:
+                # Nobody assigned: a vacant day (« sans professeur ») weighs
+                # on the None key — the domain escrows it to the académie.
                 active = [current_teacher]
             per_teacher, extra = divmod(self._DAY_UNITS, len(active))
             for index, teacher_id in enumerate(active):
                 bonus = 1 if index < extra else 0
                 shares[teacher_id] = shares.get(teacher_id, 0) + per_teacher + bonus
-        return tuple(sorted(shares.items()))
+        return tuple(
+            sorted(shares.items(), key=lambda item: (item[0] is None, item[0] or 0))
+        )
 
     def record(
         self,
@@ -91,10 +95,11 @@ class SqlitePaymentStore:
         net_amount: Centimes,
         lines: Sequence[LedgerLine],
         paid_on: str | None,
+        due: Centimes | None = None,
     ) -> int:
         try:
             payment_id = self._insert_payment(
-                context.enrollment_id, net_amount, paid_on
+                context.enrollment_id, net_amount, paid_on, due
             )
             self._insert_lines(context.academy_id, context.month, payment_id, lines)
         except sqlite3.IntegrityError as error:
@@ -253,13 +258,62 @@ class SqlitePaymentStore:
         return bearers, spec
 
     def _insert_payment(
-        self, enrollment_id: int, amount: Centimes, paid_on: str | None
+        self,
+        enrollment_id: int,
+        amount: Centimes,
+        paid_on: str | None,
+        due: Centimes | None,
     ) -> int:
         return self._conn.execute(
-            "INSERT INTO payment (enrollment_id, amount_centimes, paid_on)"
-            " VALUES (?, ?, COALESCE(?, date('now')))",
-            (enrollment_id, amount, paid_on),
+            "INSERT INTO payment (enrollment_id, amount_centimes, paid_on,"
+            " due_centimes) VALUES (?, ?, COALESCE(?, date('now')), ?)",
+            (enrollment_id, amount, paid_on, due),
         ).lastrowid
+
+    def avance_state(self, payment_id: int) -> dict | None:
+        """Where an avance stands: what was due, the cash received so far
+        (initial payment_in plus every completion), and who fronts."""
+        row = self._conn.execute(
+            """
+            SELECT p.id, p.reversed_at, p.amount_centimes, p.due_centimes,
+                   e.month, s.academy_id
+            FROM payment p
+            JOIN enrollment e ON e.id = p.enrollment_id
+            JOIN student s ON s.id = e.student_id
+            WHERE p.id = ?
+            """,
+            (payment_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        cash = self._conn.execute(
+            "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+            " WHERE payment_id = ? AND entry_type = 'payment_in'",
+            (payment_id,),
+        ).fetchone()[0]
+        return {
+            "payment_id": row["id"],
+            "academy_id": row["academy_id"],
+            "owner_id": row["academy_id"],
+            "month": row["month"],
+            "reversed": row["reversed_at"] is not None,
+            "due": (
+                row["due_centimes"]
+                if row["due_centimes"] is not None
+                else row["amount_centimes"]  # legacy rows were paid in full
+            ),
+            "cash": cash,
+        }
+
+    def record_completion(self, state: dict, lines: Sequence[LedgerLine]) -> None:
+        try:
+            self._insert_lines(
+                state["academy_id"], state["month"], state["payment_id"], lines
+            )
+        except Exception:
+            self._conn.rollback()
+            raise
+        self._conn.commit()
 
     def _insert_lines(
         self,

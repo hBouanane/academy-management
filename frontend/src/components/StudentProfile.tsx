@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { CompleteDialog } from "@/components/CompleteDialog"
 import { monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
@@ -38,6 +39,11 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null)
   // Any unpaid month is payable right here, no month navigation needed.
   const [payId, setPayId] = useState<number | null>(null)
+  // Completing an avance, likewise.
+  const [completeTarget, setCompleteTarget] = useState<{
+    paymentId: number
+    remaining: number
+  } | null>(null)
   const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
@@ -143,7 +149,27 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
                           {formatDH(month.net_centimes)}
                         </TableCell>
                         <TableCell>
-                          {month.paid ? (
+                          {month.paid && month.remaining_centimes > 0 ? (
+                            <span className="flex items-center gap-2">
+                              <Badge className="border-amber-500/25 bg-amber-500/15 text-amber-600 border">
+                                Avance · reste {formatDH(month.remaining_centimes)}
+                              </Badge>
+                              {month.payment_id && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    setCompleteTarget({
+                                      paymentId: month.payment_id!,
+                                      remaining: month.remaining_centimes,
+                                    })
+                                  }
+                                >
+                                  Compléter
+                                </Button>
+                              )}
+                            </span>
+                          ) : month.paid ? (
                             <Badge className="bg-success/15 text-success border-success/20 border">
                               Payé{month.paid_on ? ` · ${month.paid_on}` : ""}
                             </Badge>
@@ -183,6 +209,20 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
           }}
           onDone={() => {
             setPayId(null)
+            setRefresh((count) => count + 1)
+            onChanged?.()
+          }}
+        />
+      )}
+
+      {completeTarget && (
+        <CompleteDialog
+          paymentId={completeTarget.paymentId}
+          studentName={fullName}
+          remainingCentimes={completeTarget.remaining}
+          onClose={() => setCompleteTarget(null)}
+          onDone={() => {
+            setCompleteTarget(null)
             setRefresh((count) => count + 1)
             onChanged?.()
           }}

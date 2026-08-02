@@ -81,7 +81,12 @@ class PaymentStore(Protocol):
         net_amount: Centimes,
         lines: Sequence[LedgerLine],
         paid_on: str | None,
+        due: Centimes | None = None,
     ) -> int: ...
+
+    def avance_state(self, payment_id: int) -> dict | None: ...
+
+    def record_completion(self, state: dict, lines: Sequence[LedgerLine]) -> None: ...
 
 
 class ReversalStore(Protocol):
