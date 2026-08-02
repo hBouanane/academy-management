@@ -78,6 +78,43 @@ class TestMatiereDelete:
         assert response.status_code == 409
         assert "classe" in response.json()["detail"]
 
+    def test_archived_never_enrolled_classes_do_not_block_deletion(self, client):
+        # The UI shows « aucune classe » (only active ones count there); a
+        # leftover ARCHIVED class nobody was ever enrolled in must not turn
+        # that into a mysterious refusal — it disappears with the matière.
+        _, class_id, _, _ = setup_base(client)
+        subject = client.get("/api/classes").json()[0]["subject_id"]
+        client.post(
+            f"/api/classes/{class_id}/archive",
+            json={"date": "2026-09-15", "refunds": []},
+        )
+        response = client.delete(f"/api/subjects/{subject}")
+        assert response.status_code == 200, response.text
+        assert client.get("/api/classes?include_inactive=true").json() == []
+
+    def test_archived_classes_with_history_still_block_deletion(self, client):
+        level, class_id, _, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        pay(client, enrollment)
+        subject = client.get("/api/classes").json()[0]["subject_id"]
+        client.post(
+            f"/api/classes/{class_id}/archive",
+            json={"date": "2026-09-15", "refunds": []},
+        )
+        response = client.delete(f"/api/subjects/{subject}")
+        assert response.status_code == 409
+        assert "historique" in response.json()["detail"]
+
+    def test_subject_listing_exposes_archived_class_count(self, client):
+        _, class_id, _, _ = setup_base(client)
+        client.post(
+            f"/api/classes/{class_id}/archive",
+            json={"date": "2026-09-15", "refunds": []},
+        )
+        row = client.get("/api/subjects").json()[0]
+        assert row["class_count"] == 0
+        assert row["archived_class_count"] == 1
+
     def test_matieres_can_no_longer_be_archived(self, client):
         level = level_id(client)
         subject = client.post(

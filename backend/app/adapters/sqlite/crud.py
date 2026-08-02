@@ -98,6 +98,9 @@ def list_subjects(
         SELECT s.*, sl.name AS level_name,
           (SELECT COUNT(*) FROM class_group cg
            WHERE cg.subject_id = s.id AND cg.is_active = 1) AS class_count,
+          (SELECT COUNT(*) FROM class_group cg
+           WHERE cg.subject_id = s.id AND cg.is_active = 0)
+              AS archived_class_count,
           (SELECT GROUP_CONCAT(DISTINCT sl2.name) FROM class_group cg
            JOIN school_level sl2 ON sl2.id = cg.level_id
            WHERE cg.subject_id = s.id AND cg.is_active = 1) AS levels
@@ -125,17 +128,40 @@ def update_subject(conn: sqlite3.Connection, subject_id: int, fields: dict) -> N
     _update(conn, "subject", subject_id, fields, {"name"})
 
 
-def subject_class_count(conn: sqlite3.Connection, subject_id: int) -> int:
+def subject_delete_blockers(conn: sqlite3.Connection, subject_id: int) -> dict:
+    """What stands between this matière and deletion: active classes must be
+    handled first; archived classes only matter when students were ever
+    enrolled (ledger history). Archived-but-never-enrolled leftovers are
+    noise and will be swept away with the matière."""
     _require_row(conn, "subject", subject_id)
-    return conn.execute(
-        "SELECT COUNT(*) FROM class_group WHERE subject_id = ?", (subject_id,)
-    ).fetchone()[0]
+    row = conn.execute(
+        """
+        SELECT
+          SUM(cg.is_active = 1) AS active,
+          SUM(cg.is_active = 0 AND EXISTS (
+              SELECT 1 FROM enrollment_class ec WHERE ec.class_id = cg.id
+          )) AS archived_with_history
+        FROM class_group cg WHERE cg.subject_id = ?
+        """,
+        (subject_id,),
+    ).fetchone()
+    return {
+        "active": row["active"] or 0,
+        "archived_with_history": row["archived_with_history"] or 0,
+    }
 
 
 def delete_subject(conn: sqlite3.Connection, subject_id: int) -> None:
-    """Only for matières with zero classes — capabilities go with them, so
-    no ghost ✓ chips survive on any professor profile."""
+    """Only once nothing money-bearing references it — then the matière, its
+    never-enrolled archived classes and its capabilities all go, so no
+    ghost ✓ chips survive on any professor profile."""
     with _transaction(conn):
+        conn.execute(
+            "DELETE FROM class_teacher WHERE class_id IN"
+            " (SELECT id FROM class_group WHERE subject_id = ?)",
+            (subject_id,),
+        )
+        conn.execute("DELETE FROM class_group WHERE subject_id = ?", (subject_id,))
         conn.execute(
             "DELETE FROM teacher_capability WHERE subject_id = ?", (subject_id,)
         )

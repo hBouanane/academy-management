@@ -227,14 +227,23 @@ def patch_subject(subject_id: int, patch: SubjectPatch, conn: Conn) -> dict:
 
 @router.delete("/subjects/{subject_id}")
 def delete_subject(subject_id: int, conn: Conn) -> dict:
-    """A matière created by mistake deletes outright (capabilities too);
-    one with classes must have them handled first — no half-states."""
-    count = crud.subject_class_count(conn, subject_id)
-    if count:
+    """A matière deletes outright (capabilities and never-enrolled archived
+    classes go with it) — unless active classes still use it, or archived
+    classes carry real enrollment history the ledger must keep."""
+    blockers = crud.subject_delete_blockers(conn, subject_id)
+    if blockers["active"]:
         raise HTTPException(
             status_code=409,
-            detail=f"Cette matière a {count} classe(s) — gérez d'abord ses"
-            " classes (remplacez le professeur, archivez ou supprimez-les).",
+            detail=f"Cette matière a {blockers['active']} classe(s) active(s)"
+            " — gérez-les d'abord (remplacez le professeur, archivez ou"
+            " supprimez-les).",
+        )
+    if blockers["archived_with_history"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{blockers['archived_with_history']} classe(s) archivée(s)"
+            " de cette matière portent un historique d'inscriptions — la"
+            " matière doit rester consultable.",
         )
     crud.delete_subject(conn, subject_id)
     return {"deleted": subject_id}

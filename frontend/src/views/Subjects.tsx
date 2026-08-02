@@ -21,7 +21,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Level, Subject } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
 
-type Row = Subject & { class_count: number }
+type Row = Subject & { class_count: number; archived_class_count: number }
 
 export function Subjects() {
   const [levels, setLevels] = useState<Level[]>([])
@@ -45,34 +45,43 @@ export function Subjects() {
       .catch((err: Error) => setError(err.message))
 
   // The pivot: for one niveau, which matières live in which année —
-  // straight from its active classes.
-  const anneeLines = (level: Level) => {
+  // straight from its active classes. Each chip IS the matière: rename in
+  // place, delete on the ones no class uses (no separate list, no doubles).
+  const anneeLines = (level: Level, entries: Row[]) => {
+    const byId = new Map(entries.map((row) => [row.id, row]))
     const mine = classes.filter(
       (row) => row.level_id === level.id && row.is_active === 1,
     )
-    if (level.teaching_annees === 0) {
-      const names = [...new Set(mine.map((row) => row.subject_name))]
-      return names.length > 0 ? [{ label: "Bloc unique", names }] : []
-    }
-    const keyed = new Map<string, { label: string; names: Set<string> }>()
+    const keyed = new Map<string, { label: string; ids: Set<number> }>()
     for (const row of mine) {
-      const base = anneeLabel(level.name, row.annee) ?? "Sans année"
-      const fork = row.parcours ? ` — ${row.parcours}` : ""
-      const key = `${row.annee ?? 0}|${row.parcours ?? ""}`
-      if (!keyed.has(key))
-        keyed.set(key, { label: `${base}${fork}`, names: new Set() })
-      keyed.get(key)!.names.add(row.subject_name)
+      const key =
+        level.teaching_annees === 0
+          ? "bloc"
+          : `${row.annee ?? 0}|${row.parcours ?? ""}`
+      if (!keyed.has(key)) {
+        const base =
+          level.teaching_annees === 0
+            ? "Bloc unique"
+            : (anneeLabel(level.name, row.annee) ?? "Sans année")
+        const fork = row.parcours ? ` — ${row.parcours}` : ""
+        keyed.set(key, { label: `${base}${fork}`, ids: new Set() })
+      }
+      keyed.get(key)!.ids.add(row.subject_id)
     }
     return [...keyed.entries()]
       .sort(([a], [b]) => a.localeCompare(b, "fr", { numeric: true }))
-      .map(([, line]) => ({ label: line.label, names: [...line.names] }))
+      .map(([, line]) => ({
+        label: line.label,
+        subjects: [...line.ids]
+          .map((id) => byId.get(id))
+          .filter((row): row is Row => row !== undefined),
+      }))
   }
 
-  const sections = levels.map((level) => ({
-    level,
-    entries: rows.filter((row) => row.level_id === level.id),
-    lines: anneeLines(level),
-  }))
+  const sections = levels.map((level) => {
+    const entries = rows.filter((row) => row.level_id === level.id)
+    return { level, entries, lines: anneeLines(level, entries) }
+  })
 
   return (
     <div className="view-enter space-y-6">
@@ -87,14 +96,16 @@ export function Subjects() {
       <Notice message={error} />
 
       {sections.map(({ level, entries, lines }) => {
-        const taught = new Set(lines.flatMap((line) => line.names))
-        const idle = entries.filter((row) => !taught.has(row.name))
+        const taught = new Set(
+          lines.flatMap((line) => line.subjects.map((row) => row.id)),
+        )
+        const idle = entries.filter((row) => !taught.has(row.id))
         return (
           <div key={level.id} className="surface-card p-5">
             <h3 className="mb-3 font-medium">{level.name}</h3>
 
             {lines.length > 0 && (
-              <div className="mb-3 space-y-1.5">
+              <div className="mb-2 space-y-1.5">
                 {lines.map((line) => (
                   <div
                     key={line.label}
@@ -104,13 +115,14 @@ export function Subjects() {
                       {line.label}
                     </span>
                     <span className="flex flex-wrap gap-1">
-                      {line.names.map((name) => (
-                        <span
-                          key={name}
-                          className="bg-secondary text-secondary-foreground rounded-full px-2 py-0.5 text-xs"
-                        >
-                          {name}
-                        </span>
+                      {line.subjects.map((row) => (
+                        <SubjectChip
+                          key={row.id}
+                          row={row}
+                          taught
+                          onRename={() => setEditing(row)}
+                          onDelete={() => deleteSubject(row)}
+                        />
                       ))}
                     </span>
                   </div>
@@ -118,18 +130,19 @@ export function Subjects() {
               </div>
             )}
             {idle.length > 0 && (
-              <div className="mb-3 flex flex-wrap items-baseline gap-1.5 text-sm">
+              <div className="mb-2 flex flex-wrap items-baseline gap-1.5 text-sm">
                 <span className="text-muted-foreground w-44 shrink-0">
                   Pas encore de classe
                 </span>
                 <span className="flex flex-wrap gap-1">
                   {idle.map((row) => (
-                    <span
+                    <SubjectChip
                       key={row.id}
-                      className="border-border text-muted-foreground rounded-full border border-dashed px-2 py-0.5 text-xs"
-                    >
-                      {row.name}
-                    </span>
+                      row={row}
+                      taught={false}
+                      onRename={() => setEditing(row)}
+                      onDelete={() => deleteSubject(row)}
+                    />
                   ))}
                 </span>
               </div>
@@ -138,48 +151,6 @@ export function Subjects() {
               <p className="text-muted-foreground mb-2 text-sm">
                 Aucune matière pour ce niveau.
               </p>
-            )}
-
-            {entries.length > 0 && (
-              <div className="border-border divide-border divide-y rounded-xl border">
-                {entries.map((row) => (
-                  <div
-                    key={row.id}
-                    className="flex items-center justify-between gap-3 px-3 py-1.5 text-sm"
-                  >
-                    <span className="min-w-0 truncate font-medium">{row.name}</span>
-                    <span className="flex shrink-0 items-center gap-1">
-                      <span className="text-muted-foreground text-xs">
-                        {row.class_count > 0
-                          ? `${row.class_count} classe(s)`
-                          : "aucune classe"}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        title="Renommer"
-                        onClick={() => setEditing(row)}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <ConfirmButton
-                        size="sm"
-                        variant="ghost"
-                        title={
-                          row.class_count > 0
-                            ? "Suppression refusée tant qu'elle a des classes"
-                            : "Supprimer cette matière"
-                        }
-                        confirmLabel="Supprimer cette matière ?"
-                        description="Définitif — réservé aux matières sans aucune classe ; les compétences associées disparaissent aussi."
-                        onConfirm={() => deleteSubject(row)}
-                      >
-                        <Trash2 className="size-4" />
-                      </ConfirmButton>
-                    </span>
-                  </div>
-                ))}
-              </div>
             )}
 
             <AddSubject
@@ -203,6 +174,63 @@ export function Subjects() {
         />
       )}
     </div>
+  )
+}
+
+// The chip IS the matière: rename anywhere; delete only where it can
+// succeed (no class uses it). Archived leftovers are named, not hidden.
+function SubjectChip({
+  row,
+  taught,
+  onRename,
+  onDelete,
+}: {
+  row: Row
+  taught: boolean
+  onRename: () => void
+  onDelete: () => void
+}) {
+  const blocked = row.archived_class_count > 0
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+        taught
+          ? "bg-secondary text-secondary-foreground"
+          : "border-border text-muted-foreground border border-dashed"
+      }`}
+    >
+      {row.name}
+      {!taught && blocked && (
+        <span className="opacity-70">
+          · {row.archived_class_count} archivée(s)
+        </span>
+      )}
+      <button
+        type="button"
+        className="hover:text-foreground opacity-60 hover:opacity-100"
+        title="Renommer"
+        onClick={onRename}
+      >
+        <Pencil className="size-3" />
+      </button>
+      {!taught && (
+        <ConfirmButton
+          variant="ghost"
+          className="text-muted-foreground hover:text-destructive h-4 w-4 rounded-full p-0 opacity-60 hover:bg-transparent hover:opacity-100"
+          title={
+            blocked
+              ? "Ses classes archivées sans historique partiront avec elle ;" +
+                " un historique d'inscriptions la garde consultable"
+              : "Supprimer cette matière"
+          }
+          confirmLabel={`Supprimer ${row.name} ?`}
+          description="Définitif — ses compétences et ses classes archivées jamais utilisées disparaissent aussi. Refusé si un historique d'inscriptions existe."
+          onConfirm={onDelete}
+        >
+          <Trash2 className="size-3" />
+        </ConfirmButton>
+      )}
+    </span>
   )
 }
 
