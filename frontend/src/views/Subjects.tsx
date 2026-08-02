@@ -25,24 +25,40 @@ import {
 import { ConfirmButton } from "@/components/Confirm"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
-import type { Level, Subject } from "@/lib/api"
+import type { ClassRow, Level, Subject } from "@/lib/api"
+import { anneeLabel } from "@/lib/levels"
 
 type Row = Subject & { class_count: number; is_active: number }
 
 export function Subjects() {
   const [levels, setLevels] = useState<Level[]>([])
   const [rows, setRows] = useState<Row[]>([])
+  const [classes, setClasses] = useState<ClassRow[]>([])
   const [showArchived, setShowArchived] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
 
   const reload = useCallback(() => {
     apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
+    apiGet<ClassRow[]>("/api/classes").then(setClasses).catch(() => {})
     apiGet<Row[]>(`/api/subjects?include_inactive=${showArchived}`)
       .then(setRows)
       .catch((err: Error) => setError(err.message))
   }, [showArchived])
   useEffect(reload, [reload])
+
+  // Where a matière is actually taught: année/parcours/filière of its classes.
+  const segmentsOf = (subjectId: number) =>
+    classes
+      .filter((row) => row.subject_id === subjectId && row.is_active === 1)
+      .map((row) => {
+        const parts: string[] = []
+        const annee = anneeLabel(row.level_name, row.annee)
+        if (annee) parts.push(annee)
+        if (row.parcours) parts.push(row.parcours)
+        if (row.filiere) parts.push(row.filiere)
+        return parts.join(" · ") || "Bloc unique"
+      })
 
   const setActive = (row: Row, active: boolean) =>
     apiSend("PATCH", `/api/subjects/${row.id}`, { is_active: active })
@@ -95,7 +111,7 @@ export function Subjects() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nom</TableHead>
-                  <TableHead>Classes</TableHead>
+                  <TableHead>Enseignée en</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -111,7 +127,23 @@ export function Subjects() {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell>{row.class_count ?? 0}</TableCell>
+                    <TableCell>
+                      <div className="flex max-w-96 flex-wrap gap-1">
+                        {segmentsOf(row.id).map((segment, index) => (
+                          <span
+                            key={index}
+                            className="bg-secondary text-secondary-foreground rounded-full px-2 py-0.5 text-xs"
+                          >
+                            {segment}
+                          </span>
+                        ))}
+                        {segmentsOf(row.id).length === 0 && (
+                          <span className="text-muted-foreground text-xs">
+                            Aucune classe
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="space-x-1 text-right whitespace-nowrap">
                       <Button
                         size="sm"

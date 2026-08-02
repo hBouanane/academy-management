@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,8 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
   const [levels, setLevels] = useState<Level[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [checked, setChecked] = useState<Set<string>>(new Set())
+  // Optionally open one class per checked leaf right away (creation only).
+  const [autoOpen, setAutoOpen] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -65,6 +68,7 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
     setPhone(initial?.phone ?? "")
     setIsOwner(initial?.is_owner ? "1" : "0")
     setChecked(new Set())
+    setAutoOpen(false)
     setNote(null)
     setBusy(false)
     loadTree()
@@ -132,6 +136,20 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
       await apiSend("PUT", `/api/teachers/${teacherId}/capabilities`, {
         items: [...checked].map(parseKey),
       })
+      if (autoOpen && !initial) {
+        // One class per checked leaf, taught by him — the whole program in
+        // one save. Failures (rare) don't block the professor's creation.
+        for (const key of checked) {
+          const slot = parseKey(key)
+          await apiSend("POST", "/api/classes", {
+            level_id: slot.level_id,
+            subject_id: slot.subject_id,
+            teacher_id: teacherId,
+            annee: slot.annee,
+            parcours: slot.parcours,
+          }).catch(() => {})
+        }
+      }
       onOpenChange(false)
       onSaved()
     } catch (err) {
@@ -196,6 +214,16 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
               onGrown={loadTree}
             />
           </div>
+
+          {!initial && (
+            <label className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={autoOpen}
+                onCheckedChange={(state) => setAutoOpen(state === true)}
+              />
+              Ouvrir automatiquement une classe pour chaque case cochée
+            </label>
+          )}
 
           <Notice message={note} />
         </div>

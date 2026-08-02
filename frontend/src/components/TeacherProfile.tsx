@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -35,6 +37,9 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
   const [profile, setProfile] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
+  // Batch class creation: check several capabilities, one « Créer » click.
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     setError(null)
@@ -47,22 +52,6 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
       .catch((err: Error) => setError(err.message))
   }, [teacherId, month, refresh])
 
-  // A checked leaf becomes a real class in one click — no wizard.
-  const openClass = (capability: Profile["capabilities"][number]) => {
-    apiSend("POST", "/api/classes", {
-      level_id: capability.level_id,
-      subject_id: capability.subject_id,
-      teacher_id: teacherId,
-      annee: capability.annee,
-      parcours: capability.parcours,
-    })
-      .then(() => {
-        setRefresh((count) => count + 1)
-        onChanged?.()
-      })
-      .catch((err: Error) => setError(err.message))
-  }
-
   const alreadyTeaches = (capability: Profile["capabilities"][number]) =>
     (profile?.classes ?? []).some(
       (row) =>
@@ -73,6 +62,27 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
         row.annee === capability.annee &&
         row.parcours === capability.parcours,
     )
+
+  const openable = (profile?.capabilities ?? []).filter(
+    (capability) => !alreadyTeaches(capability),
+  )
+
+  const createSelected = async () => {
+    setBusy(true)
+    for (const capability of openable.filter((c) => selected.has(c.id))) {
+      await apiSend("POST", "/api/classes", {
+        level_id: capability.level_id,
+        subject_id: capability.subject_id,
+        teacher_id: teacherId,
+        annee: capability.annee,
+        parcours: capability.parcours,
+      }).catch((err: Error) => setError(err.message))
+    }
+    setSelected(new Set())
+    setBusy(false)
+    setRefresh((count) => count + 1)
+    onChanged?.()
+  }
 
   const monthTotal =
     profile?.history.find((entry) => entry.month === month)?.earned ?? 0
@@ -178,31 +188,74 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
                   Compétences
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {profile.capabilities.map((capability) => (
-                    <span
-                      key={capability.id}
-                      className="bg-secondary text-secondary-foreground flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs"
-                    >
-                      {capability.subject_name} · {capability.level_name}
-                      {capability.annee ? ` ${capability.annee}` : ""}
-                      {capability.parcours ? ` ${capability.parcours}` : ""}
-                      {!alreadyTeaches(capability) && (
-                        <button
-                          className="text-primary font-medium underline-offset-2 hover:underline"
-                          title="Créer la classe correspondante, enseignée par lui"
-                          onClick={() => openClass(capability)}
+                  {profile.capabilities.map((capability) => {
+                    const done = alreadyTeaches(capability)
+                    const label = `${capability.subject_name} · ${capability.level_name}${
+                      capability.annee ? ` ${capability.annee}` : ""
+                    }${capability.parcours ? ` ${capability.parcours}` : ""}`
+                    if (done)
+                      return (
+                        <span
+                          key={capability.id}
+                          className="bg-secondary text-secondary-foreground rounded-full px-2.5 py-0.5 text-xs"
+                          title="Classe déjà ouverte"
                         >
-                          ouvrir la classe
-                        </button>
-                      )}
-                    </span>
-                  ))}
+                          ✓ {label}
+                        </span>
+                      )
+                    return (
+                      <label
+                        key={capability.id}
+                        className="border-border flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs"
+                      >
+                        <Checkbox
+                          checked={selected.has(capability.id)}
+                          onCheckedChange={(state) =>
+                            setSelected((current) => {
+                              const next = new Set(current)
+                              if (state === true) next.add(capability.id)
+                              else next.delete(capability.id)
+                              return next
+                            })
+                          }
+                        />
+                        {label}
+                      </label>
+                    )
+                  })}
                   {profile.capabilities.length === 0 && (
                     <p className="text-muted-foreground text-sm">
                       Aucune — modifiez le professeur pour cocher son arbre.
                     </p>
                   )}
                 </div>
+                {openable.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                      <Checkbox
+                        checked={
+                          openable.length > 0 &&
+                          openable.every((c) => selected.has(c.id))
+                        }
+                        onCheckedChange={(state) =>
+                          setSelected(
+                            state === true
+                              ? new Set(openable.map((c) => c.id))
+                              : new Set(),
+                          )
+                        }
+                      />
+                      Tout sélectionner
+                    </label>
+                    <Button
+                      size="sm"
+                      disabled={selected.size === 0 || busy}
+                      onClick={createSelected}
+                    >
+                      {busy ? "…" : `Créer les classes (${selected.size})`}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -358,8 +358,6 @@ function Step({
 
 // One class = one créneau + one matière + one professeur, so the form is a
 // cascade: each choice reveals the next step. No tree dump, no double fields.
-const TOUTES = "__toutes__"
-
 function NewClassDialog({
   open,
   onOpenChange,
@@ -382,7 +380,9 @@ function NewClassDialog({
   const [levelId, setLevelId] = useState<number | null>(null)
   const [annee, setAnnee] = useState<number | null>(null)
   const [parcours, setParcours] = useState<string | null>(null) // COMMUNE = mixed
-  const [filiereChoice, setFiliereChoice] = useState("") // TOUTES = all filières
+  // Multi-select: ONE CLASS PER SELECTED FILIÈRE is created. Empty selection
+  // = one classe commune (all filières together).
+  const [filieres, setFilieres] = useState<Set<string>>(new Set())
   const [filiereDraft, setFiliereDraft] = useState("")
   const [subjectId, setSubjectId] = useState<number | null>(null)
   const [subjectDraft, setSubjectDraft] = useState("")
@@ -396,7 +396,7 @@ function NewClassDialog({
     setLevelId(null)
     setAnnee(null)
     setParcours(null)
-    setFiliereChoice("")
+    setFilieres(new Set())
     setFiliereDraft("")
     setSubjectId(null)
     setSubjectDraft("")
@@ -423,16 +423,17 @@ function NewClassDialog({
 
   const anneeDone = annees.length === 0 || annee !== null
   const parcoursDone = forks.length === 0 || parcours !== null
-  const filiereDone =
-    !needsFiliere || filiereChoice !== "" || filiereDraft.trim() !== ""
-  const slotDone =
-    level !== undefined && anneeDone && parcoursDone && filiereDone
+  const slotDone = level !== undefined && anneeDone && parcoursDone
   const slotParcours = parcours === COMMUNE ? null : parcours
-  const slotFiliere = !needsFiliere
-    ? null
-    : filiereChoice === TOUTES
-      ? null
-      : filiereChoice || filiereDraft.trim() || null
+  // The filières this creation targets: one class each; none = commune (NULL).
+  const selectedFilieres: (string | null)[] = !needsFiliere
+    ? [null]
+    : filieres.size > 0
+      ? [...filieres]
+      : [filiereDraft.trim() || null]
+  const allFilieresSelected =
+    filiereOptions.length > 0 &&
+    filiereOptions.every((option) => filieres.has(option))
 
   const isCapable = (teacher: Teacher) =>
     subjectId !== null &&
@@ -454,7 +455,7 @@ function NewClassDialog({
     setLevelId(id)
     setAnnee(null)
     setParcours(null)
-    setFiliereChoice("")
+    setFilieres(new Set())
     setFiliereDraft("")
     setSubjectId(null)
     setSubjectDraft("")
@@ -514,14 +515,18 @@ function NewClassDialog({
               })
             ).id
       }
-      await apiSend("POST", "/api/classes", {
-        level_id: levelId,
-        subject_id: subjectId,
-        teacher_id: chosen,
-        annee,
-        parcours: slotParcours,
-        filiere: slotFiliere,
-      })
+      // One class per selected filière — « la même classe pour les autres
+      // filières » in a single click. Empty selection = one classe commune.
+      for (const filiere of selectedFilieres) {
+        await apiSend("POST", "/api/classes", {
+          level_id: levelId,
+          subject_id: subjectId,
+          teacher_id: chosen,
+          annee,
+          parcours: slotParcours,
+          filiere,
+        })
+      }
       onOpenChange(false)
       onDone()
     } catch (err) {
@@ -601,44 +606,57 @@ function NewClassDialog({
           )}
 
           {needsFiliere && (
-            <Step number={step++} title="La filière">
+            <Step number={step++} title="La ou les filières">
               <div className="flex flex-wrap items-center gap-1.5">
+                <label className="text-muted-foreground mr-1 flex items-center gap-1.5 text-xs">
+                  <Checkbox
+                    checked={allFilieresSelected}
+                    onCheckedChange={(state) =>
+                      setFilieres(
+                        state === true ? new Set(filiereOptions) : new Set(),
+                      )
+                    }
+                  />
+                  Tout sélectionner
+                </label>
                 {filiereOptions.map((option) => (
                   <StepChip
                     key={option}
-                    active={filiereChoice === option}
-                    onClick={() => {
-                      setFiliereChoice(option)
-                      setFiliereDraft("")
-                      setTeacherId(null)
-                    }}
+                    active={filieres.has(option)}
+                    onClick={() =>
+                      setFilieres((current) => {
+                        const next = new Set(current)
+                        if (next.has(option)) next.delete(option)
+                        else next.add(option)
+                        return next
+                      })
+                    }
                   >
                     {option}
                   </StepChip>
                 ))}
-                <StepChip
-                  active={filiereChoice === TOUTES}
-                  onClick={() => {
-                    setFiliereChoice(TOUTES)
-                    setFiliereDraft("")
-                    setTeacherId(null)
-                  }}
-                >
-                  Toutes filières (classe commune)
-                </StepChip>
                 <Input
                   value={filiereDraft}
-                  onChange={(event) => {
-                    setFiliereDraft(event.target.value)
-                    if (event.target.value) setFiliereChoice("")
+                  onChange={(event) => setFiliereDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && filiereDraft.trim()) {
+                      event.preventDefault()
+                      setFilieres((current) =>
+                        new Set(current).add(filiereDraft.trim()),
+                      )
+                      setFiliereDraft("")
+                    }
                   }}
                   placeholder="＋ filière…"
                   className="h-8 w-32 text-sm"
                 />
               </div>
               <p className="text-muted-foreground mt-1.5 text-xs">
-                Certaines matières se donnent par filière, d'autres en classe
-                commune — choisissez pour CETTE classe.
+                {filieres.size > 1
+                  ? `${filieres.size} classes seront créées — une par filière.`
+                  : filieres.size === 1
+                    ? "Une classe pour cette filière."
+                    : "Aucune filière cochée = une classe commune à toutes les filières."}
               </p>
             </Step>
           )}
