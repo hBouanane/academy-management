@@ -31,6 +31,7 @@ type Props = {
   levelId: number
   annee?: number | null
   parcours?: string | null
+  filiere?: string | null
   month: string
   onDone: () => void
   /** Called with the new enrollment id — used to chain into the pay dialog. */
@@ -58,6 +59,7 @@ export function EnrollDialog({
   levelId,
   annee = null,
   parcours = null,
+  filiere = null,
   month,
   onDone,
   onEnrolled,
@@ -116,7 +118,10 @@ export function EnrollDialog({
         ((row.annee === null || annee === null || row.annee === annee) &&
           (row.parcours === null ||
             parcours === null ||
-            row.parcours === parcours))),
+            row.parcours === parcours) &&
+          (row.filiere === null ||
+            filiere === null ||
+            row.filiere === filiere))),
   )
   const levelPackages = packages.filter(
     (pack) => pack.level_id === null || pack.level_id === levelId,

@@ -59,7 +59,13 @@ class TestTaxonomy:
         level, class_id, _, package = setup_base(client)
         student = client.post(
             "/api/students",
-            json={"name": "Sami2", "level_id": level, "annee": 3, "parcours": "Râ'ida"},
+            json={
+                "name": "Sami2",
+                "level_id": level,
+                "annee": 3,
+                "parcours": "Râ'ida",
+                "filiere": "Sciences Maths",
+            },
         ).json()["id"]
         client.post(
             "/api/enrollments",
@@ -74,6 +80,7 @@ class TestTaxonomy:
         row = next(r for r in rows if r["student_id"] == student)
         assert row["annee"] == 3
         assert row["parcours"] == "Râ'ida"
+        assert row["filiere"] == "Sciences Maths"
 
     def test_teachers_carry_their_creation_date(self, client):
         client.post("/api/teachers", json={"name": "Ahmed"})

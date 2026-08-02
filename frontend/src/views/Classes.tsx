@@ -45,7 +45,13 @@ import { subjectsOfLevel } from "@/components/ProgramTree"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, ClassRow, Level, Subject, Teacher } from "@/lib/api"
-import { anneeLabel, parcoursOptions, teachingAnnees } from "@/lib/levels"
+import {
+  anneeLabel,
+  filiereDefaults,
+  hasFiliere,
+  parcoursOptions,
+  teachingAnnees,
+} from "@/lib/levels"
 
 const todayIso = () => {
   const now = new Date()
@@ -68,6 +74,7 @@ export function Classes({ month, setMonth }: Props) {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [capabilities, setCapabilities] = useState<Capability[]>([])
+  const [filieres, setFilieres] = useState<string[]>([])
   const [showArchived, setShowArchived] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -85,6 +92,7 @@ export function Classes({ month, setMonth }: Props) {
     apiGet<Subject[]>("/api/subjects").then(setSubjects).catch(() => {})
     apiGet<Teacher[]>("/api/teachers").then(setTeachers).catch(() => {})
     apiGet<Capability[]>("/api/capabilities").then(setCapabilities).catch(() => {})
+    apiGet<string[]>("/api/filieres").then(setFilieres).catch(() => {})
   }, [month, showArchived])
   useEffect(reload, [reload])
 
@@ -264,6 +272,7 @@ export function Classes({ month, setMonth }: Props) {
         subjects={subjects}
         teachers={teachers}
         capabilities={capabilities}
+        knownFilieres={filieres}
         onDone={reload}
       />
 
@@ -349,6 +358,8 @@ function Step({
 
 // One class = one créneau + one matière + one professeur, so the form is a
 // cascade: each choice reveals the next step. No tree dump, no double fields.
+const TOUTES = "__toutes__"
+
 function NewClassDialog({
   open,
   onOpenChange,
@@ -356,6 +367,7 @@ function NewClassDialog({
   subjects,
   teachers,
   capabilities,
+  knownFilieres,
   onDone,
 }: {
   open: boolean
@@ -364,11 +376,14 @@ function NewClassDialog({
   subjects: Subject[]
   teachers: Teacher[]
   capabilities: Capability[]
+  knownFilieres: string[]
   onDone: () => void
 }) {
   const [levelId, setLevelId] = useState<number | null>(null)
   const [annee, setAnnee] = useState<number | null>(null)
   const [parcours, setParcours] = useState<string | null>(null) // COMMUNE = mixed
+  const [filiereChoice, setFiliereChoice] = useState("") // TOUTES = all filières
+  const [filiereDraft, setFiliereDraft] = useState("")
   const [subjectId, setSubjectId] = useState<number | null>(null)
   const [subjectDraft, setSubjectDraft] = useState("")
   const [teacherId, setTeacherId] = useState<number | null>(null)
@@ -381,6 +396,8 @@ function NewClassDialog({
     setLevelId(null)
     setAnnee(null)
     setParcours(null)
+    setFiliereChoice("")
+    setFiliereDraft("")
     setSubjectId(null)
     setSubjectDraft("")
     setTeacherId(null)
@@ -394,11 +411,28 @@ function NewClassDialog({
   const forks =
     level && annee !== null ? parcoursOptions(level.name, String(annee)) : []
   const levelSubjects = level ? subjectsOfLevel(subjects, level.id) : []
+  // Bac years: each filière MAY have its own class for some matières — or
+  // one class for all filières (the shared case).
+  const needsFiliere =
+    level !== undefined &&
+    annee !== null &&
+    hasFiliere(level.name, String(annee))
+  const filiereOptions = needsFiliere
+    ? [...new Set([...filiereDefaults(String(annee)), ...knownFilieres])]
+    : []
 
   const anneeDone = annees.length === 0 || annee !== null
   const parcoursDone = forks.length === 0 || parcours !== null
-  const slotDone = level !== undefined && anneeDone && parcoursDone
+  const filiereDone =
+    !needsFiliere || filiereChoice !== "" || filiereDraft.trim() !== ""
+  const slotDone =
+    level !== undefined && anneeDone && parcoursDone && filiereDone
   const slotParcours = parcours === COMMUNE ? null : parcours
+  const slotFiliere = !needsFiliere
+    ? null
+    : filiereChoice === TOUTES
+      ? null
+      : filiereChoice || filiereDraft.trim() || null
 
   const isCapable = (teacher: Teacher) =>
     subjectId !== null &&
@@ -420,6 +454,8 @@ function NewClassDialog({
     setLevelId(id)
     setAnnee(null)
     setParcours(null)
+    setFiliereChoice("")
+    setFiliereDraft("")
     setSubjectId(null)
     setSubjectDraft("")
     setTeacherId(null)
@@ -484,6 +520,7 @@ function NewClassDialog({
         teacher_id: chosen,
         annee,
         parcours: slotParcours,
+        filiere: slotFiliere,
       })
       onOpenChange(false)
       onDone()
@@ -560,6 +597,49 @@ function NewClassDialog({
                   Classe commune ({forks.join(" + ")})
                 </StepChip>
               </div>
+            </Step>
+          )}
+
+          {needsFiliere && (
+            <Step number={step++} title="La filière">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {filiereOptions.map((option) => (
+                  <StepChip
+                    key={option}
+                    active={filiereChoice === option}
+                    onClick={() => {
+                      setFiliereChoice(option)
+                      setFiliereDraft("")
+                      setTeacherId(null)
+                    }}
+                  >
+                    {option}
+                  </StepChip>
+                ))}
+                <StepChip
+                  active={filiereChoice === TOUTES}
+                  onClick={() => {
+                    setFiliereChoice(TOUTES)
+                    setFiliereDraft("")
+                    setTeacherId(null)
+                  }}
+                >
+                  Toutes filières (classe commune)
+                </StepChip>
+                <Input
+                  value={filiereDraft}
+                  onChange={(event) => {
+                    setFiliereDraft(event.target.value)
+                    if (event.target.value) setFiliereChoice("")
+                  }}
+                  placeholder="＋ filière…"
+                  className="h-8 w-32 text-sm"
+                />
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                Certaines matières se donnent par filière, d'autres en classe
+                commune — choisissez pour CETTE classe.
+              </p>
             </Step>
           )}
 

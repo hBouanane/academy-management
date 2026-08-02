@@ -1013,7 +1013,7 @@ def month_overview(
         conn,
         f"""
         SELECT s.id AS student_id, s.name AS student_name, s.level_id,
-               s.annee, s.parcours, sl.name AS level_name,
+               s.annee, s.parcours, s.filiere, sl.name AS level_name,
                e.id AS enrollment_id, e.price_centimes, e.arrival_date,
                p.id AS payment_id,
                EXISTS(
@@ -1122,6 +1122,7 @@ def _overview_row(conn, store, row) -> dict:
         "level_name": row["level_name"],
         "annee": row["annee"],
         "parcours": row["parcours"],
+        "filiere": row["filiere"],
         "has_arrears": bool(row["has_arrears"]),
     }
     if row["enrollment_id"] is None:

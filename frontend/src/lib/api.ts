@@ -157,6 +157,7 @@ export type OverviewRow = {
   level_name: string
   annee: number | null
   parcours: string | null
+  filiere: string | null
   has_arrears: boolean
   enrollment: OverviewEnrollment | null
 }

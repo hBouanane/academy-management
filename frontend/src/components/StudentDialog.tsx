@@ -47,6 +47,7 @@ type Props = {
     levelId: number
     annee: number | null
     parcours: string | null
+    filiere: string | null
   }) => void
 }
 
@@ -140,6 +141,9 @@ export function StudentDialog({
                 levelId: Number(levelId),
                 annee: annee ? Number(annee) : null,
                 parcours: parcoursChoices.length > 0 ? parcours || null : null,
+                filiere: hasFiliere(levelName, annee)
+                  ? filiere.trim() || null
+                  : null,
               },
         )
       })
