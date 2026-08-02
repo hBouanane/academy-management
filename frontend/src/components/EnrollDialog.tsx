@@ -22,8 +22,8 @@ import {
 import { monthLabel, nextMonth } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
-import type { ClassRow, Package } from "@/lib/api"
-import { currentMonth, formatDH, previousMonth } from "@/lib/money"
+import type { ClassRow, Level, Package } from "@/lib/api"
+import { currentMonth, dhToCentimes, formatDH, previousMonth } from "@/lib/money"
 
 type Props = {
   studentId: number
@@ -72,11 +72,15 @@ export function EnrollDialog({
 
   const [packages, setPackages] = useState<Package[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
+  const [levels, setLevels] = useState<Level[]>([])
   const [proration, setProration] = useState<number[]>([10000, 6700, 3300])
   const [selectedMonth, setSelectedMonth] = useState(month)
   const [packageId, setPackageId] = useState<string>("")
   const [selectedClasses, setSelectedClasses] = useState<number[]>([])
   const [arrival, setArrival] = useState("")
+  // Bloc niveaux (Primaire): full control — a price typed here overrides
+  // the chosen variant for THIS student only.
+  const [customPrice, setCustomPrice] = useState("")
   const [showAllClasses, setShowAllClasses] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -88,6 +92,7 @@ export function EnrollDialog({
     setArrival(defaultStart(month))
     apiGet<Package[]>("/api/packages").then(setPackages).catch(() => {})
     apiGet<ClassRow[]>("/api/classes").then(setClasses).catch(() => {})
+    apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
     apiGet<{ proration_bp: number[] }[]>("/api/academies")
       .then(([academy]) => academy && setProration(academy.proration_bp))
       .catch(() => {})
@@ -98,6 +103,7 @@ export function EnrollDialog({
     setPackageId("")
     setArrival(defaultStart(month))
     setSelectedMonth(month)
+    setCustomPrice("")
     setNote(null)
     setError(null)
     setBusy(false)
@@ -129,6 +135,21 @@ export function EnrollDialog({
   const chosenPackage = packages.find((p) => String(p.id) === packageId)
   const capacity = chosenPackage?.subject_count ?? 0
   const full = chosenPackage !== undefined && selectedClasses.length >= capacity
+  // Bloc niveau (Primaire, Formation): forfaits read as price variants and
+  // the price can be overridden per student.
+  const bloc = levels.find((lv) => lv.id === levelId)?.teaching_annees === 0
+  const packLabel = (pack: Package) =>
+    bloc
+      ? `${pack.label ? `${pack.label} — ` : ""}${formatDH(pack.monthly_price_centimes)}`
+      : `${pack.subject_count} matière(s) — ${formatDH(pack.monthly_price_centimes)}` +
+        (pack.label ? ` · ${pack.label}` : "")
+
+  // One class in the whole bloc: checking it is not a decision — do it.
+  useEffect(() => {
+    if (chosenPackage && levelClasses.length === 1 && selectedClasses.length === 0)
+      setSelectedClasses([levelClasses[0].id])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [packageId])
 
   // Mirror of the backend proration formula, for the live price hint.
   const proratedHint = (() => {
@@ -175,6 +196,11 @@ export function EnrollDialog({
       )
       return
     }
+    const override = customPrice.trim()
+    if (override && !(dhToCentimes(override) >= 0)) {
+      setNote("Le prix personnalisé doit être un montant valide.")
+      return
+    }
     setNote(null)
     setError(null)
     setBusy(true)
@@ -184,6 +210,7 @@ export function EnrollDialog({
       package_id: chosenPackage.id,
       class_ids: selectedClasses,
       arrival_date: arrival || null,
+      ...(override ? { price_centimes: dhToCentimes(override) } : {}),
     })
       .then((created) => {
         setOpen(false)
@@ -249,7 +276,7 @@ export function EnrollDialog({
             </Button>
           </div>
           <div className="space-y-2">
-            <Label>Forfait</Label>
+            <Label>{bloc ? "Variante de prix" : "Forfait"}</Label>
             <Select
               value={packageId}
               onValueChange={(value) => {
@@ -259,21 +286,42 @@ export function EnrollDialog({
               }}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Choisir un forfait" />
+                <SelectValue
+                  placeholder={
+                    bloc ? "Choisir une variante" : "Choisir un forfait"
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 {levelPackages.map((pack) => (
                   <SelectItem key={pack.id} value={String(pack.id)}>
-                    {pack.subject_count} matière(s) —{" "}
-                    {formatDH(pack.monthly_price_centimes)}
+                    {packLabel(pack)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {levelPackages.length === 0 && (
               <p className="text-muted-foreground text-sm">
-                Aucun forfait — créez-en un dans la page Forfaits.
+                {bloc
+                  ? "Aucune variante de prix — créez-les dans la page Forfaits."
+                  : "Aucun forfait — créez-en un dans la page Forfaits."}
               </p>
+            )}
+            {bloc && (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Prix personnalisé (DH)"
+                  value={customPrice}
+                  onChange={(event) => setCustomPrice(event.target.value)}
+                  className="w-44"
+                />
+                <span className="text-muted-foreground text-xs">
+                  optionnel — remplace la variante pour cet étudiant (prorata
+                  non appliqué)
+                </span>
+              </div>
             )}
           </div>
           <div className="space-y-2">
@@ -341,7 +389,7 @@ export function EnrollDialog({
               value={arrival}
               onChange={(event) => setArrival(event.target.value)}
             />
-            {proratedHint !== null && chosenPackage && (
+            {proratedHint !== null && chosenPackage && !customPrice.trim() && (
               <p className="text-muted-foreground text-xs">
                 Prix au prorata :{" "}
                 <span className="text-foreground line-through">

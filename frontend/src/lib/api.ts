@@ -84,6 +84,8 @@ export type Package = {
   monthly_price_centimes: number
   level_id: number | null
   level_name: string | null
+  // Price variants (bloc niveaux): the price point's name — not a reduction.
+  label: string | null
   is_active: number
 }
 

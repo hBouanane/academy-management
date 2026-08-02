@@ -363,7 +363,51 @@ class TestClassArchiveAndRefunds:
         assert by_name["Sami"]["enrollment"] is None
 
 
-# --- 5. avance ---------------------------------------------------------------
+# --- 5. variantes de prix (Primaire) ---------------------------------------
+
+
+class TestPriceVariants:
+    def test_a_forfait_can_carry_an_optional_label(self, client):
+        level = level_id(client)
+        created = client.post(
+            "/api/packages",
+            json={
+                "subject_count": 1,
+                "monthly_price_centimes": 250 * DH,
+                "level_id": level,
+                "label": "1ère–4ème année",
+            },
+        )
+        assert created.status_code == 201, created.text
+        row = client.get("/api/packages").json()[0]
+        assert row["label"] == "1ère–4ème année"
+        client.patch(f"/api/packages/{row['id']}", json={"label": "Cas particulier"})
+        assert client.get("/api/packages").json()[0]["label"] == "Cas particulier"
+
+    def test_enrollment_takes_a_custom_price_when_no_variant_fits(self, client):
+        # Full control: the owner can always type the price himself — the
+        # enrollment snapshots it, and the whole money engine follows it.
+        level, class_id, teacher, package = setup_base(client)
+        student = client.post(
+            "/api/students", json={"name": "Amine", "level_id": level}
+        ).json()["id"]
+        enrollment = client.post(
+            "/api/enrollments",
+            json={
+                "student_id": student,
+                "month": "2026-09",
+                "package_id": package,
+                "class_ids": [class_id],
+                "price_centimes": 275 * DH,
+            },
+        ).json()["id"]
+        posted = pay(client, enrollment)
+        assert posted["net_centimes"] == 275 * DH
+        totals = beneficiary_totals(client, "2026-09")
+        assert totals[("teacher", teacher)] == int(275 * DH * 0.6)
+
+
+# --- 6. avance ---------------------------------------------------------------
 
 
 class TestAvance:

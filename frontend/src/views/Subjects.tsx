@@ -147,7 +147,26 @@ export function Subjects() {
                 </span>
               </div>
             )}
-            {entries.length === 0 && (
+            {entries.length === 0 && level.teaching_annees === 0 && (
+              // A bloc niveau (Primaire, Formation) is one group where the
+              // student gets help with everything — one honest matière
+              // suffices, and here it is in one click (renamable après).
+              <button
+                type="button"
+                className="border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground mb-2 rounded-full border border-dashed px-3 py-1 text-sm"
+                onClick={() =>
+                  apiSend("POST", "/api/subjects", {
+                    name: "Accompagnement complet",
+                    level_id: level.id,
+                  })
+                    .then(reload)
+                    .catch((err: Error) => setError(err.message))
+                }
+              >
+                ＋ Accompagnement complet (toutes matières)
+              </button>
+            )}
+            {entries.length === 0 && level.teaching_annees !== 0 && (
               <p className="text-muted-foreground mb-2 text-sm">
                 Aucune matière pour ce niveau.
               </p>

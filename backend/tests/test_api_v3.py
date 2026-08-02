@@ -244,11 +244,15 @@ class TestAdjustmentEdit:
         ).json()["id"]
         refused = client.patch(f"/api/packages/{package}", json={"subject_count": 4})
         assert refused.status_code == 422
-        # And the level itself is editable now.
+        # The level itself is editable — and a 1-matière forfait may move to
+        # a niveau with no matières yet (price variants are set up BEFORE
+        # the classes exist, since round 10). Only counts above 1 are capped.
         levels = client.get("/api/levels").json()
         college = next(lv["id"] for lv in levels if lv["name"] == "Collège")
-        blocked = client.patch(f"/api/packages/{package}", json={"level_id": college})
-        assert blocked.status_code == 422  # no subjects taught there yet
+        moved = client.patch(f"/api/packages/{package}", json={"level_id": college})
+        assert moved.status_code == 200
+        blocked = client.patch(f"/api/packages/{package}", json={"subject_count": 2})
+        assert blocked.status_code == 422  # Collège still teaches nothing
 
     def test_editing_on_a_paid_enrollment_is_refused(self, client):
         level, class_id, _ = setup_level_class(client)

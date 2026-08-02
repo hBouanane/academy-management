@@ -503,6 +503,9 @@ class PackageCreate(BaseModel):
     subject_count: int
     monthly_price_centimes: int
     level_id: int | None = None
+    # Price variants (bloc niveaux): a name for the price point — NOT a
+    # reduction. « 1ère–4ème année », « Cas particulier », …
+    label: str | None = None
 
 
 class PackagePatch(BaseModel):
@@ -510,6 +513,7 @@ class PackagePatch(BaseModel):
     monthly_price_centimes: int | None = None
     level_id: int | None = None
     is_active: bool | None = None
+    label: str | None = None
 
 
 @router.get("/packages")
@@ -528,6 +532,7 @@ def create_package(body: PackageCreate, conn: Conn) -> dict:
         body.subject_count,
         body.monthly_price_centimes,
         body.level_id,
+        body.label,
     )
     return {"id": package_id}
 
@@ -535,8 +540,11 @@ def create_package(body: PackageCreate, conn: Conn) -> dict:
 def _check_package_fits_level(
     conn: sqlite3.Connection, level_id: int, subject_count: int
 ) -> None:
+    """A forfait must not promise more matières than the niveau teaches.
+    A 1-matière forfait always passes: price variants (Primaire) are set up
+    BEFORE the classes exist, and enrolling still requires a real class."""
     taught = crud.subjects_taught_at_level(conn, level_id)
-    if subject_count > taught:
+    if subject_count > max(taught, 1):
         raise HTTPException(
             status_code=422,
             detail=f"Ce niveau n'enseigne que {taught} matière(s) —"

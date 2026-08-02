@@ -739,6 +739,29 @@ function NewClassDialog({
           {slotDone && (
             <Step number={step++} title="La matière">
               <div className="flex flex-wrap items-center gap-1.5">
+                {level !== undefined &&
+                  level.teaching_annees === 0 &&
+                  levelSubjects.length === 0 && (
+                    // Bloc niveau without matières: offer the honest one.
+                    <StepChip
+                      active={false}
+                      onClick={() => {
+                        setSubjectDraft("Accompagnement complet")
+                        void apiSend<{ id: number }>("POST", "/api/subjects", {
+                          name: "Accompagnement complet",
+                          level_id: levelId,
+                        })
+                          .then(({ id }) => {
+                            setSubjectDraft("")
+                            setSubjectId(id)
+                            onDone()
+                          })
+                          .catch((err: Error) => setNote(err.message))
+                      }}
+                    >
+                      ＋ Accompagnement complet (toutes matières)
+                    </StepChip>
+                  )}
                 {levelSubjects.map((subject) => (
                   <StepChip
                     key={subject.id}

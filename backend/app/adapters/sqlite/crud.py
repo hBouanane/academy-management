@@ -821,7 +821,7 @@ def update_package(conn: sqlite3.Connection, package_id: int, fields: dict) -> N
         "package",
         package_id,
         fields,
-        {"subject_count", "monthly_price_centimes", "level_id", "is_active"},
+        {"subject_count", "monthly_price_centimes", "level_id", "is_active", "label"},
     )
 
 
@@ -831,12 +831,13 @@ def create_package(
     subject_count: int,
     price: int,
     level_id: int | None = None,
+    label: str | None = None,
 ) -> int:
     return _insert(
         conn,
         "INSERT INTO package (academy_id, subject_count, monthly_price_centimes,"
-        " level_id) VALUES (?, ?, ?, ?)",
-        (academy_id, subject_count, price, level_id),
+        " level_id, label) VALUES (?, ?, ?, ?, ?)",
+        (academy_id, subject_count, price, level_id, label),
     )
 
 
