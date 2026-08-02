@@ -595,6 +595,7 @@ class AdjustmentCreate(BaseModel):
     class_id: int | None = None
     category: Literal["discount", "coupon", "gift"] = "discount"
     reason: str | None = None
+    recurring: bool = False  # follow the enrollment into every next month?
     bearers: list[BearerIn] = []
 
 
@@ -731,6 +732,7 @@ class AdjustmentPatch(BaseModel):
     value: int | None = None
     category: Literal["discount", "coupon", "gift"] | None = None
     reason: str | None = None
+    recurring: bool | None = None
     bearers: list[BearerIn] | None = None
 
 
@@ -836,8 +838,8 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
     stored = {
         row["id"]: row
         for row in conn.execute(
-            "SELECT id, kind, value, category, scope, reason FROM adjustment"
-            " WHERE enrollment_id = ? AND is_active = 1",
+            "SELECT id, kind, value, category, scope, reason, recurring"
+            " FROM adjustment WHERE enrollment_id = ? AND is_active = 1",
             (enrollment_id,),
         )
     }
@@ -871,6 +873,7 @@ def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
                 "category": stored[adjustment.adjustment_id]["category"],
                 "scope": stored[adjustment.adjustment_id]["scope"],
                 "reason": stored[adjustment.adjustment_id]["reason"],
+                "recurring": stored[adjustment.adjustment_id]["recurring"],
                 "bearers": [
                     {
                         **named(bearer),

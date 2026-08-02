@@ -26,6 +26,7 @@ export type ReductionPayload = {
   value: number
   category: string
   reason: string | null
+  recurring: boolean
   bearers: {
     kind: string
     ref_id: number
@@ -65,6 +66,8 @@ export function ReductionForm({
       : "",
   )
   const [reason, setReason] = useState(initial?.reason ?? "")
+  // One-shot by default; recurring follows the enrollment month after month.
+  const [recurring, setRecurring] = useState(Boolean(initial?.recurring))
   // One unit for every sponsor part — mixing % and DH rows confused everyone.
   const initialPercent =
     !initial ||
@@ -177,6 +180,7 @@ export function ReductionForm({
         totalMode === "amount" ? totalCentimes : Math.round(numericTotal * 100),
       category: initial?.category ?? "discount",
       reason: reason || null,
+      recurring,
       bearers: sponsors.map((sponsor, index) => {
         const line = resolveTarget(sponsor.target)!
         return sponsorMode === "percent"
@@ -233,6 +237,36 @@ export function ReductionForm({
         )}
       </div>
       <MotifInput value={reason} onChange={setReason} motifs={motifs} />
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setRecurring(false)}
+          className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+            !recurring
+              ? "border-transparent bg-primary text-primary-foreground"
+              : "border-border text-muted-foreground hover:border-foreground/40"
+          }`}
+        >
+          {!recurring ? "✓ " : ""}Ce mois uniquement
+        </button>
+        <button
+          type="button"
+          onClick={() => setRecurring(true)}
+          className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+            recurring
+              ? "border-transparent bg-primary text-primary-foreground"
+              : "border-border text-muted-foreground hover:border-foreground/40"
+          }`}
+        >
+          {recurring ? "✓ " : ""}Chaque mois
+        </button>
+        {recurring && (
+          <span className="text-muted-foreground text-xs">
+            suivra les prochains mois — modifiable à tout moment
+          </span>
+        )}
+      </div>
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-muted-foreground text-xs font-medium uppercase">

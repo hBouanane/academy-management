@@ -64,6 +64,7 @@ export type TeacherProfileClass = {
 }
 export type TeacherProfile = Teacher & {
   created_at: string | null
+  owner_earned: number
   capabilities: Capability[]
   classes: TeacherProfileClass[]
   history: { month: string; earned: number }[]
@@ -180,6 +181,7 @@ export type PreviewAdjustment = {
   category: string
   scope: string
   reason: string | null
+  recurring: number
   bearers: (PreviewBeneficiary & {
     share_centimes: number
     share_bp: number | null

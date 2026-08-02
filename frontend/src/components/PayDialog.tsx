@@ -49,6 +49,7 @@ export function PayDialog({
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [adding, setAdding] = useState(false)
+  const [giftOpen, setGiftOpen] = useState(false)
   const { motifs, ensure } = useMotifs()
 
   const reload = useCallback(() => {
@@ -117,15 +118,18 @@ export function PayDialog({
     }
   }
 
-  const giftMonth = () =>
+  const giftMonth = (recurring: boolean) => {
+    setGiftOpen(false)
     run(() =>
       apiSend("POST", `/api/enrollments/${enrollmentId}/adjustments`, {
         kind: "percent",
         value: 10_000,
         category: "gift",
         reason: "Mois offert",
+        recurring,
       }),
     )
+  }
 
   return (
     <Dialog
@@ -191,16 +195,14 @@ export function PayDialog({
                         Ajouter
                       </Button>
                       {preview.adjustments.length === 0 && (
-                        <ConfirmButton
+                        <Button
                           size="sm"
                           variant="outline"
-                          confirmLabel="Offrir ce mois ?"
-                          description="Le mois passe à 0 DH pour tout le monde — professeurs, salle et académie ne touchent rien sur un mois offert."
-                          onConfirm={giftMonth}
                           disabled={busy}
+                          onClick={() => setGiftOpen(true)}
                         >
                           <Gift className="size-4" /> Mois offert
-                        </ConfirmButton>
+                        </Button>
                       )}
                     </>
                   )}
@@ -282,6 +284,31 @@ export function PayDialog({
           </p>
         )}
       </DialogContent>
+
+      {giftOpen && (
+        <Dialog open onOpenChange={(next) => !next && setGiftOpen(false)}>
+          <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>Offrir ce mois ?</DialogTitle>
+            </DialogHeader>
+            <p className="text-muted-foreground text-sm">
+              Le mois passe à 0 DH pour tout le monde — professeurs, salle et
+              académie ne touchent rien. Offrir une seule fois, ou chaque mois ?
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setGiftOpen(false)}>
+                Annuler
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => giftMonth(false)}>
+                Ce mois uniquement
+              </Button>
+              <Button size="sm" onClick={() => giftMonth(true)}>
+                Chaque mois
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   )
 }
@@ -328,6 +355,9 @@ function AdjustmentRow({
           {CATEGORY_LABEL[adjustment.category] ?? adjustment.category}
           {adjustment.reason ? ` · ${adjustment.reason}` : ""}
           {adjustment.kind === "percent" ? ` · ${adjustment.value / 100}%` : ""}
+          {adjustment.recurring ? (
+            <span className="text-muted-foreground text-xs"> · chaque mois</span>
+          ) : null}
         </p>
         <p className="text-muted-foreground truncate text-xs">
           {adjustment.bearers

@@ -94,9 +94,17 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
               <Badge variant="outline">
                 Depuis le {profile.created_at?.slice(0, 10) ?? "—"}
               </Badge>
-              <Badge className="bg-success/15 text-success border-success/20 border">
-                {formatDH(monthTotal)} — {monthLabel(month)}
-              </Badge>
+              {profile.is_owner ? (
+                <Badge className="bg-success/15 text-success border-success/20 border">
+                  {formatDH(monthTotal)} prof + {formatDH(profile.owner_earned)}{" "}
+                  propriétaire = {formatDH(monthTotal + profile.owner_earned)} —{" "}
+                  {monthLabel(month)}
+                </Badge>
+              ) : (
+                <Badge className="bg-success/15 text-success border-success/20 border">
+                  {formatDH(monthTotal)} — {monthLabel(month)}
+                </Badge>
+              )}
             </div>
 
             <div>

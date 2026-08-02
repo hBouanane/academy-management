@@ -759,7 +759,7 @@ def add_adjustment(conn: sqlite3.Connection, enrollment_id: int, fields: dict) -
     with _transaction(conn):
         adjustment_id = conn.execute(
             "INSERT INTO adjustment (enrollment_id, scope, class_id, kind, value,"
-            " category, reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " category, reason, recurring) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 enrollment_id,
                 fields.get("scope", "package"),
@@ -768,6 +768,7 @@ def add_adjustment(conn: sqlite3.Connection, enrollment_id: int, fields: dict) -
                 fields["value"],
                 fields.get("category", "discount"),
                 fields.get("reason"),
+                int(bool(fields.get("recurring", False))),
             ),
         ).lastrowid
         conn.executemany(
@@ -825,8 +826,12 @@ def update_adjustment(
     bearers: list[dict] | None,
 ) -> None:
     """Edit a configured adjustment in place; bearers=None keeps the current ones."""
-    allowed = {"kind", "value", "scope", "class_id", "category", "reason"}
-    changes = {key: value for key, value in fields.items() if key in allowed}
+    allowed = {"kind", "value", "scope", "class_id", "category", "reason", "recurring"}
+    changes = {
+        key: int(value) if key == "recurring" else value
+        for key, value in fields.items()
+        if key in allowed
+    }
     with _transaction(conn):
         if changes:
             assignments = ", ".join(f"{column} = ?" for column in changes)
@@ -918,6 +923,13 @@ def teacher_profile(
         entry["earned_centimes"] = earnings.get(entry["id"], 0)
     return {
         **dict(teacher),
+        # The owner-professor sees BOTH hats: what the month paid him as a
+        # teacher (history/classes) and as the academy owner.
+        "owner_earned": (
+            _owner_month_total(conn, teacher["academy_id"], month)
+            if teacher["is_owner"]
+            else 0
+        ),
         "capabilities": _rows(
             conn,
             """
@@ -979,6 +991,15 @@ def _teacher_class_earnings(
         for index, class_id in enumerate(mine):
             earnings[class_id] += share + (remainder if index == 0 else 0)
     return earnings
+
+
+def _owner_month_total(conn: sqlite3.Connection, academy_id: int, month: str) -> int:
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+        " WHERE beneficiary_kind = 'owner' AND beneficiary_id = ? AND month = ?",
+        (academy_id, month),
+    ).fetchone()
+    return row[0]
 
 
 def _teacher_month_total(conn: sqlite3.Connection, teacher_id: int, month: str) -> int:
@@ -1061,6 +1082,39 @@ def delete_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:
         conn.execute("DELETE FROM enrollment WHERE id = ?", (enrollment_id,))
 
 
+def _copy_recurring_adjustments(
+    conn: sqlite3.Connection, from_enrollment: int, to_enrollment: int
+) -> None:
+    """A recurring reduction/gift follows the enrollment into the new month —
+    as its OWN copy, editable or removable there without touching the past."""
+    rows = conn.execute(
+        "SELECT * FROM adjustment WHERE enrollment_id = ? AND is_active = 1"
+        " AND recurring = 1",
+        (from_enrollment,),
+    ).fetchall()
+    for row in rows:
+        new_id = conn.execute(
+            "INSERT INTO adjustment (enrollment_id, scope, class_id, kind, value,"
+            " category, reason, recurring) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            (
+                to_enrollment,
+                row["scope"],
+                row["class_id"],
+                row["kind"],
+                row["value"],
+                row["category"],
+                row["reason"],
+            ),
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO adjustment_bearer (adjustment_id, bearer_kind, bearer_id,"
+            " share_centimes, share_bp)"
+            " SELECT ?, bearer_kind, bearer_id, share_centimes, share_bp"
+            " FROM adjustment_bearer WHERE adjustment_id = ?",
+            (new_id, row["id"]),
+        )
+
+
 def latest_enrolled_month_before(
     conn: sqlite3.Connection, academy_id: int, month: str
 ) -> str | None:
@@ -1103,7 +1157,7 @@ def copy_month(
                 if enrollment["arrival_date"] is not None
                 else enrollment["price_centimes"]
             )
-            _insert_enrollment(
+            new_id = _insert_enrollment(
                 conn,
                 enrollment["student_id"],
                 to_month,
@@ -1111,6 +1165,7 @@ def copy_month(
                 enrollment_class_ids(conn, enrollment["id"]),
                 price,
             )
+            _copy_recurring_adjustments(conn, enrollment["id"], new_id)
     return len(source)
 
 
