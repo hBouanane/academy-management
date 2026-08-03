@@ -187,7 +187,7 @@ class TestGuarantee:
 
 
 class TestPayouts:
-    def test_summary_shows_earned_paid_and_remaining(self, client):
+    def test_summary_shows_due_paid_and_remaining(self, client):
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         client.post("/api/payments", json={"enrollment_id": enrollment})
@@ -196,7 +196,7 @@ class TestPayouts:
             for entry in client.get("/api/payouts?month=2026-09").json()
             if entry["teacher_id"] == teacher
         ]
-        assert row["earned_centimes"] == 180 * DH
+        assert row["due_centimes"] == 180 * DH
         assert row["paid_centimes"] == 0
         assert row["remaining_centimes"] == 180 * DH
 
@@ -251,12 +251,12 @@ class TestPayouts:
             for entry in client.get("/api/payouts?month=2026-09").json()
             if entry["teacher_id"] == teacher
         ]
-        assert row["earned_centimes"] == 360 * DH
+        assert row["due_centimes"] == 360 * DH
         assert row["paid_centimes"] == 180 * DH
         assert row["remaining_centimes"] == 180 * DH
 
     def test_a_guaranteed_share_is_due_to_the_professor_at_payday(self, client):
-        # La garantie compte dans « Gagné » : le jour de la paie, le
+        # La garantie compte dans le dû : le jour de la paie, le
         # propriétaire lui verse aussi les élèves impayés garantis.
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
@@ -266,7 +266,7 @@ class TestPayouts:
             for entry in client.get("/api/payouts?month=2026-09").json()
             if entry["teacher_id"] == teacher
         ]
-        assert row["earned_centimes"] == 180 * DH
+        assert row["due_centimes"] == 180 * DH
         assert row["remaining_centimes"] == 180 * DH
 
     def test_a_professor_owed_nothing_cannot_be_paid(self, client):
@@ -275,3 +275,84 @@ class TestPayouts:
             f"/api/teachers/{teacher}/payouts", json={"month": "2026-09"}
         )
         assert refused.status_code == 422
+
+
+# --- 3. Le dû se calcule sur les élèves INSCRITS ---------------------------
+
+
+class TestDueOnEnrolled:
+    def test_a_professor_is_owed_from_the_enrollment_not_the_payment(self, client):
+        # Personne n'a payé : le professeur a quand même enseigné, il est dû.
+        level, class_id, teacher, package = setup_base(client)
+        enroll(client, level, package, class_id)
+        (row,) = [
+            entry
+            for entry in client.get("/api/payouts?month=2026-09").json()
+            if entry["teacher_id"] == teacher
+        ]
+        assert row["due_centimes"] == 180 * DH
+        assert row["collected_centimes"] == 0  # rien d'encaissé pour l'instant
+        assert row["remaining_centimes"] == 180 * DH
+
+    def test_he_can_be_paid_before_any_student_pays(self, client):
+        level, class_id, teacher, package = setup_base(client)
+        enroll(client, level, package, class_id)
+        paid = client.post(
+            f"/api/teachers/{teacher}/payouts", json={"month": "2026-09"}
+        )
+        assert paid.status_code == 201, paid.text
+        assert paid.json()["amount_centimes"] == 180 * DH
+
+    def test_never_came_removes_the_due_entirely(self, client):
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.post(
+            f"/api/enrollments/{enrollment}/guarantee", json={"never_came": True}
+        )
+        (row,) = [
+            entry
+            for entry in client.get("/api/payouts?month=2026-09").json()
+            if entry["teacher_id"] == teacher
+        ]
+        assert row["due_centimes"] == 0
+
+    def test_partial_presence_lowers_the_due_to_the_days_taught(self, client):
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.post(
+            f"/api/enrollments/{enrollment}/guarantee",
+            json={"present_until": "2026-09-15"},
+        )
+        (row,) = [
+            entry
+            for entry in client.get("/api/payouts?month=2026-09").json()
+            if entry["teacher_id"] == teacher
+        ]
+        assert row["due_centimes"] == 90 * DH
+
+    def test_once_the_student_pays_the_full_share_is_due_again(self, client):
+        # Présence partielle actée, puis l'étudiant règle tout : il a bien
+        # payé le mois entier, le professeur touche sa part entière.
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.post(
+            f"/api/enrollments/{enrollment}/guarantee",
+            json={"present_until": "2026-09-15"},
+        )
+        client.post("/api/payments", json={"enrollment_id": enrollment})
+        (row,) = [
+            entry
+            for entry in client.get("/api/payouts?month=2026-09").json()
+            if entry["teacher_id"] == teacher
+        ]
+        assert row["due_centimes"] == 180 * DH
+
+    def test_every_active_professor_is_listed(self, client):
+        # Il doit tous les voir le jour de la paie, même ceux à zéro.
+        setup_base(client)
+        client.post("/api/teachers", json={"name": "Nadia"})
+        names = [
+            entry["teacher_name"]
+            for entry in client.get("/api/payouts?month=2026-09").json()
+        ]
+        assert "Nadia" in names and "Ahmed" in names

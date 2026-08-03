@@ -244,7 +244,10 @@ export type PayoutRow = {
   teacher_id: number
   teacher_name: string
   is_owner: number
-  earned_centimes: number
+  // Ce qu'il a gagné sur les élèves INSCRITS du mois — payé ou non.
+  due_centimes: number
+  // Ce que ses élèves ont réellement versé (registre) — pour information.
+  collected_centimes: number
   paid_centimes: number
   remaining_centimes: number
   payouts: Payout[]

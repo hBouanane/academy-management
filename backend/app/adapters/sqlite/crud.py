@@ -1406,10 +1406,12 @@ def guarantee_row(conn: sqlite3.Connection, enrollment_id: int) -> dict | None:
 
 
 def payout_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> list[dict]:
-    """The end-of-month payout sheet: what each professor EARNED (ledger),
-    what he was actually HANDED (teacher_payout), and what is left. Payouts
-    live outside the ledger on purpose — paying someone must never change
-    what he earned."""
+    """The end-of-month payout sheet. What a professor is DUE comes from the
+    students ENROLLED with him — he taught them whether or not they paid —
+    not from what the académie managed to collect. Next to it: what he was
+    actually HANDED (teacher_payout, deliberately outside the ledger, since
+    paying someone must never change what he earned) and what is left."""
+    dues = _teacher_dues(conn, academy_id, month)
     teachers = _rows(
         conn,
         """
@@ -1417,18 +1419,19 @@ def payout_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> lis
           COALESCE((SELECT SUM(le.amount_centimes) FROM ledger_entry le
                     WHERE le.beneficiary_kind = 'teacher'
                       AND le.beneficiary_id = t.id AND le.month = ?), 0)
-              AS earned_centimes,
+              AS collected_centimes,
           COALESCE((SELECT SUM(tp.amount_centimes) FROM teacher_payout tp
                     WHERE tp.teacher_id = t.id AND tp.month = ?), 0)
               AS paid_centimes
-        FROM teacher t WHERE t.academy_id = ?
+        FROM teacher t WHERE t.academy_id = ? AND t.is_active = 1
         ORDER BY t.name
         """,
         (month, month, academy_id),
     )
     for teacher in teachers:
+        teacher["due_centimes"] = dues.get(teacher["teacher_id"], 0)
         teacher["remaining_centimes"] = max(
-            teacher["earned_centimes"] - teacher["paid_centimes"], 0
+            teacher["due_centimes"] - teacher["paid_centimes"], 0
         )
         teacher["payouts"] = _rows(
             conn,
@@ -1437,6 +1440,56 @@ def payout_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> lis
             (teacher["teacher_id"], month),
         )
     return teachers
+
+
+def _teacher_dues(
+    conn: sqlite3.Connection, academy_id: int, month: str
+) -> dict[int, int]:
+    """Per professor, his share of every enrollment of the month.
+
+    A settled impayé is the owner's explicit decision about what was taught:
+    « jamais venu » owes nothing, « présent 15 jours » owes those days. Once
+    the student pays, the full month was bought and the full share is due
+    again. Everything else — paid or not — counts in full."""
+    store = SqlitePaymentStore(conn)
+    dues: dict[int, int] = {}
+    rows = conn.execute(
+        """
+        SELECT e.id,
+               EXISTS(SELECT 1 FROM guarantee g WHERE g.enrollment_id = e.id)
+                   AS guaranteed,
+               EXISTS(SELECT 1 FROM payment p WHERE p.enrollment_id = e.id
+                      AND p.reversed_at IS NULL) AS paid
+        FROM enrollment e JOIN student s ON s.id = e.student_id
+        WHERE s.academy_id = ? AND e.month = ?
+        """,
+        (academy_id, month),
+    ).fetchall()
+    for row in rows:
+        shares = (
+            store.guaranteed_shares(row["id"])
+            if row["guaranteed"] and not row["paid"]
+            else _enrollment_teacher_shares(conn, store, row["id"])
+        )
+        for teacher_id, amount in shares:
+            dues[teacher_id] = dues.get(teacher_id, 0) + amount
+    return dues
+
+
+def _enrollment_teacher_shares(
+    conn: sqlite3.Connection, store: SqlitePaymentStore, enrollment_id: int
+) -> tuple[tuple[int, int], ...]:
+    from app.services.payments import payment_preview
+
+    try:
+        preview = payment_preview(store, enrollment_id)
+    except ValueError:
+        return ()  # une ligne invalide ne doit pas casser la feuille de paie
+    return tuple(
+        (line.beneficiary.ref_id, line.final)
+        for line in preview.lines
+        if line.beneficiary.kind == "teacher" and line.final > 0
+    )
 
 
 def teacher_remaining(

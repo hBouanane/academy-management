@@ -76,7 +76,7 @@ export function Payroll() {
       .then(reload)
       .catch((err: Error) => setError(err.message))
 
-  const earned = rows.reduce((sum, row) => sum + row.earned_centimes, 0)
+  const due = rows.reduce((sum, row) => sum + row.due_centimes, 0)
   const paid = rows.reduce((sum, row) => sum + row.paid_centimes, 0)
   const remaining = rows.reduce((sum, row) => sum + row.remaining_centimes, 0)
 
@@ -144,16 +144,31 @@ export function Payroll() {
       <Notice message={error} />
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <StatCard label={`Gagné par les professeurs — ${monthLabel(month)}`} value={earned} />
-        <StatCard label="Déjà versé" value={paid} tone="success" />
-        <StatCard label="Reste à verser" value={remaining} tone="alert" />
+        <StatCard
+          label={`Dû aux professeurs — ${monthLabel(month)}`}
+          value={due}
+          hint="sur les élèves inscrits, payés ou non"
+        />
+        <StatCard
+          label="Déjà versé"
+          value={paid}
+          tone="success"
+          hint="ce que vous leur avez réellement remis"
+        />
+        <StatCard
+          label="Reste à verser"
+          value={remaining}
+          tone="alert"
+          hint="dû moins versé"
+        />
       </section>
 
       <div className="surface-card p-5">
-        <h3 className="font-medium">Ce que les impayés coûtent</h3>
+        <h3 className="font-medium">Ce que les impayés vous coûtent</h3>
         <p className="text-muted-foreground mb-4 text-sm">
-          La salle et l'académie ne touchent que sur les élèves qui paient. La
-          part des professeurs, elle, est à la charge de l'académie.
+          La salle et l'académie ne touchent que sur les élèves qui paient —
+          leur part d'un impayé n'est jamais encaissée. La part du professeur,
+          elle, sort de votre poche : il est payé quoi qu'il arrive.
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <Tile
@@ -180,8 +195,8 @@ export function Payroll() {
             value={teacherCharge}
             hint={
               guaranteed > 0
-                ? `à la charge de l'académie · ${formatDH(guaranteed)} déjà soldé`
-                : "à la charge de l'académie"
+                ? `de votre poche · ${formatDH(guaranteed)} déjà soldé`
+                : "de votre poche"
             }
             tone="alert"
           />
@@ -282,13 +297,19 @@ export function Payroll() {
       </div>
 
       <div className="surface-card p-5">
-        <h3 className="mb-3 font-medium">Versements aux professeurs</h3>
+        <h3 className="font-medium">Versements aux professeurs</h3>
+        <p className="text-muted-foreground mb-3 text-sm">
+          Le dû se calcule sur les élèves inscrits — un professeur est payable
+          même si aucun élève n'a encore réglé.
+        </p>
         <div className="table-wrap">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Professeur</TableHead>
-                <TableHead className="text-right">Gagné</TableHead>
+                <TableHead className="text-right" title="Sur les élèves inscrits du mois, payés ou non">
+                  Dû
+                </TableHead>
                 <TableHead className="text-right">Versé</TableHead>
                 <TableHead className="text-right">Reste</TableHead>
                 <TableHead>Versements</TableHead>
@@ -296,9 +317,7 @@ export function Payroll() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows
-                .filter((row) => row.earned_centimes > 0 || row.paid_centimes > 0)
-                .map((row, index) => (
+              {rows.map((row, index) => (
                   <TableRow
                     key={row.teacher_id}
                     className="stagger-row cursor-pointer"
@@ -321,7 +340,15 @@ export function Payroll() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatDH(row.earned_centimes)}
+                      {formatDH(row.due_centimes)}
+                      {row.collected_centimes < row.due_centimes && (
+                        <p
+                          className="text-muted-foreground text-xs"
+                          title="Part réellement encaissée auprès de ses élèves"
+                        >
+                          dont {formatDH(row.collected_centimes)} encaissé
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatDH(row.paid_centimes)}
@@ -357,24 +384,28 @@ export function Payroll() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      {row.remaining_centimes > 0 && (
+                      {row.remaining_centimes > 0 ? (
                         <PayTeacherButton
                           remaining={row.remaining_centimes}
                           onPay={(amount) => payTeacher(row.teacher_id, amount)}
                         />
+                      ) : row.due_centimes > 0 ? (
+                        <span className="text-success text-xs">Soldé ✓</span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">
+                          aucun élève ce mois
+                        </span>
                       )}
                     </TableCell>
                   </TableRow>
                 ))}
-              {rows.every(
-                (row) => row.earned_centimes === 0 && row.paid_centimes === 0,
-              ) && (
+              {rows.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={6}
                     className="text-muted-foreground text-center"
                   >
-                    Aucun professeur n'a encore gagné ce mois-ci
+                    Aucun professeur
                   </TableCell>
                 </TableRow>
               )}
@@ -431,10 +462,12 @@ function StatCard({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string
   value: number
   tone?: "success" | "alert"
+  hint?: string
 }) {
   const ref = useCountUp(value, (n) => formatDH(Math.round(n)))
   const color =
@@ -449,6 +482,7 @@ function StatCard({
       <p className={`mt-1 text-3xl font-semibold ${color}`}>
         <span ref={ref} />
       </p>
+      {hint && <p className="text-muted-foreground mt-1 text-xs">{hint}</p>}
     </div>
   )
 }

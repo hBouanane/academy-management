@@ -23,6 +23,7 @@ import {
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, PhoneEntry, School, Student } from "@/lib/api"
+import { fuzzyFilter } from "@/lib/fuzzy"
 import {
   anneeOptions,
   filiereDefaults,
@@ -162,6 +163,16 @@ export function StudentDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          {!initial && (
+            <ReturningStudent
+              query={[firstName, name].filter(Boolean).join(" ")}
+              onRestored={() => {
+                onOpenChange(false)
+                onSaved()
+              }}
+              onError={setNote}
+            />
+          )}
           <div className="flex gap-3">
             <div className="flex-1 space-y-2">
               <Label>Nom</Label>
@@ -336,5 +347,93 @@ export function StudentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** Déjà venu ? — recherche tolérante sur TOUS les élèves, archivés compris.
+    Un élève qui revient après deux ans se retrouve ici avec ses impayés :
+    on le réactive au lieu d'en créer un doublon, et on sait quoi lui
+    réclamer avant de le réinscrire. */
+function ReturningStudent({
+  query,
+  onRestored,
+  onError,
+}: {
+  query: string
+  onRestored: () => void
+  onError: (message: string) => void
+}) {
+  const [all, setAll] = useState<Student[]>([])
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    apiGet<Student[]>("/api/students?include_inactive=true")
+      .then(setAll)
+      .catch(() => {})
+  }, [])
+
+  const matches =
+    query.trim().length < 2
+      ? []
+      : fuzzyFilter(all, query, (student) =>
+          [student.first_name, student.name, student.school_name]
+            .filter(Boolean)
+            .join(" "),
+        ).slice(0, 4)
+
+  if (matches.length === 0) return null
+
+  const restore = (student: Student) => {
+    setBusy(true)
+    apiSend("PATCH", `/api/students/${student.id}`, { is_active: true })
+      .then(onRestored)
+      .catch((err: Error) => onError(err.message))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="border-border space-y-2 rounded-xl border border-dashed p-3">
+      <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+        Déjà dans vos fiches ?
+      </p>
+      {matches.map((student) => (
+        <div
+          key={student.id}
+          className="flex flex-wrap items-center justify-between gap-2 text-sm"
+        >
+          <span className="min-w-0">
+            <span className="font-medium">
+              {[student.first_name, student.name].filter(Boolean).join(" ")}
+            </span>
+            <span className="text-muted-foreground text-xs">
+              {" "}
+              · {student.level_name}
+              {student.school_name ? ` · ${student.school_name}` : ""}
+              {student.is_active ? "" : " · archivé"}
+            </span>
+            {Number(student.unpaid_months) > 0 && (
+              <span className="text-destructive block text-xs">
+                {student.unpaid_months} mois impayé(s) — à régler avant de le
+                réinscrire
+              </span>
+            )}
+          </span>
+          {student.is_active ? (
+            <span className="text-muted-foreground shrink-0 text-xs">
+              déjà actif
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => restore(student)}
+            >
+              Réactiver sa fiche
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }

@@ -19,10 +19,21 @@ import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
 import { StudentDialog } from "@/components/StudentDialog"
 import { StudentProfile } from "@/components/StudentProfile"
+import { Input } from "@/components/ui/input"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Student } from "@/lib/api"
+import { fuzzyFilter } from "@/lib/fuzzy"
 import { anneeLabel } from "@/lib/levels"
 import { formatDH } from "@/lib/money"
+
+const fullName = (student: {
+  first_name: string | null
+  name: string
+  school_name?: string | null
+}) =>
+  [student.first_name, student.name, student.school_name]
+    .filter(Boolean)
+    .join(" ")
 
 type Props = { month: string; setMonth: (month: string) => void }
 
@@ -34,6 +45,7 @@ export function Students({ month, setMonth }: Props) {
     annee: null,
   })
   const [showInactive, setShowInactive] = useState(false)
+  const [search, setSearch] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The student modal: null closed, "new" creating, a Student editing.
@@ -97,13 +109,21 @@ export function Students({ month, setMonth }: Props) {
       <div className="surface-card p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <LevelFilter levels={levels} value={filter} onChange={setFilter} />
-          <label className="text-muted-foreground flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={showInactive}
-              onCheckedChange={(checked) => setShowInactive(checked === true)}
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Rechercher…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="w-56"
             />
-            Afficher les étudiants archivés
-          </label>
+            <label className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={showInactive}
+                onCheckedChange={(checked) => setShowInactive(checked === true)}
+              />
+              Afficher les étudiants archivés
+            </label>
+          </div>
         </div>
         <Table>
           <TableHeader>
@@ -118,7 +138,11 @@ export function Students({ month, setMonth }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {students.filter((s) => matchesLevelFilter(filter, s)).map((student, index) => (
+            {fuzzyFilter(
+              students.filter((s) => matchesLevelFilter(filter, s)),
+              search,
+              fullName,
+            ).map((student, index) => (
               <TableRow
                 key={student.id}
                 className={`stagger-row cursor-pointer ${Number(student.unpaid_months) > 0 ? "row-unpaid" : ""}`}
