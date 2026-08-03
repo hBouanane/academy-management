@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -21,12 +20,11 @@ import type {
   BeneficiaryTotal,
   HistoryEntry,
   MonthlyReport,
-  PayoutRow,
   Refund,
   Teacher,
 } from "@/lib/api"
 import { useCountUp, useGrowIn } from "@/lib/anim"
-import { dhToCentimes, formatDH } from "@/lib/money"
+import { formatDH } from "@/lib/money"
 
 const KIND_LABEL: Record<BeneficiaryTotal["kind"], string> = {
   teacher: "Professeur",
@@ -45,7 +43,6 @@ export function Reports({ month, setMonth }: Props) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [owing, setOwing] = useState<ArrearsEntry[]>([])
   const [refunds, setRefunds] = useState<Refund[]>([])
-  const [payoutRows, setPayoutRows] = useState<PayoutRow[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
@@ -54,6 +51,7 @@ export function Reports({ month, setMonth }: Props) {
     null,
   )
   const [exportedAt, setExportedAt] = useState<string | null>(null)
+  const [combined, setCombined] = useState(false)
 
   useEffect(() => {
     setError(null)
@@ -70,9 +68,6 @@ export function Reports({ month, setMonth }: Props) {
     apiGet<Refund[]>("/api/refunds")
       .then(setRefunds)
       .catch(() => setRefunds([]))
-    apiGet<PayoutRow[]>(`/api/payouts?month=${month}`)
-      .then(setPayoutRows)
-      .catch(() => setPayoutRows([]))
     apiGet<Teacher[]>("/api/teachers")
       .then(setTeachers)
       .catch(() => setTeachers([]))
@@ -91,24 +86,6 @@ export function Reports({ month, setMonth }: Props) {
     report?.last_entry_at != null &&
     report.last_entry_at > exportedAt
 
-  const payTeacher = (teacherId: number, amount?: number) =>
-    apiSend("POST", `/api/teachers/${teacherId}/payouts`, {
-      month,
-      ...(amount === undefined ? {} : { amount_centimes: amount }),
-    })
-      .then(() => setRefresh((count) => count + 1))
-      .catch((err: Error) => setError(err.message))
-
-  const cancelPayout = (payoutId: number) =>
-    apiSend("DELETE", `/api/payouts/${payoutId}`)
-      .then(() => setRefresh((count) => count + 1))
-      .catch((err: Error) => setError(err.message))
-
-  const owedToTeachers = payoutRows.reduce(
-    (sum, row) => sum + row.remaining_centimes,
-    0,
-  )
-
   const settleRefund = (refund: Refund) =>
     apiSend("POST", `/api/refunds/${refund.id}/settle`)
       .then(() => setRefresh((count) => count + 1))
@@ -124,13 +101,31 @@ export function Reports({ month, setMonth }: Props) {
     .filter((total) => total.kind === "teacher")
     .reduce((sum, total) => sum + total.total, 0)
   const ownerTeacher = teachers.find((teacher) => teacher.is_owner === 1)
-  const combinedOwner = (report?.totals ?? [])
-    .filter(
-      (total) =>
-        total.kind === "owner" ||
-        (total.kind === "teacher" && total.ref_id === ownerTeacher?.id),
-    )
-    .reduce((sum, total) => sum + total.total, 0)
+  // Deux casquettes, deux lectures : séparées (qui gagne quoi à quel titre)
+  // ou réunies (ce que le propriétaire emporte vraiment). Le bouton bascule
+  // de l'une à l'autre, les barres se ré-animent vers leur nouvelle valeur.
+  const isOwnerHat = (total: BeneficiaryTotal) =>
+    total.kind === "owner" ||
+    (total.kind === "teacher" && total.ref_id === ownerTeacher?.id)
+  const rawTotals = report?.totals ?? []
+  const displayedTotals =
+    !combined || !ownerTeacher
+      ? rawTotals
+      : [
+          ...rawTotals
+            .filter(isOwnerHat)
+            .slice(0, 1)
+            .map((total) => ({
+              ...total,
+              kind: "owner" as const,
+              ref_id: ownerTeacher.id,
+              name: ownerTeacher.name,
+              total: rawTotals
+                .filter(isOwnerHat)
+                .reduce((sum, entry) => sum + entry.total, 0),
+            })),
+          ...rawTotals.filter((total) => !isOwnerHat(total)),
+        ]
 
   return (
     <div className="view-enter space-y-6">
@@ -183,22 +178,26 @@ export function Reports({ month, setMonth }: Props) {
           <CashBars history={history} />
         </div>
         <div className="surface-card p-5">
-          <p className="text-muted-foreground mb-3 text-sm">
-            Répartition du mois — salle, propriétaire et professeurs
-          </p>
-          <BeneficiaryBars totals={report?.totals ?? []} />
-          {ownerTeacher && report && (
-            <p className="border-border mt-3 flex items-center justify-between border-t pt-3 text-sm">
-              <span>
-                <span className="font-medium">{ownerTeacher.name}</span>
-                <span className="text-muted-foreground">
-                  {" "}
-                  — propriétaire + professeur
-                </span>
-              </span>
-              <span className="font-semibold">{formatDH(combinedOwner)}</span>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-muted-foreground text-sm">
+              Répartition du mois — salle, propriétaire et professeurs
             </p>
-          )}
+            {ownerTeacher && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setCombined((current) => !current)}
+              >
+                {combined
+                  ? "Séparer les deux casquettes"
+                  : `Réunir ${ownerTeacher.name}`}
+              </Button>
+            )}
+          </div>
+          <BeneficiaryBars
+            totals={displayedTotals}
+            highlight={combined ? ownerTeacher?.id : undefined}
+          />
         </div>
       </div>
 
@@ -267,111 +266,6 @@ export function Reports({ month, setMonth }: Props) {
                     className="text-muted-foreground text-center"
                   >
                     Personne ne doit rien 🎉
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      <div className="surface-card p-5">
-        <h3 className="font-medium">Versements aux professeurs</h3>
-        <p className="text-muted-foreground mb-3 text-sm">
-          Fin de mois : ce que chacun a gagné, ce que vous lui avez déjà remis,
-          ce qu'il reste à verser. Les élèves impayés dont le professeur est
-          garanti sont inclus — il est payé quoi qu'il arrive.
-          {owedToTeachers > 0 && (
-            <>
-              {" "}
-              Reste à verser :{" "}
-              <span className="text-destructive font-medium">
-                {formatDH(owedToTeachers)}
-              </span>
-            </>
-          )}
-        </p>
-        <div className="table-wrap">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Professeur</TableHead>
-                <TableHead className="text-right">Gagné</TableHead>
-                <TableHead className="text-right">Versé</TableHead>
-                <TableHead className="text-right">Reste</TableHead>
-                <TableHead>Versements</TableHead>
-                <TableHead className="text-right">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {payoutRows
-                .filter((row) => row.earned_centimes > 0 || row.paid_centimes > 0)
-                .map((row) => (
-                  <TableRow key={row.teacher_id}>
-                    <TableCell className="font-medium">
-                      {row.teacher_name}
-                      {row.is_owner === 1 && (
-                        <span className="text-muted-foreground text-xs">
-                          {" "}
-                          (propriétaire)
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatDH(row.earned_centimes)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatDH(row.paid_centimes)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      <span
-                        className={
-                          row.remaining_centimes > 0 ? "text-destructive" : ""
-                        }
-                      >
-                        {formatDH(row.remaining_centimes)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {row.payouts.map((payout) => (
-                          <ConfirmButton
-                            key={payout.id}
-                            size="sm"
-                            variant="outline"
-                            className="h-6 px-2 text-xs"
-                            title="Annuler ce versement (erreur de saisie)"
-                            confirmLabel="Annuler ce versement ?"
-                            description="La ligne disparaît — le reste à verser remonte d'autant."
-                            onConfirm={() => cancelPayout(payout.id)}
-                          >
-                            {formatDH(payout.amount_centimes)} · {payout.paid_on}
-                          </ConfirmButton>
-                        ))}
-                        {row.payouts.length === 0 && (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {row.remaining_centimes > 0 && (
-                        <PayTeacherButton
-                          remaining={row.remaining_centimes}
-                          onPay={(amount) => payTeacher(row.teacher_id, amount)}
-                        />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              {payoutRows.every(
-                (row) => row.earned_centimes === 0 && row.paid_centimes === 0,
-              ) && (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="text-muted-foreground text-center"
-                  >
-                    Aucun professeur n'a encore gagné ce mois-ci
                   </TableCell>
                 </TableRow>
               )}
@@ -483,56 +377,6 @@ export function Reports({ month, setMonth }: Props) {
   )
 }
 
-/** Tout verser en un clic, ou saisir un acompte. */
-function PayTeacherButton({
-  remaining,
-  onPay,
-}: {
-  remaining: number
-  onPay: (amount?: number) => void
-}) {
-  const [partial, setPartial] = useState(false)
-  const [amount, setAmount] = useState("")
-
-  if (!partial)
-    return (
-      <span className="flex justify-end gap-1">
-        <Button size="sm" onClick={() => onPay()}>
-          Tout verser
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => setPartial(true)}>
-          Acompte
-        </Button>
-      </span>
-    )
-  return (
-    <span className="flex items-center justify-end gap-1">
-      <Input
-        autoFocus
-        value={amount}
-        onChange={(event) => setAmount(event.target.value)}
-        placeholder={`≤ ${remaining / 100}`}
-        inputMode="decimal"
-        className="h-8 w-24 text-right"
-      />
-      <Button
-        size="sm"
-        disabled={!amount.trim()}
-        onClick={() => {
-          onPay(dhToCentimes(amount))
-          setPartial(false)
-          setAmount("")
-        }}
-      >
-        Verser
-      </Button>
-      <Button size="sm" variant="ghost" onClick={() => setPartial(false)}>
-        ×
-      </Button>
-    </span>
-  )
-}
-
 function StatCard({
   label,
   value,
@@ -558,7 +402,13 @@ function StatCard({
 }
 
 /** Horizontal bars: every beneficiary of the month, grown in with GSAP. */
-function BeneficiaryBars({ totals }: { totals: BeneficiaryTotal[] }) {
+function BeneficiaryBars({
+  totals,
+  highlight,
+}: {
+  totals: BeneficiaryTotal[]
+  highlight?: number
+}) {
   const ref = useGrowIn<HTMLDivElement>([totals], "x")
   const max = Math.max(...totals.map((total) => Math.abs(total.total)), 1)
   if (totals.length === 0) {
@@ -568,13 +418,20 @@ function BeneficiaryBars({ totals }: { totals: BeneficiaryTotal[] }) {
   }
   return (
     <div ref={ref} className="space-y-2.5">
-      {totals.map((total) => (
-        <div key={`${total.kind}-${total.ref_id}`} className="text-sm">
+      {totals.map((total, index) => (
+        <div
+          key={`${total.kind}-${total.ref_id}`}
+          className="stagger-row text-sm"
+          style={{ animationDelay: `${index * 50}ms` }}
+        >
           <div className="mb-0.5 flex items-center justify-between gap-2">
             <span className="truncate">
               {total.name}{" "}
               <span className="text-muted-foreground text-xs">
-                · {KIND_LABEL[total.kind]}
+                ·{" "}
+                {highlight === total.ref_id && total.kind === "owner"
+                  ? "propriétaire + professeur"
+                  : KIND_LABEL[total.kind]}
               </span>
             </span>
             <span className={total.total < 0 ? "text-destructive" : "font-medium"}>

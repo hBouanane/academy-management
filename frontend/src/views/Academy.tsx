@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Notice } from "@/components/Notice"
+import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Academy as AcademyType, Teacher } from "@/lib/api"
 
@@ -210,49 +212,45 @@ export function Academy() {
 }
 
 /** Le propriétaire enseigne aussi : le lier à sa fiche professeur fait
-    additionner ses deux casquettes partout (profil, rapports, versements). */
+    additionner ses deux casquettes partout (profil, rapports, versements).
+    Un seul champ — et un « ＋ » qui ouvre la vraie fiche professeur, la même
+    que dans la page Professeurs (identité + arbre des compétences). */
 function OwnerTeacher({ onError }: { onError: (message: string) => void }) {
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [choice, setChoice] = useState("")
-  const [draft, setDraft] = useState("")
-  const [busy, setBusy] = useState(false)
+  const [creating, setCreating] = useState(false)
 
-  const reload = useCallback(() => {
-    apiGet<Teacher[]>("/api/teachers")
-      .then((rows) => {
-        setTeachers(rows)
-        setChoice(String(rows.find((row) => row.is_owner === 1)?.id ?? ""))
-      })
-      .catch(() => {})
-  }, [])
-  useEffect(reload, [reload])
+  const reload = useCallback(
+    (linkNewest = false) => {
+      apiGet<Teacher[]>("/api/teachers")
+        .then((rows) => {
+          setTeachers(rows)
+          const owner = rows.find((row) => row.is_owner === 1)
+          if (linkNewest && !owner && rows.length > 0) {
+            // La fiche vient d'être créée dans la modale : on la lie.
+            const newest = rows.reduce((last, row) =>
+              row.id > last.id ? row : last,
+            )
+            apiSend("PATCH", `/api/teachers/${newest.id}`, { is_owner: true })
+              .then(() => reload())
+              .catch((err: Error) => onError(err.message))
+            return
+          }
+          setChoice(String(owner?.id ?? ""))
+        })
+        .catch(() => {})
+    },
+    [onError],
+  )
+  useEffect(() => reload(), [reload])
 
   const linked = teachers.find((row) => row.is_owner === 1)
 
   const link = (teacherId: number) => {
-    setBusy(true)
+    setChoice(String(teacherId))
     apiSend("PATCH", `/api/teachers/${teacherId}`, { is_owner: true })
-      .then(reload)
+      .then(() => reload())
       .catch((err: Error) => onError(err.message))
-      .finally(() => setBusy(false))
-  }
-
-  const createAndLink = async () => {
-    const name = draft.trim()
-    if (!name) return
-    setBusy(true)
-    try {
-      const created = await apiSend<{ id: number }>("POST", "/api/teachers", {
-        name,
-      })
-      await apiSend("PATCH", `/api/teachers/${created.id}`, { is_owner: true })
-      setDraft("")
-      reload()
-    } catch (err) {
-      onError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
   }
 
   return (
@@ -266,13 +264,7 @@ function OwnerTeacher({ onError }: { onError: (message: string) => void }) {
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={choice}
-          onValueChange={(value) => {
-            setChoice(value)
-            link(Number(value))
-          }}
-        >
+        <Select value={choice} onValueChange={(value) => link(Number(value))}>
           <SelectTrigger className="w-56">
             <SelectValue placeholder="Choisir un professeur…" />
           </SelectTrigger>
@@ -284,28 +276,25 @@ function OwnerTeacher({ onError }: { onError: (message: string) => void }) {
             ))}
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground text-xs">ou</span>
-        <Input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault()
-              void createAndLink()
-            }
-          }}
-          placeholder="＋ créer sa fiche professeur…"
-          className="w-56"
-        />
         <Button
-          size="sm"
+          size="icon"
           variant="outline"
-          disabled={!draft.trim() || busy}
-          onClick={createAndLink}
+          title="Créer sa fiche professeur"
+          onClick={() => setCreating(true)}
         >
-          Créer et lier
+          <Plus className="size-4" />
         </Button>
       </div>
+
+      <TeacherDialog
+        open={creating}
+        onOpenChange={setCreating}
+        initial={null}
+        onSaved={() => {
+          setCreating(false)
+          reload(true)
+        }}
+      />
     </div>
   )
 }
