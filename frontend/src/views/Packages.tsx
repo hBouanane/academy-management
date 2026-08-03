@@ -363,14 +363,18 @@ export function Packages() {
               </TableBody>
             </Table>
           </div>
-          {isBloc(group.level) && group.rows.length === 0 && group.level && (
-            <VariantScaffold
-              levelId={group.level.id}
-              busy={busy}
-              onDone={reload}
-              onError={setError}
-            />
-          )}
+          {/* The 1ère–4ème / 5ème–6ème split is a Primaire concept — other
+              bloc niveaux (Formation, …) get the plain "＋ variante" row
+              above instead of a scaffold that wouldn't fit them. */}
+          {group.level?.name === "Primaire" &&
+            group.rows.length === 0 && (
+              <VariantScaffold
+                levelId={group.level.id}
+                busy={busy}
+                onDone={reload}
+                onError={setError}
+              />
+            )}
         </div>
       ))}
 
