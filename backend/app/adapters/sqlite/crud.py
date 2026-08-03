@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
 from app.domain.money import percent_of, split_equally
 from app.domain.splitting import _proportional_parts
-from app.services.payments import net_price
+from app.services.payments import net_price, payment_preview
 from app.services.proration import DEFAULT_SEGMENTS_BP
 
 
@@ -1420,8 +1420,9 @@ def payout_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> lis
                     WHERE le.beneficiary_kind = 'teacher'
                       AND le.beneficiary_id = t.id AND le.month = ?), 0)
               AS collected_centimes,
-          COALESCE((SELECT SUM(tp.amount_centimes) FROM teacher_payout tp
-                    WHERE tp.teacher_id = t.id AND tp.month = ?), 0)
+          COALESCE((SELECT SUM(p.amount_centimes) FROM payout p
+                    WHERE p.beneficiary_kind = 'teacher'
+                      AND p.beneficiary_id = t.id AND p.month = ?), 0)
               AS paid_centimes
         FROM teacher t WHERE t.academy_id = ? AND t.is_active = 1
         ORDER BY t.name
@@ -1435,8 +1436,9 @@ def payout_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> lis
         )
         teacher["payouts"] = _rows(
             conn,
-            "SELECT id, amount_centimes, paid_on, note FROM teacher_payout"
-            " WHERE teacher_id = ? AND month = ? ORDER BY id",
+            "SELECT id, amount_centimes, paid_on, note FROM payout"
+            " WHERE beneficiary_kind = 'teacher' AND beneficiary_id = ?"
+            " AND month = ? ORDER BY id",
             (teacher["teacher_id"], month),
         )
     return teachers
@@ -1492,41 +1494,199 @@ def _enrollment_teacher_shares(
     )
 
 
-def teacher_remaining(
-    conn: sqlite3.Connection, academy_id: int, teacher_id: int, month: str
+def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dict:
+    """L'argent réel du mois. Ce qui est entré (élèves), ce qui est sorti
+    (versements à qui que ce soit), et ce qui reste dans la caisse.
+
+    Le dû de chacun suit la règle du client :
+      professeur — sur les élèves INSCRITS, payés ou non ;
+      salle      — uniquement sur l'argent réellement encaissé ;
+      académie   — ce qui reste, donc elle absorbe tout le manque.
+    """
+    from app.adapters.sqlite.reports import _cash_in
+
+    collected = _cash_in(conn, academy_id, month)
+    dues = _teacher_dues(conn, academy_id, month)
+    venue = _venue(conn, academy_id)
+    venue_due = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+        " WHERE academy_id = ? AND month = ? AND beneficiary_kind = 'venue'",
+        (academy_id, month),
+    ).fetchone()[0]
+    owner_due = collected - sum(dues.values()) - venue_due
+
+    lines = [
+        _caisse_line(conn, academy_id, month, "venue", venue["id"], venue["name"])
+        if venue
+        else None,
+        _caisse_line(
+            conn,
+            academy_id,
+            month,
+            "owner",
+            academy_id,
+            conn.execute(
+                "SELECT name FROM academy WHERE id = ?", (academy_id,)
+            ).fetchone()["name"],
+        ),
+    ]
+    lines = [entry for entry in lines if entry is not None]
+    if venue:
+        lines[0]["due_centimes"] = venue_due
+        lines[0]["remaining_centimes"] = max(venue_due - lines[0]["paid_centimes"], 0)
+    owner_line = lines[-1]
+    owner_line["due_centimes"] = owner_due
+    owner_line["remaining_centimes"] = max(owner_due - owner_line["paid_centimes"], 0)
+
+    # Un professeur archivé en cours de mois doit quand même être payé pour
+    # ce qu'il a enseigné : on liste les actifs ET tous ceux à qui il reste
+    # quelque chose — sinon la somme des lignes ne ferait pas la caisse.
+    for teacher in _rows(
+        conn,
+        """
+        SELECT t.id, t.name, t.is_owner FROM teacher t
+        WHERE t.academy_id = ? AND (
+            t.is_active = 1
+            OR EXISTS (SELECT 1 FROM payout p WHERE p.beneficiary_kind = 'teacher'
+                       AND p.beneficiary_id = t.id AND p.month = ?)
+            OR EXISTS (SELECT 1 FROM ledger_entry le
+                       WHERE le.beneficiary_kind = 'teacher'
+                         AND le.beneficiary_id = t.id AND le.month = ?)
+        )
+        ORDER BY t.name
+        """,
+        (academy_id, month, month),
+    ):
+        entry = _caisse_line(
+            conn, academy_id, month, "teacher", teacher["id"], teacher["name"]
+        )
+        entry["is_owner"] = teacher["is_owner"]
+        entry["due_centimes"] = dues.get(teacher["id"], 0)
+        entry["remaining_centimes"] = max(
+            entry["due_centimes"] - entry["paid_centimes"], 0
+        )
+        lines.append(entry)
+
+    paid_out = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM payout"
+        " WHERE academy_id = ? AND month = ?",
+        (academy_id, month),
+    ).fetchone()[0]
+    unpaid, projection = _unpaid_projection(conn, academy_id, month)
+    return {
+        "month": month,
+        "collected_centimes": collected,
+        "paid_out_centimes": paid_out,
+        "balance_centimes": collected - paid_out,
+        "unpaid_centimes": unpaid,
+        "projection": projection,
+        "lines": lines,
+    }
+
+
+def _caisse_line(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    month: str,
+    kind: str,
+    ref_id: int,
+    name: str,
+) -> dict:
+    payouts = _rows(
+        conn,
+        "SELECT id, amount_centimes, paid_on, note FROM payout"
+        " WHERE academy_id = ? AND month = ? AND beneficiary_kind = ?"
+        " AND beneficiary_id = ? ORDER BY id",
+        (academy_id, month, kind, ref_id),
+    )
+    return {
+        "kind": kind,
+        "ref_id": ref_id,
+        "name": name,
+        "is_owner": 0,
+        "due_centimes": 0,
+        "paid_centimes": sum(payout["amount_centimes"] for payout in payouts),
+        "remaining_centimes": 0,
+        "payouts": payouts,
+    }
+
+
+def _unpaid_projection(
+    conn: sqlite3.Connection, academy_id: int, month: str
+) -> tuple[int, dict]:
+    """Ce que les impayés du mois rapporteront encore : la salle prendra son
+    pourcentage, et TOUT le reste ira à l'académie — elle a déjà payé les
+    professeurs pour ces élèves-là."""
+    store = SqlitePaymentStore(conn)
+    rows = conn.execute(
+        """
+        SELECT e.id FROM enrollment e JOIN student s ON s.id = e.student_id
+        WHERE s.academy_id = ? AND e.month = ?
+          AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.enrollment_id = e.id
+                          AND p.reversed_at IS NULL)
+        """,
+        (academy_id, month),
+    ).fetchall()
+    unpaid = 0
+    venue_share = 0
+    for row in rows:
+        try:
+            preview = payment_preview(store, row["id"])
+        except ValueError:
+            continue
+        unpaid += preview.net
+        venue_share += sum(
+            entry.final for entry in preview.lines if entry.beneficiary.kind == "venue"
+        )
+    return unpaid, {
+        "venue_centimes": venue_share,
+        "owner_centimes": unpaid - venue_share,
+    }
+
+
+def beneficiary_remaining(
+    conn: sqlite3.Connection, academy_id: int, kind: str, ref_id: int, month: str
 ) -> int:
+    summary = caisse_summary(conn, academy_id, month)
     row = next(
         (
             entry
-            for entry in payout_summary(conn, academy_id, month)
-            if entry["teacher_id"] == teacher_id
+            for entry in summary["lines"]
+            if entry["kind"] == kind and entry["ref_id"] == ref_id
         ),
         None,
     )
     if row is None:
-        raise LookupError(f"no teacher {teacher_id}")
+        raise LookupError(f"no {kind} {ref_id}")
     return row["remaining_centimes"]
+
+
+def teacher_remaining(
+    conn: sqlite3.Connection, academy_id: int, teacher_id: int, month: str
+) -> int:
+    return beneficiary_remaining(conn, academy_id, "teacher", teacher_id, month)
 
 
 def add_payout(
     conn: sqlite3.Connection,
     academy_id: int,
-    teacher_id: int,
+    kind: str,
+    ref_id: int,
     month: str,
     amount: int,
     note: str | None = None,
 ) -> int:
     return _insert(
         conn,
-        "INSERT INTO teacher_payout (academy_id, teacher_id, month,"
-        " amount_centimes, note) VALUES (?, ?, ?, ?, ?)",
-        (academy_id, teacher_id, month, amount, note),
+        "INSERT INTO payout (academy_id, beneficiary_kind, beneficiary_id,"
+        " month, amount_centimes, note) VALUES (?, ?, ?, ?, ?, ?)",
+        (academy_id, kind, ref_id, month, amount, note),
     )
 
 
 def delete_payout(conn: sqlite3.Connection, payout_id: int) -> None:
     with _transaction(conn):
-        conn.execute("DELETE FROM teacher_payout WHERE id = ?", (payout_id,))
+        conn.execute("DELETE FROM payout WHERE id = ?", (payout_id,))
 
 
 def enrollment_has_payment_history(

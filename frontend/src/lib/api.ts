@@ -240,6 +240,25 @@ export type Payout = {
   paid_on: string
   note: string | null
 }
+export type CaisseLine = {
+  kind: "teacher" | "venue" | "owner"
+  ref_id: number
+  name: string
+  is_owner: number
+  due_centimes: number // négatif = ce bénéficiaire a avancé de sa poche
+  paid_centimes: number
+  remaining_centimes: number
+  payouts: Payout[]
+}
+export type Caisse = {
+  month: string
+  collected_centimes: number
+  paid_out_centimes: number
+  balance_centimes: number
+  unpaid_centimes: number
+  projection: { venue_centimes: number; owner_centimes: number }
+  lines: CaisseLine[]
+}
 export type PayoutRow = {
   teacher_id: number
   teacher_name: string

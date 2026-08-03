@@ -38,7 +38,7 @@ const SECTIONS: {
     items: [
       { key: "dashboard", label: "Tableau de bord", icon: LayoutDashboard },
       { key: "reports", label: "Rapports", icon: BarChart3 },
-      { key: "payroll", label: "Paie", icon: Wallet },
+      { key: "payroll", label: "Caisse", icon: Wallet },
     ],
   },
   {
@@ -132,7 +132,7 @@ function App() {
       <main className="min-w-0 flex-1 px-8 py-6" key={view}>
         {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}
         {view === "reports" && <Reports month={month} setMonth={setMonth} />}
-        {/* La paie a son propre mois : le mois écoulé, pas celui en cours. */}
+        {/* La caisse a son propre mois : le mois écoulé, pas celui en cours. */}
         {view === "payroll" && <Payroll />}
         {view === "students" && <Students month={month} setMonth={setMonth} />}
         {view === "teachers" && <Teachers month={month} setMonth={setMonth} />}

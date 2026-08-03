@@ -1,10 +1,14 @@
-// La paie du mois : ce que chaque professeur a gagné, ce qui lui a déjà été
-// remis, ce qu'il reste à verser — et ce que les impayés coûtent vraiment.
+// La caisse du mois : l'argent réel.
 //
-// La règle du client, en chiffres : la salle et l'académie ne touchent que
-// sur les élèves qui paient, donc leur part d'un impayé n'est simplement
-// jamais encaissée ; la part professeur, elle, est à la charge de
-// l'académie — le professeur est payé quoi qu'il arrive.
+// Un élève qui paie fait ENTRER l'argent dans la caisse — il n'atterrit dans
+// la poche de personne. Payer un professeur, la salle ou soi-même le fait
+// SORTIR : le propriétaire se paie comme il paie les autres.
+//
+// Le partage suit la règle du client : le professeur touche sur les élèves
+// INSCRITS (payés ou non), la salle uniquement sur l'argent réellement
+// encaissé, et l'académie prend ce qui reste — donc elle absorbe le manque.
+// Quand un impayé rentre plus tard, il retombe dans SON mois : la salle
+// prend son pourcentage, tout le reste va à l'académie qui avait avancé.
 
 import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -25,18 +29,23 @@ import { PayDialog } from "@/components/PayDialog"
 import { StudentProfile } from "@/components/StudentProfile"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
-import type { Academy, OverviewRow, PayoutRow } from "@/lib/api"
+import type { Caisse, CaisseLine, OverviewRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
 import { currentMonth, dhToCentimes, formatDH, previousMonth } from "@/lib/money"
 
+const KIND_LABEL: Record<CaisseLine["kind"], string> = {
+  venue: "Salle",
+  owner: "Académie",
+  teacher: "Professeur",
+}
+
 export function Payroll() {
-  // La paie se fait sur le mois ÉCOULÉ : le mois en cours n'est pas fini,
+  // La caisse se solde sur le mois ÉCOULÉ : le mois en cours n'est pas fini,
   // alors que les étudiants, eux, paient au début du leur. Cette page a donc
   // son propre mois, indépendant du reste de l'application.
   const [month, setMonth] = useState(() => previousMonth(currentMonth()))
-  const [rows, setRows] = useState<PayoutRow[]>([])
+  const [caisse, setCaisse] = useState<Caisse | null>(null)
   const [overview, setOverview] = useState<OverviewRow[]>([])
-  const [academy, setAcademy] = useState<Academy | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Encaisser un impayé, solder un professeur, ouvrir un profil — sans
   // quitter la page.
@@ -51,20 +60,19 @@ export function Payroll() {
   const [teacherProfile, setTeacherProfile] = useState<number | null>(null)
 
   const reload = useCallback(() => {
-    apiGet<PayoutRow[]>(`/api/payouts?month=${month}`)
-      .then(setRows)
+    apiGet<Caisse>(`/api/caisse?month=${month}`)
+      .then(setCaisse)
       .catch((err: Error) => setError(err.message))
     apiGet<OverviewRow[]>(`/api/months/${month}/overview`)
       .then(setOverview)
       .catch(() => setOverview([]))
-    apiGet<Academy[]>("/api/academies")
-      .then(([first]) => setAcademy(first ?? null))
-      .catch(() => {})
   }, [month])
   useEffect(reload, [reload])
 
-  const payTeacher = (teacherId: number, amount?: number) =>
-    apiSend("POST", `/api/teachers/${teacherId}/payouts`, {
+  const payOut = (line: CaisseLine, amount?: number) =>
+    apiSend("POST", "/api/payouts", {
+      kind: line.kind,
+      ref_id: line.ref_id,
       month,
       ...(amount === undefined ? {} : { amount_centimes: amount }),
     })
@@ -76,48 +84,20 @@ export function Payroll() {
       .then(reload)
       .catch((err: Error) => setError(err.message))
 
-  const due = rows.reduce((sum, row) => sum + row.due_centimes, 0)
-  const paid = rows.reduce((sum, row) => sum + row.paid_centimes, 0)
-  const remaining = rows.reduce((sum, row) => sum + row.remaining_centimes, 0)
-
-  // Ce que les impayés du mois représentent, calculé sur la répartition
-  // réelle de chaque inscription (réductions comprises), pas sur un
-  // pourcentage plaqué.
+  const lines = caisse?.lines ?? []
+  const stillOwed = lines.reduce((sum, line) => sum + line.remaining_centimes, 0)
   const unpaid = overview.filter(
     (row) => row.enrollment !== null && !row.enrollment.paid,
   )
-  const unpaidTotal = unpaid.reduce(
-    (sum, row) => sum + (row.enrollment?.net_centimes ?? 0),
-    0,
-  )
-  const partOf = (kinds: string[]) =>
-    unpaid.reduce(
-      (sum, row) =>
-        sum +
-        (row.enrollment?.split ?? [])
-          .filter((chip) => kinds.includes(chip.kind))
-          .reduce((inner, chip) => inner + chip.final_centimes, 0),
-      0,
-    )
-  const houseLost = partOf(["venue", "owner"])
-  const teacherCharge = partOf(["teacher"])
-  const guaranteed = unpaid.reduce(
-    (sum, row) => sum + (row.enrollment?.guaranteed_centimes ?? 0),
-    0,
-  )
-  const housePct = academy
-    ? (academy.venue_bp + academy.owner_bp) / 100
-    : null
-  const teacherPct = housePct === null ? null : 100 - housePct
 
   return (
     <div className="view-enter space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-medium tracking-tight">Paie</h2>
+          <h2 className="text-2xl font-medium tracking-tight">Caisse</h2>
           <p className="text-muted-foreground text-sm">
-            Fin de mois : ce que vous devez à chaque professeur, et ce que les
-            impayés coûtent réellement
+            L'argent du mois : ce qui est entré, ce qui en est sorti, et la
+            part qui revient encore à chacun
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -136,8 +116,8 @@ export function Payroll() {
 
       {month === previousMonth(currentMonth()) && (
         <p className="text-muted-foreground text-xs">
-          Mois écoulé par défaut : les professeurs se paient sur un mois
-          terminé, alors que les étudiants paient au début du leur.
+          Mois écoulé par défaut : on solde un mois terminé, alors que les
+          étudiants paient au début du leur.
         </p>
       )}
 
@@ -145,60 +125,174 @@ export function Payroll() {
 
       <section className="grid gap-4 lg:grid-cols-3">
         <StatCard
-          label={`Dû aux professeurs — ${monthLabel(month)}`}
-          value={due}
-          hint="sur les élèves inscrits, payés ou non"
+          label={`Encaissé — ${monthLabel(month)}`}
+          value={caisse?.collected_centimes ?? 0}
+          hint="l'argent entré dans la caisse"
         />
         <StatCard
-          label="Déjà versé"
-          value={paid}
+          label="Sorti de la caisse"
+          value={caisse?.paid_out_centimes ?? 0}
           tone="success"
-          hint="ce que vous leur avez réellement remis"
+          hint="versé aux professeurs, à la salle, à vous"
         />
         <StatCard
-          label="Reste à verser"
-          value={remaining}
-          tone="alert"
-          hint="dû moins versé"
+          label="Reste en caisse"
+          value={caisse?.balance_centimes ?? 0}
+          tone={(caisse?.balance_centimes ?? 0) < 0 ? "alert" : undefined}
+          hint={
+            (caisse?.balance_centimes ?? 0) < 0
+              ? "vous avez avancé de votre poche"
+              : `dont ${formatDH(stillOwed)} déjà promis`
+          }
         />
       </section>
 
       <div className="surface-card p-5">
-        <h3 className="font-medium">Ce que les impayés vous coûtent</h3>
+        <h3 className="font-medium">La part de chacun</h3>
+        <p className="text-muted-foreground mb-3 text-sm">
+          Le professeur touche sur les élèves inscrits, payés ou non. La salle
+          ne touche que sur l'argent réellement encaissé. L'académie prend ce
+          qui reste — c'est elle qui absorbe les impayés. Rien n'appartient à
+          personne tant que ce n'est pas sorti de la caisse.
+        </p>
+        <div className="table-wrap">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Bénéficiaire</TableHead>
+                <TableHead className="text-right">Part du mois</TableHead>
+                <TableHead className="text-right">Sorti</TableHead>
+                <TableHead className="text-right">Reste à sortir</TableHead>
+                <TableHead>Versements</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lines.map((line, index) => (
+                <TableRow
+                  key={`${line.kind}-${line.ref_id}`}
+                  className={`stagger-row ${line.kind === "teacher" ? "cursor-pointer" : ""}`}
+                  style={{ animationDelay: `${index * 40}ms` }}
+                  title={
+                    line.kind === "teacher"
+                      ? "Ouvrir le profil du professeur"
+                      : undefined
+                  }
+                  onClick={(event) => {
+                    if (line.kind !== "teacher") return
+                    const target = event.target as HTMLElement
+                    if (!event.currentTarget.contains(target)) return
+                    if (target.closest("button, a, input")) return
+                    setTeacherProfile(line.ref_id)
+                  }}
+                >
+                  <TableCell className="font-medium">
+                    {line.name}
+                    <span className="text-muted-foreground text-xs">
+                      {" "}
+                      · {KIND_LABEL[line.kind]}
+                      {line.is_owner === 1 ? " (vous)" : ""}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span
+                      className={line.due_centimes < 0 ? "text-destructive" : ""}
+                    >
+                      {formatDH(line.due_centimes)}
+                    </span>
+                    {line.due_centimes < 0 && (
+                      <p className="text-muted-foreground text-xs">
+                        avancé de sa poche
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatDH(line.paid_centimes)}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    <span
+                      className={
+                        line.remaining_centimes > 0 ? "text-destructive" : ""
+                      }
+                    >
+                      {formatDH(line.remaining_centimes)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {line.payouts.map((payout) => (
+                        <ConfirmButton
+                          key={payout.id}
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs"
+                          title="Annuler ce versement (erreur de saisie)"
+                          confirmLabel="Annuler ce versement ?"
+                          description="L'argent revient dans la caisse et le reste à sortir remonte d'autant."
+                          onConfirm={() => cancelPayout(payout.id)}
+                        >
+                          {formatDH(payout.amount_centimes)} · {payout.paid_on}
+                        </ConfirmButton>
+                      ))}
+                      {line.payouts.length === 0 && (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {line.remaining_centimes > 0 ? (
+                      <PayButton
+                        remaining={line.remaining_centimes}
+                        onPay={(amount) => payOut(line, amount)}
+                      />
+                    ) : line.due_centimes > 0 ? (
+                      <span className="text-success text-xs">Soldé ✓</span>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {lines.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="text-muted-foreground text-center"
+                  >
+                    Rien à répartir ce mois-ci
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <div className="surface-card p-5">
+        <h3 className="font-medium">Ce qui n'est pas encore rentré</h3>
         <p className="text-muted-foreground mb-4 text-sm">
-          La salle et l'académie ne touchent que sur les élèves qui paient —
-          leur part d'un impayé n'est jamais encaissée. La part du professeur,
-          elle, sort de votre poche : il est payé quoi qu'il arrive.
+          Les professeurs sont payés quoi qu'il arrive : c'est l'académie qui
+          avance. Quand ces élèves régleront, la salle prendra son pourcentage
+          et tout le reste reviendra à l'académie.
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <Tile
-            label={`Total impayé — ${monthLabel(month)}`}
-            value={unpaidTotal}
+            label={`Impayé — ${monthLabel(month)}`}
+            value={caisse?.unpaid_centimes ?? 0}
             hint={`${unpaid.length} élève(s)`}
+            tone="alert"
           />
           <Tile
-            label={
-              housePct === null
-                ? "Part salle + académie"
-                : `Part salle + académie (${housePct}%)`
-            }
-            value={houseLost}
-            hint="jamais encaissée"
+            label="Reviendra à la salle"
+            value={caisse?.projection.venue_centimes ?? 0}
+            hint="son pourcentage, une fois encaissé"
             tone="muted"
           />
           <Tile
-            label={
-              teacherPct === null
-                ? "Part professeurs"
-                : `Part professeurs (${teacherPct}%)`
-            }
-            value={teacherCharge}
-            hint={
-              guaranteed > 0
-                ? `de votre poche · ${formatDH(guaranteed)} déjà soldé`
-                : "de votre poche"
-            }
-            tone="alert"
+            label="Reviendra à l'académie"
+            value={caisse?.projection.owner_centimes ?? 0}
+            hint="elle a déjà payé les professeurs"
+            tone="muted"
           />
         </div>
 
@@ -209,9 +303,7 @@ export function Payroll() {
                 <TableRow>
                   <TableHead>Élève impayé</TableHead>
                   <TableHead className="text-right">Doit</TableHead>
-                  <TableHead className="text-right">
-                    Part professeur
-                  </TableHead>
+                  <TableHead className="text-right">Part professeur</TableHead>
                   <TableHead>État</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -296,124 +388,6 @@ export function Payroll() {
         )}
       </div>
 
-      <div className="surface-card p-5">
-        <h3 className="font-medium">Versements aux professeurs</h3>
-        <p className="text-muted-foreground mb-3 text-sm">
-          Le dû se calcule sur les élèves inscrits — un professeur est payable
-          même si aucun élève n'a encore réglé.
-        </p>
-        <div className="table-wrap">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Professeur</TableHead>
-                <TableHead className="text-right" title="Sur les élèves inscrits du mois, payés ou non">
-                  Dû
-                </TableHead>
-                <TableHead className="text-right">Versé</TableHead>
-                <TableHead className="text-right">Reste</TableHead>
-                <TableHead>Versements</TableHead>
-                <TableHead className="text-right">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row, index) => (
-                  <TableRow
-                    key={row.teacher_id}
-                    className="stagger-row cursor-pointer"
-                    style={{ animationDelay: `${index * 40}ms` }}
-                    title="Ouvrir le profil du professeur"
-                    onClick={(event) => {
-                      const target = event.target as HTMLElement
-                      if (!event.currentTarget.contains(target)) return
-                      if (target.closest("button, a, input")) return
-                      setTeacherProfile(row.teacher_id)
-                    }}
-                  >
-                    <TableCell className="font-medium">
-                      {row.teacher_name}
-                      {row.is_owner === 1 && (
-                        <span className="text-muted-foreground text-xs">
-                          {" "}
-                          (propriétaire)
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatDH(row.due_centimes)}
-                      {row.collected_centimes < row.due_centimes && (
-                        <p
-                          className="text-muted-foreground text-xs"
-                          title="Part réellement encaissée auprès de ses élèves"
-                        >
-                          dont {formatDH(row.collected_centimes)} encaissé
-                        </p>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatDH(row.paid_centimes)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      <span
-                        className={
-                          row.remaining_centimes > 0 ? "text-destructive" : ""
-                        }
-                      >
-                        {formatDH(row.remaining_centimes)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {row.payouts.map((payout) => (
-                          <ConfirmButton
-                            key={payout.id}
-                            size="sm"
-                            variant="outline"
-                            className="h-6 px-2 text-xs"
-                            title="Annuler ce versement (erreur de saisie)"
-                            confirmLabel="Annuler ce versement ?"
-                            description="La ligne disparaît — le reste à verser remonte d'autant."
-                            onConfirm={() => cancelPayout(payout.id)}
-                          >
-                            {formatDH(payout.amount_centimes)} · {payout.paid_on}
-                          </ConfirmButton>
-                        ))}
-                        {row.payouts.length === 0 && (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {row.remaining_centimes > 0 ? (
-                        <PayTeacherButton
-                          remaining={row.remaining_centimes}
-                          onPay={(amount) => payTeacher(row.teacher_id, amount)}
-                        />
-                      ) : row.due_centimes > 0 ? (
-                        <span className="text-success text-xs">Soldé ✓</span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">
-                          aucun élève ce mois
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              {rows.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="text-muted-foreground text-center"
-                  >
-                    Aucun professeur
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
       {payTarget && (
         <PayDialog
           enrollmentId={payTarget.id}
@@ -471,7 +445,7 @@ function StatCard({
 }) {
   const ref = useCountUp(value, (n) => formatDH(Math.round(n)))
   const color =
-    tone === "alert" && value > 0
+    tone === "alert" && value !== 0
       ? "text-destructive"
       : tone === "success" && value > 0
         ? "text-success"
@@ -517,8 +491,8 @@ function Tile({
   )
 }
 
-/** Tout verser en un clic, ou saisir un acompte. */
-function PayTeacherButton({
+/** Tout sortir en un clic, ou saisir un acompte. */
+function PayButton({
   remaining,
   onPay,
 }: {

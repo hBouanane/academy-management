@@ -1001,27 +1001,52 @@ class PayoutBody(BaseModel):
     note: str | None = None
 
 
+class CaissePayoutBody(PayoutBody):
+    kind: Literal["teacher", "venue", "owner"]
+    ref_id: int
+
+
 @router.get("/payouts")
 def payouts(month: MonthQuery, conn: Conn) -> list[dict]:
-    """La feuille de paie du mois : gagné, versé, reste à verser."""
+    """La feuille de paie du mois : dû, versé, reste à verser."""
     return crud.payout_summary(conn, default_academy_id(conn), month)
 
 
-@router.post("/teachers/{teacher_id}/payouts", status_code=201)
-def create_payout(teacher_id: int, body: PayoutBody, conn: Conn) -> dict:
+@router.get("/caisse")
+def caisse(month: MonthQuery, conn: Conn) -> dict:
+    """L'état de la caisse : entré, sorti, ce qu'il reste dedans, et la part
+    de chacun — professeurs, salle et académie comprises."""
+    return crud.caisse_summary(conn, default_academy_id(conn), month)
+
+
+def _record_payout(
+    conn: sqlite3.Connection, kind: str, ref_id: int, body: PayoutBody
+) -> dict:
     academy_id = default_academy_id(conn)
-    remaining = crud.teacher_remaining(conn, academy_id, teacher_id, body.month)
+    remaining = crud.beneficiary_remaining(conn, academy_id, kind, ref_id, body.month)
     amount = body.amount_centimes if body.amount_centimes is not None else remaining
     if amount <= 0 or amount > remaining:
         raise HTTPException(
             status_code=422,
-            detail=f"Il reste {remaining / 100:.2f} DH à verser à ce professeur"
-            f" pour ce mois — impossible d'enregistrer {amount / 100:.2f} DH.",
+            detail=f"Il reste {remaining / 100:.2f} DH à verser pour ce mois —"
+            f" impossible de sortir {amount / 100:.2f} DH de la caisse.",
         )
     payout_id = crud.add_payout(
-        conn, academy_id, teacher_id, body.month, amount, body.note
+        conn, academy_id, kind, ref_id, body.month, amount, body.note
     )
     return {"id": payout_id, "amount_centimes": amount}
+
+
+@router.post("/payouts", status_code=201)
+def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
+    """Sortir de la caisse la part d'un bénéficiaire — professeur, salle ou
+    le propriétaire lui-même : il se paie comme il paie les autres."""
+    return _record_payout(conn, body.kind, body.ref_id, body)
+
+
+@router.post("/teachers/{teacher_id}/payouts", status_code=201)
+def create_payout(teacher_id: int, body: PayoutBody, conn: Conn) -> dict:
+    return _record_payout(conn, "teacher", teacher_id, body)
 
 
 @router.delete("/payouts/{payout_id}")
