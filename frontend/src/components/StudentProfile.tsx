@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CompleteDialog } from "@/components/CompleteDialog"
+import { Field, FieldGrid } from "@/components/Field"
 import { monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
@@ -72,40 +73,48 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
         {profile && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">
-                {profile.level_name}
-                {annee ? ` · ${annee}` : ""}
-              </Badge>
-              {profile.filiere && <Badge variant="outline">{profile.filiere}</Badge>}
-              {profile.school_name && (
-                <Badge variant="outline">{profile.school_name}</Badge>
-              )}
-              {profile.months.length === 0 && (
+              {profile.months.length === 0 ? (
                 <Badge className="bg-secondary text-secondary-foreground">
                   Pré-inscrit
                 </Badge>
+              ) : profile.is_active ? (
+                <Badge className="bg-success/15 text-success border-success/20 border">
+                  Actif
+                </Badge>
+              ) : (
+                <Badge variant="outline">Archivé</Badge>
               )}
-              {!profile.is_active && <Badge variant="outline">Archivé</Badge>}
             </div>
 
-            <div>
-              <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
-                Téléphones
-              </p>
-              {profile.phones.length === 0 && (
-                <p className="text-muted-foreground text-sm">Aucun numéro.</p>
+            <FieldGrid>
+              <Field label="Niveau">
+                {profile.level_name}
+                {annee ? ` — ${annee}` : ""}
+              </Field>
+              {profile.parcours && (
+                <Field label="Parcours">{profile.parcours}</Field>
               )}
-              <div className="flex flex-wrap gap-1.5">
+              {profile.filiere && <Field label="Filière">{profile.filiere}</Field>}
+              <Field label="École">{profile.school_name ?? "—"}</Field>
+              <Field label="Fiche créée le">
+                {profile.created_at?.slice(0, 10) ?? "—"}
+              </Field>
+              <Field
+                label={
+                  profile.phones.length > 1 ? "Téléphones" : "Téléphone"
+                }
+              >
+                {profile.phones.length === 0 && "—"}
                 {profile.phones.map((phone, index) => (
-                  <span
-                    key={index}
-                    className="bg-secondary text-secondary-foreground rounded-full px-2.5 py-0.5 text-xs"
-                  >
-                    {phone.tag} · {phone.number}
-                  </span>
+                  <p key={index}>
+                    {phone.number}{" "}
+                    <span className="text-muted-foreground text-xs font-normal">
+                      ({phone.tag})
+                    </span>
+                  </p>
                 ))}
-              </div>
-            </div>
+              </Field>
+            </FieldGrid>
 
             <div>
               <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
@@ -192,9 +201,6 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
               )}
             </div>
 
-            <p className="text-muted-foreground text-xs">
-              Fiche créée le {profile.created_at?.slice(0, 10) ?? "—"}
-            </p>
           </div>
         )}
       </DialogContent>

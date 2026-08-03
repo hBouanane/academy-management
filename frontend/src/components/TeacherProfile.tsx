@@ -2,7 +2,6 @@
 // actually paid him, capabilities, six-month history, assignment periods.
 
 import { useEffect, useState } from "react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -19,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Field, FieldGrid } from "@/components/Field"
 import { monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
@@ -96,26 +96,36 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
         <Notice message={error} />
         {profile && (
           <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
-              {profile.is_owner ? (
-                <Badge variant="outline">Propriétaire</Badge>
-              ) : null}
-              {profile.phone && <Badge variant="outline">{profile.phone}</Badge>}
-              <Badge variant="outline">
-                Depuis le {profile.created_at?.slice(0, 10) ?? "—"}
-              </Badge>
-              {profile.is_owner ? (
-                <Badge className="bg-success/15 text-success border-success/20 border">
-                  {formatDH(monthTotal)} prof + {formatDH(profile.owner_earned)}{" "}
-                  propriétaire = {formatDH(monthTotal + profile.owner_earned)} —{" "}
-                  {monthLabel(month)}
-                </Badge>
-              ) : (
-                <Badge className="bg-success/15 text-success border-success/20 border">
-                  {formatDH(monthTotal)} — {monthLabel(month)}
-                </Badge>
+            <FieldGrid>
+              <Field label="Rôle">
+                {profile.is_owner ? "Propriétaire + professeur" : "Professeur"}
+              </Field>
+              <Field label="Téléphone">{profile.phone ?? "—"}</Field>
+              <Field label="Depuis le">
+                {profile.created_at?.slice(0, 10) ?? "—"}
+              </Field>
+              <Field
+                label={`Gagné comme professeur — ${monthLabel(month)}`}
+              >
+                <span className={monthTotal > 0 ? "text-success" : ""}>
+                  {formatDH(monthTotal)}
+                </span>
+              </Field>
+              {profile.is_owner === 1 && (
+                <Field label="Gagné comme propriétaire">
+                  <span className={profile.owner_earned > 0 ? "text-success" : ""}>
+                    {formatDH(profile.owner_earned)}
+                  </span>
+                </Field>
               )}
-            </div>
+              {profile.is_owner === 1 && (
+                <Field label="Total du mois">
+                  <span className="text-success font-semibold">
+                    {formatDH(monthTotal + profile.owner_earned)}
+                  </span>
+                </Field>
+              )}
+            </FieldGrid>
 
             <div>
               <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
@@ -184,8 +194,11 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
                 </div>
               </div>
               <div>
-                <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
+                <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                   Compétences
+                </p>
+                <p className="text-muted-foreground mb-1.5 text-xs">
+                  ✓ = classe déjà ouverte · cochez pour ouvrir les manquantes
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {profile.capabilities.map((capability) => {

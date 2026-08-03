@@ -327,8 +327,12 @@ function StudentRow({
       style={{ animationDelay: `${index * 40}ms` }}
       title="Ouvrir le profil"
       onClick={(event) => {
-        // Anywhere on the row opens the profile — except the buttons.
-        if ((event.target as HTMLElement).closest("button, a")) return
+        // Anywhere on the row opens the profile — except the buttons, and
+        // except clicks inside portaled dialogs (React bubbles those through
+        // the row even though they render elsewhere in the DOM).
+        const target = event.target as HTMLElement
+        if (!event.currentTarget.contains(target)) return
+        if (target.closest("button, a")) return
         onShowProfile(row.student_id)
       }}
     >

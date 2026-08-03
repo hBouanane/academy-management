@@ -863,6 +863,15 @@ def list_students(
            JOIN payment p3 ON p3.enrollment_id = e3.id AND p3.reversed_at IS NULL
            WHERE e3.student_id = s.id AND e3.month = ?
           ) AS month_paid,
+          -- An avance is NOT « Payé » : what the month still owes, so the
+          -- listing can say « Avance · reste X » honestly.
+          COALESCE((SELECT MAX(COALESCE(p5.due_centimes, p5.amount_centimes)
+              - (SELECT COALESCE(SUM(le.amount_centimes), 0) FROM ledger_entry le
+                 WHERE le.payment_id = p5.id AND le.entry_type = 'payment_in'), 0)
+           FROM enrollment e5
+           JOIN payment p5 ON p5.enrollment_id = e5.id AND p5.reversed_at IS NULL
+           WHERE e5.student_id = s.id AND e5.month = ?
+          ), 0) AS month_remaining_centimes,
           EXISTS(SELECT 1 FROM enrollment e4 WHERE e4.student_id = s.id
           ) AS ever_enrolled
         FROM student s
@@ -870,7 +879,7 @@ def list_students(
         LEFT JOIN school sc ON sc.id = s.school_id
         WHERE s.academy_id = ?{active_filter} ORDER BY s.name
         """,
-        (month or "", month or "", month or "", academy_id),
+        (month or "", month or "", month or "", month or "", academy_id),
     )
 
 

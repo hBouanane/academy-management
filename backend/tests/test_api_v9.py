@@ -426,6 +426,20 @@ class TestAvance:
         assert totals[("teacher", teacher)] == 180 * DH  # paid in FULL
         assert totals[("owner", academy)] == 30 * DH - 200 * DH  # fronting
 
+    def test_students_listing_says_avance_not_paye(self, client):
+        # The Étudiants page must never claim « Payé » while money is still
+        # owed: the listing carries the remaining amount.
+        level, class_id, _, package = setup_base(client)
+        student, enrollment = enroll(client, level, package, class_id)
+        pay(client, enrollment, amount_centimes=100 * DH)
+        row = next(
+            r
+            for r in client.get("/api/students?month=2026-09").json()
+            if r["id"] == student
+        )
+        assert row["month_paid"] == 1
+        assert row["month_remaining_centimes"] == 200 * DH
+
     def test_completing_the_avance_repays_the_owner(self, client):
         level, class_id, _, package = setup_base(client)
         student, enrollment = enroll(client, level, package, class_id)

@@ -124,7 +124,11 @@ export function Teachers({ month, setMonth }: Props) {
                 style={{ animationDelay: `${index * 40}ms` }}
                 title="Ouvrir le profil"
                 onClick={(event) => {
-                  if ((event.target as HTMLElement).closest("button, a")) return
+                  // Ignore clicks bubbling out of portaled dialogs and hits
+                  // on action buttons — only a true row click opens.
+                  const target = event.target as HTMLElement
+                  if (!event.currentTarget.contains(target)) return
+                  if (target.closest("button, a")) return
                   setProfileId(row.id)
                 }}
               >

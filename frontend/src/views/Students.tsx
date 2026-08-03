@@ -22,6 +22,7 @@ import { StudentProfile } from "@/components/StudentProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Student } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
+import { formatDH } from "@/lib/money"
 
 type Props = { month: string; setMonth: (month: string) => void }
 
@@ -124,8 +125,13 @@ export function Students({ month, setMonth }: Props) {
                 style={{ animationDelay: `${index * 40}ms` }}
                 title="Ouvrir le profil"
                 onClick={(event) => {
-                  // Anywhere on the row opens the profile — except the buttons.
-                  if ((event.target as HTMLElement).closest("button, a")) return
+                  // Anywhere on the row opens the profile — except the
+                  // buttons, and except clicks inside portaled dialogs
+                  // (React bubbles those through the row even though they
+                  // render elsewhere in the DOM).
+                  const target = event.target as HTMLElement
+                  if (!event.currentTarget.contains(target)) return
+                  if (target.closest("button, a")) return
                   setProfileId(student.id)
                 }}
               >
@@ -165,6 +171,11 @@ export function Students({ month, setMonth }: Props) {
                     <span className="text-muted-foreground text-xs">
                       Non inscrit
                     </span>
+                  ) : student.month_paid &&
+                    student.month_remaining_centimes > 0 ? (
+                    <Badge className="border-amber-500/25 bg-amber-500/15 text-amber-600 border">
+                      Avance · reste {formatDH(student.month_remaining_centimes)}
+                    </Badge>
                   ) : student.month_paid ? (
                     <Badge className="bg-success/15 text-success border-success/20 border">
                       Payé

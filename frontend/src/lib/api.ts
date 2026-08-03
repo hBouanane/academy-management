@@ -123,6 +123,7 @@ export type Student = {
   unpaid_months: number
   month_enrollment_id: number | null
   month_paid: number
+  month_remaining_centimes: number // > 0 with month_paid = an avance
   ever_enrolled: number
 }
 export type ProfileMonth = {
