@@ -1370,7 +1370,7 @@ def month_overview(
         SELECT s.id AS student_id, s.name AS student_name, s.level_id,
                s.annee, s.parcours, s.filiere, sl.name AS level_name,
                e.id AS enrollment_id, e.price_centimes, e.arrival_date,
-               p.id AS payment_id,
+               e.stopped, p.id AS payment_id,
                EXISTS(
                  SELECT 1 FROM enrollment prior
                  LEFT JOIN payment pp ON pp.enrollment_id = prior.id
@@ -1389,6 +1389,91 @@ def month_overview(
     )
     store = SqlitePaymentStore(conn)
     return [_overview_row(conn, store, row) for row in students]
+
+
+def stop_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:
+    """« Il a arrêté » : keep the month's history, but don't carry him into
+    the next one."""
+    with _transaction(conn):
+        conn.execute("UPDATE enrollment SET stopped = 1 WHERE id = ?", (enrollment_id,))
+
+
+def guarantee_row(conn: sqlite3.Connection, enrollment_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM guarantee WHERE enrollment_id = ?", (enrollment_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def payout_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> list[dict]:
+    """The end-of-month payout sheet: what each professor EARNED (ledger),
+    what he was actually HANDED (teacher_payout), and what is left. Payouts
+    live outside the ledger on purpose — paying someone must never change
+    what he earned."""
+    teachers = _rows(
+        conn,
+        """
+        SELECT t.id AS teacher_id, t.name AS teacher_name, t.is_owner,
+          COALESCE((SELECT SUM(le.amount_centimes) FROM ledger_entry le
+                    WHERE le.beneficiary_kind = 'teacher'
+                      AND le.beneficiary_id = t.id AND le.month = ?), 0)
+              AS earned_centimes,
+          COALESCE((SELECT SUM(tp.amount_centimes) FROM teacher_payout tp
+                    WHERE tp.teacher_id = t.id AND tp.month = ?), 0)
+              AS paid_centimes
+        FROM teacher t WHERE t.academy_id = ?
+        ORDER BY t.name
+        """,
+        (month, month, academy_id),
+    )
+    for teacher in teachers:
+        teacher["remaining_centimes"] = max(
+            teacher["earned_centimes"] - teacher["paid_centimes"], 0
+        )
+        teacher["payouts"] = _rows(
+            conn,
+            "SELECT id, amount_centimes, paid_on, note FROM teacher_payout"
+            " WHERE teacher_id = ? AND month = ? ORDER BY id",
+            (teacher["teacher_id"], month),
+        )
+    return teachers
+
+
+def teacher_remaining(
+    conn: sqlite3.Connection, academy_id: int, teacher_id: int, month: str
+) -> int:
+    row = next(
+        (
+            entry
+            for entry in payout_summary(conn, academy_id, month)
+            if entry["teacher_id"] == teacher_id
+        ),
+        None,
+    )
+    if row is None:
+        raise LookupError(f"no teacher {teacher_id}")
+    return row["remaining_centimes"]
+
+
+def add_payout(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    teacher_id: int,
+    month: str,
+    amount: int,
+    note: str | None = None,
+) -> int:
+    return _insert(
+        conn,
+        "INSERT INTO teacher_payout (academy_id, teacher_id, month,"
+        " amount_centimes, note) VALUES (?, ?, ?, ?, ?)",
+        (academy_id, teacher_id, month, amount, note),
+    )
+
+
+def delete_payout(conn: sqlite3.Connection, payout_id: int) -> None:
+    with _transaction(conn):
+        conn.execute("DELETE FROM teacher_payout WHERE id = ?", (payout_id,))
 
 
 def enrollment_has_payment_history(
@@ -1475,6 +1560,7 @@ def copy_month(
         JOIN student s ON s.id = e.student_id
         JOIN package p ON p.id = e.package_id
         WHERE s.academy_id = ? AND e.month = ? AND s.is_active = 1
+          AND e.stopped = 0
           AND NOT EXISTS (
             SELECT 1 FROM enrollment t
             WHERE t.student_id = e.student_id AND t.month = ?
@@ -1549,10 +1635,23 @@ def _overview_row(conn, store, row) -> dict:
             "paid": row["payment_id"] is not None,
             "payment_id": row["payment_id"],
             "remaining_centimes": payment_remaining(conn, row["payment_id"]),
+            # Impayé mais professeur déjà payé par l'académie.
+            "guaranteed_centimes": _guaranteed_total(conn, row["enrollment_id"]),
+            "stopped": bool(row["stopped"]),
             "classes": _enrollment_classes(conn, row["enrollment_id"]),
             "split": _row_split(conn, store, row["enrollment_id"]),
         },
     }
+
+
+def _guaranteed_total(conn: sqlite3.Connection, enrollment_id: int) -> int:
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+        " WHERE enrollment_id = ? AND entry_type = 'guarantee'"
+        " AND beneficiary_kind = 'teacher'",
+        (enrollment_id,),
+    ).fetchone()
+    return row[0]
 
 
 def payment_remaining(conn: sqlite3.Connection, payment_id: int | None) -> int:

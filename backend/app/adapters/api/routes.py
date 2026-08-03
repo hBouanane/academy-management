@@ -17,6 +17,7 @@ from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
 from app.services import clock
 from app.services.payments import (
     complete_payment,
+    guarantee_unpaid,
     payment_preview,
     post_payment,
     reverse_payment,
@@ -946,6 +947,88 @@ def _stored_bp(conn: sqlite3.Connection, adjustment_id: int, bearer) -> int | No
         (adjustment_id, bearer.kind, bearer.ref_id),
     ).fetchone()
     return row["share_bp"] if row else None
+
+
+class GuaranteeBody(BaseModel):
+    # Until when the student actually attended; None = the whole month.
+    present_until: Annotated[str, StringConstraints(pattern=DATE_PATTERN)] | None = None
+    never_came: bool = False  # nothing taught, nothing owed to anyone
+    stop: bool = False  # « il a arrêté » : don't carry him into next month
+
+
+@router.post("/enrollments/{enrollment_id}/guarantee")
+def guarantee(enrollment_id: int, body: GuaranteeBody, conn: Conn) -> dict:
+    """Solder un impayé côté professeur : il est payé pour les jours
+    enseignés, l'académie avance — et la salle encaisse le coup avec elle."""
+    month = crud.enrollment_month(conn, enrollment_id)
+    if month is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    if crud.enrollment_is_paid(conn, enrollment_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Ce mois est déjà encaissé — le professeur a été payé"
+            " normalement, il n'y a rien à garantir.",
+        )
+    if body.present_until is not None and body.present_until[:7] != month:
+        raise HTTPException(
+            status_code=422,
+            detail="La date de présence doit être dans le mois concerné.",
+        )
+    posted = guarantee_unpaid(
+        SqlitePaymentStore(conn),
+        enrollment_id,
+        None if body.never_came else body.present_until,
+        body.never_came,
+    )
+    if body.stop:
+        crud.stop_enrollment(conn, enrollment_id)
+    return {
+        "enrollment_id": enrollment_id,
+        "amount_centimes": posted.amount,
+        "shares": [
+            {"teacher_id": teacher_id, "amount_centimes": amount}
+            for teacher_id, amount in posted.shares
+        ],
+    }
+
+
+# --- versements aux professeurs -------------------------------------------
+
+
+class PayoutBody(BaseModel):
+    month: Month
+    amount_centimes: int | None = None  # None = tout ce qui reste
+    note: str | None = None
+
+
+@router.get("/payouts")
+def payouts(month: MonthQuery, conn: Conn) -> list[dict]:
+    """La feuille de paie du mois : gagné, versé, reste à verser."""
+    return crud.payout_summary(conn, default_academy_id(conn), month)
+
+
+@router.post("/teachers/{teacher_id}/payouts", status_code=201)
+def create_payout(teacher_id: int, body: PayoutBody, conn: Conn) -> dict:
+    academy_id = default_academy_id(conn)
+    remaining = crud.teacher_remaining(conn, academy_id, teacher_id, body.month)
+    amount = body.amount_centimes if body.amount_centimes is not None else remaining
+    if amount <= 0 or amount > remaining:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Il reste {remaining / 100:.2f} DH à verser à ce professeur"
+            f" pour ce mois — impossible d'enregistrer {amount / 100:.2f} DH.",
+        )
+    payout_id = crud.add_payout(
+        conn, academy_id, teacher_id, body.month, amount, body.note
+    )
+    return {"id": payout_id, "amount_centimes": amount}
+
+
+@router.delete("/payouts/{payout_id}")
+def delete_payout(payout_id: int, conn: Conn) -> dict:
+    """Correction d'une saisie — le versement n'a jamais eu lieu."""
+    crud.delete_payout(conn, payout_id)
+    return {"deleted": payout_id}
 
 
 @router.get("/enrollments/{enrollment_id}/preview")

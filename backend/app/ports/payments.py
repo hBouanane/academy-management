@@ -52,6 +52,10 @@ class EnrollmentContext:
     # Per subject: the teachers who actually taught this month with their
     # day weights (succession/co-teaching). None = subject_teachers as-is.
     teacher_weights: tuple[tuple[tuple[int, int], ...], ...] | None = None
+    # (teacher_id, amount) already guaranteed to teachers for this unpaid
+    # month: when it is finally collected, the académie takes that much back
+    # out of the payment — never out of the professor.
+    guaranteed: tuple[tuple[int, Centimes], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,14 @@ class PaymentStore(Protocol):
     def avance_state(self, payment_id: int) -> dict | None: ...
 
     def record_completion(self, state: dict, lines: Sequence[LedgerLine]) -> None: ...
+
+    def record_guarantee(
+        self,
+        context: EnrollmentContext,
+        present_until: str | None,
+        amount: Centimes,
+        lines: Sequence[LedgerLine],
+    ) -> int: ...
 
 
 class ReversalStore(Protocol):

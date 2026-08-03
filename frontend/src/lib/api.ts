@@ -156,6 +156,9 @@ export type OverviewEnrollment = {
   paid: boolean
   payment_id: number | null
   remaining_centimes: number // > 0 = avance still to complete
+  // Unpaid month whose professors the académie already paid out of pocket.
+  guaranteed_centimes: number
+  stopped: boolean
   classes: EnrollmentClass[]
   split: SplitChip[]
 }
@@ -230,6 +233,21 @@ export type Refund = {
   status: "pending" | "settled"
   created_at: string
   settled_at: string | null
+}
+export type Payout = {
+  id: number
+  amount_centimes: number
+  paid_on: string
+  note: string | null
+}
+export type PayoutRow = {
+  teacher_id: number
+  teacher_name: string
+  is_owner: number
+  earned_centimes: number
+  paid_centimes: number
+  remaining_centimes: number
+  payouts: Payout[]
 }
 export type ArrearsEntry = {
   student_id: number

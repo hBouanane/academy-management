@@ -16,6 +16,7 @@ import { CashBars, CollectionRing } from "@/components/charts"
 import { CompleteDialog } from "@/components/CompleteDialog"
 import { ConfirmButton } from "@/components/Confirm"
 import { EnrollDialog } from "@/components/EnrollDialog"
+import { GuaranteeDialog } from "@/components/GuaranteeDialog"
 import { LevelFilter, matchesLevelFilter } from "@/components/LevelFilter"
 import type { LevelFilterValue } from "@/components/LevelFilter"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
@@ -50,6 +51,11 @@ export function Dashboard({ month, setMonth }: Props) {
     paymentId: number
     name: string
     remaining: number
+  } | null>(null)
+  // Paying the professor for an unpaid month.
+  const [guaranteeTarget, setGuaranteeTarget] = useState<{
+    enrollmentId: number
+    name: string
   } | null>(null)
   const [profileId, setProfileId] = useState<number | null>(null)
   // Browsing an old month: rows of students who were not enrolled then are
@@ -205,6 +211,12 @@ export function Dashboard({ month, setMonth }: Props) {
                       name: row.student_name,
                     })
                   }
+                  onGuarantee={(enrollmentId) =>
+                    setGuaranteeTarget({
+                      enrollmentId,
+                      name: row.student_name,
+                    })
+                  }
                   onShowProfile={setProfileId}
                 />
               ))}
@@ -246,6 +258,19 @@ export function Dashboard({ month, setMonth }: Props) {
           onClose={() => setCompleteTarget(null)}
           onDone={() => {
             setCompleteTarget(null)
+            reload()
+          }}
+        />
+      )}
+
+      {guaranteeTarget && (
+        <GuaranteeDialog
+          enrollmentId={guaranteeTarget.enrollmentId}
+          studentName={guaranteeTarget.name}
+          month={month}
+          onClose={() => setGuaranteeTarget(null)}
+          onDone={() => {
+            setGuaranteeTarget(null)
             reload()
           }}
         />
@@ -296,6 +321,7 @@ function StudentRow({
   onDone,
   onEnrolled,
   onComplete,
+  onGuarantee,
   onShowProfile,
 }: {
   row: OverviewRow
@@ -305,6 +331,7 @@ function StudentRow({
   onDone: () => void
   onEnrolled: (enrollmentId: number) => void
   onComplete: (paymentId: number, remainingCentimes: number) => void
+  onGuarantee: (enrollmentId: number) => void
   onShowProfile: (studentId: number) => void
 }) {
   const enrollment = row.enrollment
@@ -408,7 +435,17 @@ function StudentRow({
             Payé
           </Badge>
         )}
-        {unpaid && <Badge variant="destructive">Impayé</Badge>}
+        {unpaid && (
+          <span className="flex flex-wrap items-center gap-1">
+            <Badge variant="destructive">Impayé</Badge>
+            {enrollment.guaranteed_centimes > 0 && (
+              <Badge variant="outline" title="Le professeur a déjà été payé par l'académie">
+                prof payé {formatDH(enrollment.guaranteed_centimes)}
+              </Badge>
+            )}
+            {enrollment.stopped && <Badge variant="outline">arrêté</Badge>}
+          </span>
+        )}
       </TableCell>
       <TableCell className="space-x-2 text-right">
         {!enrollment && !locked && (
@@ -431,6 +468,16 @@ function StudentRow({
               studentName={row.student_name}
               onDone={onDone}
             />
+            {enrollment.guaranteed_centimes === 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                title="Payer le professeur malgré l'impayé (l'académie avance)"
+                onClick={() => onGuarantee(enrollment.id)}
+              >
+                Solder le prof
+              </Button>
+            )}
             {!locked && (
               <ConfirmButton
                 size="sm"

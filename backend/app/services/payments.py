@@ -13,6 +13,7 @@ from app.domain.splitting import (
     Allocation,
     Beneficiary,
     SplitPolicy,
+    _proportional_parts,
     split_payment,
 )
 from app.ports.payments import (
@@ -91,6 +92,88 @@ def complete_payment(
     )
     store.record_completion(state, lines)
     return installment
+
+
+class AlreadyGuaranteedError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class PostedGuarantee:
+    amount: Centimes
+    shares: tuple[tuple[int, Centimes], ...]  # (teacher_id, amount)
+
+
+def guarantee_unpaid(
+    store: PaymentStore,
+    enrollment_id: int,
+    present_until: str | None = None,
+    never_came: bool = False,
+) -> PostedGuarantee:
+    """The professor is paid for the days he taught even when the student
+    never paid: the académie fronts it and LA SALLE TAKES THE HIT WITH IT —
+    with nothing collected, the salle receives nothing. No cash moves; only
+    who-earned-what does, so the month stays an impayé."""
+    context = _context_or_raise(store, enrollment_id)
+    if context.guaranteed:
+        raise AlreadyGuaranteedError(
+            f"enrollment {enrollment_id} is already guaranteed"
+        )
+    shares = () if never_came else _guaranteed_shares(context, present_until)
+    total = sum(amount for _, amount in shares)
+    owner = Beneficiary("owner", context.owner_id)
+    lines = tuple(
+        line
+        for teacher_id, amount in shares
+        for line in (
+            LedgerLine("guarantee", amount, Beneficiary("teacher", teacher_id)),
+            LedgerLine("guarantee", -amount, owner),
+        )
+    )
+    store.record_guarantee(context, present_until, total, lines)
+    return PostedGuarantee(total, shares)
+
+
+def _guaranteed_shares(
+    context: EnrollmentContext, present_until: str | None
+) -> tuple[tuple[int, Centimes], ...]:
+    """Each professor's share of this month, prorated by the days the student
+    actually attended (largest remainder, so the parts sum exactly)."""
+    from calendar import monthrange
+
+    allocations = _base_split(context)
+    adjustments = _resolved_adjustments(context)
+    apply_adjustments(allocations, [adjustment for _, adjustment in adjustments])
+    finals = _final_amounts(allocations, adjustments)
+    entries = tuple(
+        (beneficiary.ref_id, amount)
+        for beneficiary, amount in finals.items()
+        if beneficiary.kind == "teacher" and amount > 0
+    )
+    if not entries:
+        return ()
+    days = monthrange(int(context.month[:4]), int(context.month[5:7]))[1]
+    present = days if present_until is None else int(present_until[8:10])
+    total = sum(amount for _, amount in entries) * present // days
+    if total <= 0:
+        return ()
+    return tuple(_proportional_parts(entries, total))
+
+
+def _final_amounts(
+    allocations: tuple[Allocation, ...],
+    adjustments: list[tuple[int, Adjustment]],
+) -> dict[Beneficiary, Centimes]:
+    """What each beneficiary really keeps: his allocation minus the
+    reductions he bears."""
+    cuts: dict[Beneficiary, Centimes] = {}
+    for _, adjustment in adjustments:
+        for bearer, cut in bearer_cuts(adjustment).items():
+            cuts[bearer] = cuts.get(bearer, 0) + cut
+    return {
+        allocation.beneficiary: allocation.amount - cuts.get(allocation.beneficiary, 0)
+        for allocation in allocations
+    }
 
 
 def net_price(context: EnrollmentContext) -> Centimes:
@@ -345,8 +428,32 @@ def _ledger_lines(
             if front > 0
             else ()
         ),
+        *_recovery_lines(context, allocations, adjustments),
     )
     _check_balance(lines)
+    return lines
+
+
+def _recovery_lines(
+    context: EnrollmentContext,
+    allocations: tuple[Allocation, ...],
+    adjustments: list[tuple[int, Adjustment]],
+) -> list[LedgerLine]:
+    """The month was guaranteed and is now collected: the académie takes its
+    advance back out of THIS payment — capped at what the professor earns
+    here, because money already given to a professor is never clawed back."""
+    if not context.guaranteed:
+        return []
+    finals = _final_amounts(allocations, adjustments)
+    owner = Beneficiary("owner", context.owner_id)
+    lines: list[LedgerLine] = []
+    for teacher_id, guaranteed in context.guaranteed:
+        beneficiary = Beneficiary("teacher", teacher_id)
+        recovered = min(guaranteed, max(finals.get(beneficiary, 0), 0))
+        if recovered <= 0:
+            continue
+        lines.append(LedgerLine("guarantee", -recovered, beneficiary))
+        lines.append(LedgerLine("guarantee", recovered, owner))
     return lines
 
 

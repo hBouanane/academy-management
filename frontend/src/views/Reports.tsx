@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -20,11 +21,12 @@ import type {
   BeneficiaryTotal,
   HistoryEntry,
   MonthlyReport,
+  PayoutRow,
   Refund,
   Teacher,
 } from "@/lib/api"
 import { useCountUp, useGrowIn } from "@/lib/anim"
-import { formatDH } from "@/lib/money"
+import { dhToCentimes, formatDH } from "@/lib/money"
 
 const KIND_LABEL: Record<BeneficiaryTotal["kind"], string> = {
   teacher: "Professeur",
@@ -43,6 +45,7 @@ export function Reports({ month, setMonth }: Props) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [owing, setOwing] = useState<ArrearsEntry[]>([])
   const [refunds, setRefunds] = useState<Refund[]>([])
+  const [payoutRows, setPayoutRows] = useState<PayoutRow[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
@@ -67,6 +70,9 @@ export function Reports({ month, setMonth }: Props) {
     apiGet<Refund[]>("/api/refunds")
       .then(setRefunds)
       .catch(() => setRefunds([]))
+    apiGet<PayoutRow[]>(`/api/payouts?month=${month}`)
+      .then(setPayoutRows)
+      .catch(() => setPayoutRows([]))
     apiGet<Teacher[]>("/api/teachers")
       .then(setTeachers)
       .catch(() => setTeachers([]))
@@ -84,6 +90,24 @@ export function Reports({ month, setMonth }: Props) {
     exportedAt !== null &&
     report?.last_entry_at != null &&
     report.last_entry_at > exportedAt
+
+  const payTeacher = (teacherId: number, amount?: number) =>
+    apiSend("POST", `/api/teachers/${teacherId}/payouts`, {
+      month,
+      ...(amount === undefined ? {} : { amount_centimes: amount }),
+    })
+      .then(() => setRefresh((count) => count + 1))
+      .catch((err: Error) => setError(err.message))
+
+  const cancelPayout = (payoutId: number) =>
+    apiSend("DELETE", `/api/payouts/${payoutId}`)
+      .then(() => setRefresh((count) => count + 1))
+      .catch((err: Error) => setError(err.message))
+
+  const owedToTeachers = payoutRows.reduce(
+    (sum, row) => sum + row.remaining_centimes,
+    0,
+  )
 
   const settleRefund = (refund: Refund) =>
     apiSend("POST", `/api/refunds/${refund.id}/settle`)
@@ -251,6 +275,111 @@ export function Reports({ month, setMonth }: Props) {
         </div>
       </div>
 
+      <div className="surface-card p-5">
+        <h3 className="font-medium">Versements aux professeurs</h3>
+        <p className="text-muted-foreground mb-3 text-sm">
+          Fin de mois : ce que chacun a gagné, ce que vous lui avez déjà remis,
+          ce qu'il reste à verser. Les élèves impayés dont le professeur est
+          garanti sont inclus — il est payé quoi qu'il arrive.
+          {owedToTeachers > 0 && (
+            <>
+              {" "}
+              Reste à verser :{" "}
+              <span className="text-destructive font-medium">
+                {formatDH(owedToTeachers)}
+              </span>
+            </>
+          )}
+        </p>
+        <div className="table-wrap">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Professeur</TableHead>
+                <TableHead className="text-right">Gagné</TableHead>
+                <TableHead className="text-right">Versé</TableHead>
+                <TableHead className="text-right">Reste</TableHead>
+                <TableHead>Versements</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {payoutRows
+                .filter((row) => row.earned_centimes > 0 || row.paid_centimes > 0)
+                .map((row) => (
+                  <TableRow key={row.teacher_id}>
+                    <TableCell className="font-medium">
+                      {row.teacher_name}
+                      {row.is_owner === 1 && (
+                        <span className="text-muted-foreground text-xs">
+                          {" "}
+                          (propriétaire)
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatDH(row.earned_centimes)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatDH(row.paid_centimes)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      <span
+                        className={
+                          row.remaining_centimes > 0 ? "text-destructive" : ""
+                        }
+                      >
+                        {formatDH(row.remaining_centimes)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {row.payouts.map((payout) => (
+                          <ConfirmButton
+                            key={payout.id}
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs"
+                            title="Annuler ce versement (erreur de saisie)"
+                            confirmLabel="Annuler ce versement ?"
+                            description="La ligne disparaît — le reste à verser remonte d'autant."
+                            onConfirm={() => cancelPayout(payout.id)}
+                          >
+                            {formatDH(payout.amount_centimes)} · {payout.paid_on}
+                          </ConfirmButton>
+                        ))}
+                        {row.payouts.length === 0 && (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {row.remaining_centimes > 0 && (
+                        <PayTeacherButton
+                          remaining={row.remaining_centimes}
+                          onPay={(amount) => payTeacher(row.teacher_id, amount)}
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              {payoutRows.every(
+                (row) => row.earned_centimes === 0 && row.paid_centimes === 0,
+              ) && (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="text-muted-foreground text-center"
+                  >
+                    Aucun professeur n'a encore gagné ce mois-ci
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
       {refunds.length > 0 && (
         <div className="surface-card p-5">
           <h3 className="font-medium">Remboursements</h3>
@@ -351,6 +480,56 @@ export function Reports({ month, setMonth }: Props) {
         />
       )}
     </div>
+  )
+}
+
+/** Tout verser en un clic, ou saisir un acompte. */
+function PayTeacherButton({
+  remaining,
+  onPay,
+}: {
+  remaining: number
+  onPay: (amount?: number) => void
+}) {
+  const [partial, setPartial] = useState(false)
+  const [amount, setAmount] = useState("")
+
+  if (!partial)
+    return (
+      <span className="flex justify-end gap-1">
+        <Button size="sm" onClick={() => onPay()}>
+          Tout verser
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setPartial(true)}>
+          Acompte
+        </Button>
+      </span>
+    )
+  return (
+    <span className="flex items-center justify-end gap-1">
+      <Input
+        autoFocus
+        value={amount}
+        onChange={(event) => setAmount(event.target.value)}
+        placeholder={`≤ ${remaining / 100}`}
+        inputMode="decimal"
+        className="h-8 w-24 text-right"
+      />
+      <Button
+        size="sm"
+        disabled={!amount.trim()}
+        onClick={() => {
+          onPay(dhToCentimes(amount))
+          setPartial(false)
+          setAmount("")
+        }}
+      >
+        Verser
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setPartial(false)}>
+        ×
+      </Button>
+    </span>
   )
 }
 

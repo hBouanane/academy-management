@@ -1,10 +1,17 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
-import type { Academy as AcademyType } from "@/lib/api"
+import type { Academy as AcademyType, Teacher } from "@/lib/api"
 
 // Even prorata ladder: 3 tranches -> 100/67/33, 4 -> 100/75/50/25 — the
 // automatic default whenever a tranche is added or removed, editable after.
@@ -195,6 +202,109 @@ export function Academy() {
           </Button>
           {saved && <span className="text-success text-sm">Enregistré ✓</span>}
         </div>
+      </div>
+
+      <OwnerTeacher onError={setError} />
+    </div>
+  )
+}
+
+/** Le propriétaire enseigne aussi : le lier à sa fiche professeur fait
+    additionner ses deux casquettes partout (profil, rapports, versements). */
+function OwnerTeacher({ onError }: { onError: (message: string) => void }) {
+  const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [choice, setChoice] = useState("")
+  const [draft, setDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  const reload = useCallback(() => {
+    apiGet<Teacher[]>("/api/teachers")
+      .then((rows) => {
+        setTeachers(rows)
+        setChoice(String(rows.find((row) => row.is_owner === 1)?.id ?? ""))
+      })
+      .catch(() => {})
+  }, [])
+  useEffect(reload, [reload])
+
+  const linked = teachers.find((row) => row.is_owner === 1)
+
+  const link = (teacherId: number) => {
+    setBusy(true)
+    apiSend("PATCH", `/api/teachers/${teacherId}`, { is_owner: true })
+      .then(reload)
+      .catch((err: Error) => onError(err.message))
+      .finally(() => setBusy(false))
+  }
+
+  const createAndLink = async () => {
+    const name = draft.trim()
+    if (!name) return
+    setBusy(true)
+    try {
+      const created = await apiSend<{ id: number }>("POST", "/api/teachers", {
+        name,
+      })
+      await apiSend("PATCH", `/api/teachers/${created.id}`, { is_owner: true })
+      setDraft("")
+      reload()
+    } catch (err) {
+      onError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="surface-card space-y-3 p-6">
+      <div>
+        <Label>Le propriétaire enseigne aussi</Label>
+        <p className="text-muted-foreground text-xs">
+          {linked
+            ? `${linked.name} cumule les deux casquettes : ses gains de professeur et ceux de l'académie s'additionnent dans son profil et les rapports.`
+            : "Liez le propriétaire à sa fiche professeur pour additionner partout ce qu'il gagne comme professeur et comme académie."}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={choice}
+          onValueChange={(value) => {
+            setChoice(value)
+            link(Number(value))
+          }}
+        >
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="Choisir un professeur…" />
+          </SelectTrigger>
+          <SelectContent>
+            {teachers.map((teacher) => (
+              <SelectItem key={teacher.id} value={String(teacher.id)}>
+                {teacher.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground text-xs">ou</span>
+        <Input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault()
+              void createAndLink()
+            }
+          }}
+          placeholder="＋ créer sa fiche professeur…"
+          className="w-56"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!draft.trim() || busy}
+          onClick={createAndLink}
+        >
+          Créer et lier
+        </Button>
       </div>
     </div>
   )

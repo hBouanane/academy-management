@@ -52,7 +52,55 @@ class SqlitePaymentStore:
                 self._month_teacher_weights(class_id, teacher_id, row["month"])
                 for class_id, teacher_id in classes
             ),
+            guaranteed=self.guaranteed_shares(enrollment_id),
         )
+
+    def guaranteed_shares(self, enrollment_id: int) -> tuple[tuple[int, int], ...]:
+        """What professors were already paid for this month out of the
+        académie's pocket. Recovery lines carry a payment_id instead of an
+        enrollment_id, so reversing a payment re-opens the guarantee."""
+        rows = self._conn.execute(
+            "SELECT beneficiary_id, SUM(amount_centimes) AS total"
+            " FROM ledger_entry WHERE enrollment_id = ?"
+            " AND entry_type = 'guarantee' AND beneficiary_kind = 'teacher'"
+            " GROUP BY beneficiary_id",
+            (enrollment_id,),
+        ).fetchall()
+        return tuple(
+            (row["beneficiary_id"], row["total"]) for row in rows if row["total"] > 0
+        )
+
+    def record_guarantee(
+        self,
+        context: EnrollmentContext,
+        present_until: str | None,
+        amount: Centimes,
+        lines: Sequence[LedgerLine],
+    ) -> int:
+        try:
+            guarantee_id = self._conn.execute(
+                "INSERT INTO guarantee (academy_id, enrollment_id, month,"
+                " present_until, amount_centimes) VALUES (?, ?, ?, ?, ?)",
+                (
+                    context.academy_id,
+                    context.enrollment_id,
+                    context.month,
+                    present_until,
+                    amount,
+                ),
+            ).lastrowid
+            self._insert_lines(
+                context.academy_id,
+                context.month,
+                None,
+                lines,
+                enrollment_id=context.enrollment_id,
+            )
+        except Exception:
+            self._conn.rollback()
+            raise
+        self._conn.commit()
+        return guarantee_id
 
     # Each day of the month belongs to whoever was assigned that day (split
     # equally among co-teachers); 2520 units/day divides evenly for up to
@@ -319,14 +367,16 @@ class SqlitePaymentStore:
         self,
         academy_id: int,
         month: str,
-        payment_id: int,
+        payment_id: int | None,
         lines: Sequence[LedgerLine],
         note: str | None = None,
+        enrollment_id: int | None = None,
     ) -> None:
         self._conn.executemany(
             "INSERT INTO ledger_entry (academy_id, month, entry_type,"
             " beneficiary_kind, beneficiary_id, amount_centimes, payment_id,"
-            " adjustment_id, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " enrollment_id, adjustment_id, note)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     academy_id,
@@ -336,6 +386,7 @@ class SqlitePaymentStore:
                     line.beneficiary.ref_id if line.beneficiary else None,
                     line.amount,
                     payment_id,
+                    enrollment_id,
                     line.adjustment_id,
                     note,
                 )

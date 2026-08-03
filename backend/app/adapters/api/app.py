@@ -16,7 +16,10 @@ from app.ports.payments import (
     UnknownEnrollmentError,
     UnknownPaymentError,
 )
-from app.services.payments import ReductionsExceedPriceError
+from app.services.payments import (
+    AlreadyGuaranteedError,
+    ReductionsExceedPriceError,
+)
 
 from .routes import router
 
@@ -26,6 +29,7 @@ _ERROR_STATUS: list[tuple[type[Exception], int]] = [
     (LookupError, 404),
     (AlreadyPaidError, 409),
     (AlreadyReversedError, 409),
+    (AlreadyGuaranteedError, 409),
     (ReductionsExceedPriceError, 422),
     (ValueError, 422),  # domain validation (bad bearer, over-100% percent, ...)
     (sqlite3.IntegrityError, 409),
