@@ -132,7 +132,8 @@ function App() {
       <main className="min-w-0 flex-1 px-8 py-6" key={view}>
         {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}
         {view === "reports" && <Reports month={month} setMonth={setMonth} />}
-        {view === "payroll" && <Payroll month={month} setMonth={setMonth} />}
+        {/* La paie a son propre mois : le mois écoulé, pas celui en cours. */}
+        {view === "payroll" && <Payroll />}
         {view === "students" && <Students month={month} setMonth={setMonth} />}
         {view === "teachers" && <Teachers month={month} setMonth={setMonth} />}
         {view === "subjects" && <Subjects />}

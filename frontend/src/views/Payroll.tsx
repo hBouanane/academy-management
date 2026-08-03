@@ -18,20 +18,37 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ConfirmButton } from "@/components/Confirm"
+import { GuaranteeDialog } from "@/components/GuaranteeDialog"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { PayDialog } from "@/components/PayDialog"
+import { StudentProfile } from "@/components/StudentProfile"
+import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Academy, OverviewRow, PayoutRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
-import { dhToCentimes, formatDH } from "@/lib/money"
+import { currentMonth, dhToCentimes, formatDH, previousMonth } from "@/lib/money"
 
-type Props = { month: string; setMonth: (month: string) => void }
-
-export function Payroll({ month, setMonth }: Props) {
+export function Payroll() {
+  // La paie se fait sur le mois ÉCOULÉ : le mois en cours n'est pas fini,
+  // alors que les étudiants, eux, paient au début du leur. Cette page a donc
+  // son propre mois, indépendant du reste de l'application.
+  const [month, setMonth] = useState(() => previousMonth(currentMonth()))
   const [rows, setRows] = useState<PayoutRow[]>([])
   const [overview, setOverview] = useState<OverviewRow[]>([])
   const [academy, setAcademy] = useState<Academy | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Encaisser un impayé, solder un professeur, ouvrir un profil — sans
+  // quitter la page.
+  const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
+    null,
+  )
+  const [guaranteeTarget, setGuaranteeTarget] = useState<{
+    id: number
+    name: string
+  } | null>(null)
+  const [studentProfile, setStudentProfile] = useState<number | null>(null)
+  const [teacherProfile, setTeacherProfile] = useState<number | null>(null)
 
   const reload = useCallback(() => {
     apiGet<PayoutRow[]>(`/api/payouts?month=${month}`)
@@ -103,8 +120,26 @@ export function Payroll({ month, setMonth }: Props) {
             impayés coûtent réellement
           </p>
         </div>
-        <MonthNav month={month} setMonth={setMonth} />
+        <div className="flex flex-wrap items-center gap-2">
+          {month !== currentMonth() && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setMonth(currentMonth())}
+            >
+              Mois en cours
+            </Button>
+          )}
+          <MonthNav month={month} setMonth={setMonth} />
+        </div>
       </header>
+
+      {month === previousMonth(currentMonth()) && (
+        <p className="text-muted-foreground text-xs">
+          Mois écoulé par défaut : les professeurs se paient sur un mois
+          terminé, alors que les étudiants paient au début du leur.
+        </p>
+      )}
 
       <Notice message={error} />
 
@@ -151,6 +186,99 @@ export function Payroll({ month, setMonth }: Props) {
             tone="alert"
           />
         </div>
+
+        {unpaid.length > 0 && (
+          <div className="table-wrap mt-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Élève impayé</TableHead>
+                  <TableHead className="text-right">Doit</TableHead>
+                  <TableHead className="text-right">
+                    Part professeur
+                  </TableHead>
+                  <TableHead>État</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {unpaid.map((row, index) => {
+                  const enrollment = row.enrollment!
+                  const teacherPart = enrollment.split
+                    .filter((chip) => chip.kind === "teacher")
+                    .reduce((sum, chip) => sum + chip.final_centimes, 0)
+                  return (
+                    <TableRow
+                      key={row.student_id}
+                      className="stagger-row row-unpaid cursor-pointer"
+                      style={{ animationDelay: `${index * 40}ms` }}
+                      title="Ouvrir le profil"
+                      onClick={(event) => {
+                        const target = event.target as HTMLElement
+                        if (!event.currentTarget.contains(target)) return
+                        if (target.closest("button, a")) return
+                        setStudentProfile(row.student_id)
+                      }}
+                    >
+                      <TableCell className="font-medium">
+                        {row.student_name}
+                        <span className="text-muted-foreground text-xs">
+                          {" "}
+                          · {row.level_name}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatDH(enrollment.net_centimes)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatDH(teacherPart)}
+                      </TableCell>
+                      <TableCell>
+                        {enrollment.guaranteed_centimes > 0 ? (
+                          <span className="text-success text-xs">
+                            prof payé {formatDH(enrollment.guaranteed_centimes)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">
+                            prof non soldé
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="space-x-1 text-right whitespace-nowrap">
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            setPayTarget({
+                              id: enrollment.id,
+                              name: row.student_name,
+                            })
+                          }
+                        >
+                          Encaisser
+                        </Button>
+                        {enrollment.guaranteed_centimes === 0 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Payer le professeur malgré l'impayé"
+                            onClick={() =>
+                              setGuaranteeTarget({
+                                id: enrollment.id,
+                                name: row.student_name,
+                              })
+                            }
+                          >
+                            Solder le prof
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </div>
 
       <div className="surface-card p-5">
@@ -173,8 +301,15 @@ export function Payroll({ month, setMonth }: Props) {
                 .map((row, index) => (
                   <TableRow
                     key={row.teacher_id}
-                    className="stagger-row"
+                    className="stagger-row cursor-pointer"
                     style={{ animationDelay: `${index * 40}ms` }}
+                    title="Ouvrir le profil du professeur"
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement
+                      if (!event.currentTarget.contains(target)) return
+                      if (target.closest("button, a, input")) return
+                      setTeacherProfile(row.teacher_id)
+                    }}
                   >
                     <TableCell className="font-medium">
                       {row.teacher_name}
@@ -247,6 +382,47 @@ export function Payroll({ month, setMonth }: Props) {
           </Table>
         </div>
       </div>
+
+      {payTarget && (
+        <PayDialog
+          enrollmentId={payTarget.id}
+          studentName={payTarget.name}
+          open
+          onOpenChange={(next) => {
+            if (!next) setPayTarget(null)
+          }}
+          onDone={() => {
+            setPayTarget(null)
+            reload()
+          }}
+        />
+      )}
+
+      {guaranteeTarget && (
+        <GuaranteeDialog
+          enrollmentId={guaranteeTarget.id}
+          studentName={guaranteeTarget.name}
+          month={month}
+          onClose={() => setGuaranteeTarget(null)}
+          onDone={() => {
+            setGuaranteeTarget(null)
+            reload()
+          }}
+        />
+      )}
+
+      <StudentProfile
+        studentId={studentProfile}
+        onClose={() => setStudentProfile(null)}
+        onChanged={reload}
+      />
+
+      <TeacherProfile
+        teacherId={teacherProfile}
+        month={month}
+        onClose={() => setTeacherProfile(null)}
+        onChanged={reload}
+      />
     </div>
   )
 }
