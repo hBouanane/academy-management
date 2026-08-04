@@ -58,10 +58,15 @@ def post_payment(
     apply_adjustments(allocations, [adj for _, adj in adjustments])  # bearer check
     net_amount = _net_amount(context, adjustments)
     cash = net_amount if amount is None else amount
-    if amount is not None and not 0 < amount <= net_amount:
+    # Un mois offert ne coûte rien : 0 est alors le seul montant valable.
+    # Sinon l'étudiant paie entre un centime et le net — jamais davantage.
+    if amount is not None and not (
+        0 <= amount <= net_amount and (amount > 0 or net_amount == 0)
+    ):
         raise AvanceOutOfRangeError(
-            f"l'avance doit être entre 0.01 et {net_amount / 100:.2f} DH"
-            f" (le net dû) — reçu {amount / 100:.2f} DH"
+            f"le montant doit être entre {0 if net_amount == 0 else 0.01:.2f}"
+            f" et {net_amount / 100:.2f} DH (le net dû) —"
+            f" reçu {amount / 100:.2f} DH"
         )
     lines = _ledger_lines(cash, net_amount, allocations, adjustments, context)
     payment_id = store.record(context, cash, lines, paid_on, due=net_amount)

@@ -490,6 +490,26 @@ class TestAvance:
             == 422
         )
 
+    def test_a_gifted_month_is_collected_at_zero(self, client):
+        # Mois offert : il n'y a rien à payer. L'encaissement doit passer à
+        # 0 DH — sans réclamer un montant qui n'existe pas.
+        level, class_id, _, package = setup_base(client)
+        student, enrollment = enroll(client, level, package, class_id)
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={"kind": "percent", "value": 10_000, "category": "gift"},
+        )
+        posted = client.post(
+            "/api/payments", json={"enrollment_id": enrollment, "amount_centimes": 0}
+        )
+        assert posted.status_code == 201, posted.text
+        assert posted.json()["net_centimes"] == 0
+        row = overview_row(client, "2026-09", student)
+        assert row["enrollment"]["paid"] is True
+        assert row["enrollment"]["remaining_centimes"] == 0
+        totals = beneficiary_totals(client, "2026-09")
+        assert all(total == 0 for total in totals.values())  # personne ne touche
+
     def test_reversing_an_avance_wipes_everything_including_the_front(self, client):
         level, class_id, _, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)

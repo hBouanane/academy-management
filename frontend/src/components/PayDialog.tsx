@@ -48,6 +48,13 @@ export function PayDialog({
   const [preview, setPreview] = useState<PaymentPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Refaire DEUX FOIS la même erreur doit la réafficher : le message est
+  // identique, donc seul ce compteur change — il remonte la Notice.
+  const [errorKey, setErrorKey] = useState(0)
+  const fail = (message: string) => {
+    setError(message)
+    setErrorKey((count) => count + 1)
+  }
   const [editingId, setEditingId] = useState<number | null>(null)
   const [adding, setAdding] = useState(false)
   const [giftOpen, setGiftOpen] = useState(false)
@@ -103,10 +110,28 @@ export function PayDialog({
       .finally(() => setBusy(false))
   }
 
+  // Mois offert : le net est à zéro, il n'y a rien à saisir ni à encaisser.
+  const nothingToPay = preview !== null && preview.net_centimes === 0
+
   const pay = () => {
-    const centimes = dhToCentimes(amount)
-    if (!Number.isFinite(centimes) || centimes <= 0) {
-      setError("Entrez un montant valide.")
+    const centimes = nothingToPay ? 0 : dhToCentimes(amount)
+    if (!Number.isFinite(centimes) || centimes < 0) {
+      fail("Entrez un montant valide.")
+      return
+    }
+    if (preview !== null && centimes > preview.net_centimes) {
+      fail(
+        `L'étudiant ne peut pas payer plus que le prix — ${formatDH(
+          preview.net_centimes,
+        )} au maximum.`,
+      )
+      return
+    }
+    if (centimes === 0 && !nothingToPay) {
+      fail(
+        "0 DH n'encaisse rien — saisissez ce que l'étudiant remet, ou" +
+          " utilisez « Mois offert » si c'est gratuit.",
+      )
       return
     }
     const partial =
@@ -281,7 +306,7 @@ export function PayDialog({
               )}
             </section>
 
-            <Notice message={error} />
+            <Notice key={errorKey} message={error} />
 
             <footer className="border-border space-y-3 border-t pt-4">
               <div className="flex items-center justify-between">
@@ -296,20 +321,37 @@ export function PayDialog({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="text-right">
-                    <p className="text-muted-foreground text-xs">Montant reçu (DH)</p>
-                    <Input
-                      value={amount}
-                      onChange={(event) => setAmount(event.target.value)}
-                      inputMode="decimal"
-                      className="h-9 w-28 text-right"
-                    />
-                  </div>
+                  {!nothingToPay && (
+                    <div className="text-right">
+                      <p className="text-muted-foreground text-xs">
+                        Montant reçu (DH)
+                      </p>
+                      <Input
+                        value={amount}
+                        onChange={(event) => setAmount(event.target.value)}
+                        inputMode="decimal"
+                        className="h-9 w-28 text-right"
+                      />
+                    </div>
+                  )}
                   <Button size="lg" onClick={pay} disabled={busy}>
-                    {busy ? "…" : isAvance ? "Encaisser l'avance" : "Encaisser"}
+                    {busy
+                      ? "…"
+                      : nothingToPay
+                        ? "Valider le mois offert"
+                        : isAvance
+                          ? "Encaisser l'avance"
+                          : "Encaisser"}
                   </Button>
                 </div>
               </div>
+              {nothingToPay && (
+                <p className="text-muted-foreground text-xs">
+                  Rien à encaisser : le mois est offert. Validez simplement —
+                  personne ne touche quoi que ce soit, et l'étudiant ne doit
+                  plus rien.
+                </p>
+              )}
               {isAvance && (
                 <p className="text-muted-foreground text-xs">
                   Avance : chacun (professeurs, salle) reçoit sa part{" "}
