@@ -1447,30 +1447,81 @@ def _teacher_dues(
         (academy_id, month),
     ).fetchall()
     for row in rows:
-        shares = (
-            store.guaranteed_shares(row["id"])
-            if row["guaranteed"] and not row["paid"]
-            else _enrollment_teacher_shares(conn, store, row["id"])
-        )
-        for teacher_id, amount in shares:
+        for (_, teacher_id), amount in _enrollment_class_dues(
+            conn, store, row["id"], bool(row["guaranteed"]), bool(row["paid"])
+        ).items():
             dues[teacher_id] = dues.get(teacher_id, 0) + amount
     return dues
 
 
-def _enrollment_teacher_shares(
-    conn: sqlite3.Connection, store: SqlitePaymentStore, enrollment_id: int
-) -> tuple[tuple[int, int], ...]:
-    from app.services.payments import payment_preview
+def teacher_class_dues(
+    conn: sqlite3.Connection, academy_id: int, teacher_id: int, month: str
+) -> dict[int, int]:
+    """Le dû d'un professeur, classe par classe — la même somme que le total
+    du mois, simplement détaillée : une fiche de paie doit tomber juste."""
+    store = SqlitePaymentStore(conn)
+    dues: dict[int, int] = {}
+    rows = conn.execute(
+        """
+        SELECT e.id,
+               EXISTS(SELECT 1 FROM guarantee g WHERE g.enrollment_id = e.id)
+                   AS guaranteed,
+               EXISTS(SELECT 1 FROM payment p WHERE p.enrollment_id = e.id
+                      AND p.reversed_at IS NULL) AS paid
+        FROM enrollment e JOIN student s ON s.id = e.student_id
+        WHERE s.academy_id = ? AND e.month = ?
+        """,
+        (academy_id, month),
+    ).fetchall()
+    for row in rows:
+        for (class_id, owner), amount in _enrollment_class_dues(
+            conn, store, row["id"], bool(row["guaranteed"]), bool(row["paid"])
+        ).items():
+            if owner == teacher_id:
+                dues[class_id] = dues.get(class_id, 0) + amount
+    return dues
 
+
+def _enrollment_class_dues(
+    conn: sqlite3.Connection,
+    store: SqlitePaymentStore,
+    enrollment_id: int,
+    guaranteed: bool,
+    paid: bool,
+) -> dict[tuple[int, int], int]:
+    """(classe, professeur) → dû sur cette inscription.
+
+    Une garantie posée sur un mois impayé fait foi (jamais venu ne doit rien,
+    présent 15 jours doit ces jours) ; elle se répartit alors sur ses classes
+    au prorata de ce qu'elles valent."""
+    from app.services.payments import teacher_parts_per_class
+
+    context = store.enrollment_context(enrollment_id)
+    if context is None:
+        return {}
+    class_ids = enrollment_class_ids(conn, enrollment_id)
     try:
-        preview = payment_preview(store, enrollment_id)
+        parts = teacher_parts_per_class(context)
     except ValueError:
-        return ()  # une ligne invalide ne doit pas casser la feuille de paie
-    return tuple(
-        (line.beneficiary.ref_id, line.final)
-        for line in preview.lines
-        if line.beneficiary.kind == "teacher" and line.final > 0
-    )
+        return {}  # une ligne invalide ne casse pas la feuille de paie
+    by_class = {
+        (class_ids[index], teacher_id): amount
+        for (index, teacher_id), amount in parts.items()
+        if index < len(class_ids)
+    }
+    if not (guaranteed and not paid):
+        return by_class
+    # Le propriétaire a tranché : sa décision remplace le calcul.
+    promised = dict(store.guaranteed_shares(enrollment_id))
+    scaled: dict[tuple[int, int], int] = {}
+    for teacher_id, total in promised.items():
+        keys = sorted(key for key in by_class if key[1] == teacher_id)
+        weights = tuple((key[0], by_class[key]) for key in keys)
+        if not weights or sum(weight for _, weight in weights) <= 0 or total <= 0:
+            continue
+        for class_id, amount in _proportional_parts(weights, total):
+            scaled[(class_id, teacher_id)] = amount
+    return scaled
 
 
 def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dict:

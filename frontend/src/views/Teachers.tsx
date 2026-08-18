@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Pencil, UserMinus, UserPlus } from "lucide-react"
+import { FileText, Pencil, UserMinus, UserPlus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table"
 import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
 import { ConfirmButton } from "@/components/Confirm"
-import { MonthNav } from "@/components/MonthNav"
+import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { TeacherProfile } from "@/components/TeacherProfile"
@@ -135,9 +135,9 @@ export function Teachers({ month, setMonth }: Props) {
                 <TableCell className="font-medium">{row.name}</TableCell>
                 <TableCell>
                   {row.is_owner ? (
-                    <Badge variant="outline">Propriétaire</Badge>
+                    <Badge variant="outline">Propriétaire + professeur</Badge>
                   ) : (
-                    <span className="text-muted-foreground text-xs">—</span>
+                    <Badge variant="outline">Professeur</Badge>
                   )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
@@ -161,6 +161,19 @@ export function Teachers({ month, setMonth }: Props) {
                   </span>
                 </TableCell>
                 <TableCell className="space-x-1 text-right whitespace-nowrap">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    asChild
+                    title={`Fiche de paie de ${monthLabel(month)} — à imprimer et signer`}
+                  >
+                    <a
+                      href={`/api/teachers/${row.id}/invoice.docx?month=${month}`}
+                      download
+                    >
+                      <FileText className="size-4" />
+                    </a>
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"

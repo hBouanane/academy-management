@@ -20,7 +20,11 @@ def _dh(centimes: int) -> str:
 
 
 def teacher_invoice(conn: sqlite3.Connection, teacher_id: int, month: str) -> bytes:
-    from app.adapters.sqlite.crud import caisse_summary, teacher_profile
+    from app.adapters.sqlite.crud import (
+        caisse_summary,
+        teacher_class_dues,
+        teacher_profile,
+    )
 
     academy = conn.execute(
         "SELECT id, name FROM academy ORDER BY id LIMIT 1"
@@ -58,14 +62,18 @@ def teacher_invoice(conn: sqlite3.Connection, teacher_id: int, month: str) -> by
         cell.text = title
         cell.paragraphs[0].runs[0].font.bold = True
 
+    # Le détail vient de la MÊME source que le total : ce qui est dû, classe
+    # par classe. Deux calculs différents donneraient deux vérités.
+    per_class = teacher_class_dues(conn, academy["id"], teacher_id, month)
     for entry in profile["classes"]:
-        if entry["earned_centimes"] == 0 and entry["enrolled_count"] == 0:
+        amount = per_class.get(entry["id"], 0)
+        if amount == 0 and entry["enrolled_count"] == 0:
             continue
         cells = table.add_row().cells
         cells[0].text = entry["subject_name"]
         cells[1].text = _segment(entry)
         cells[2].text = str(entry["enrolled_count"])
-        cells[3].text = _dh(entry["earned_centimes"])
+        cells[3].text = _dh(amount)
         cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     document.add_paragraph()

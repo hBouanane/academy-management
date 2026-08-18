@@ -533,14 +533,27 @@ def clear_class_share(class_id: int, conn: Conn, month: MonthQuery) -> dict:
 @router.get("/teachers/{teacher_id}/invoice.docx")
 def teacher_invoice_route(teacher_id: int, month: MonthQuery, conn: Conn) -> Response:
     """La fiche de paie du mois, imprimable et signable des deux côtés."""
+    import unicodedata
+
     from app.adapters.docx.teacher_invoice import teacher_invoice
 
     content = teacher_invoice(conn, teacher_id, month)
+    row = conn.execute(
+        "SELECT name FROM teacher WHERE id = ?", (teacher_id,)
+    ).fetchone()
+    # Le nom dans le fichier : dix fiches dans un dossier, on doit savoir
+    # laquelle est laquelle sans les ouvrir.
+    ascii_name = (
+        unicodedata.normalize("NFKD", row["name"]).encode("ascii", "ignore").decode()
+    )
+    slug = "-".join(part for part in ascii_name.split() if part) or "professeur"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument"
         ".wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="paie-{month}.docx"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="paie-{slug}-{month}.docx"'
+        },
     )
 
 

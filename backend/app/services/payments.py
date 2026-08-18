@@ -165,6 +165,53 @@ def _guaranteed_shares(
     return tuple(_proportional_parts(entries, total))
 
 
+def teacher_parts_per_class(
+    context: EnrollmentContext,
+) -> dict[tuple[int, int], Centimes]:
+    """(rang de la classe, professeur) → ce qu'il touche sur CETTE classe.
+
+    Même calcul que le partage global, mais sans agréger : c'est ce qui
+    permet à une fiche de paie de détailler classe par classe une somme qui
+    tombe juste. Les réductions portées par un professeur sont réparties sur
+    ses classes au prorata (largest remainder : le total reste exact)."""
+    from app.domain.money import split_equally
+
+    policy = SplitPolicy(venue_bp=context.venue_bp, owner_bp=context.owner_bp)
+    teachers_total = (
+        context.price
+        - percent_of(context.price, policy.venue_bp)
+        - percent_of(context.price, policy.owner_bp)
+    )
+    raw: dict[tuple[int, int], Centimes] = {}
+    for index, subject_slice in enumerate(
+        split_equally(teachers_total, len(context.subject_teachers))
+    ):
+        entries = (
+            context.teacher_weights[index]
+            if context.teacher_weights is not None
+            else ((context.subject_teachers[index], 1),)
+        )
+        for teacher_id, part in _proportional_parts(entries, subject_slice):
+            if teacher_id is None:  # jours vacants : l'académie encaisse
+                continue
+            raw[(index, teacher_id)] = raw.get((index, teacher_id), 0) + part
+
+    allocations = _base_split(context)
+    adjustments = _resolved_adjustments(context)
+    apply_adjustments(allocations, [adjustment for _, adjustment in adjustments])
+    finals = _final_amounts(allocations, adjustments)
+    scaled: dict[tuple[int, int], Centimes] = {}
+    for teacher_id in {teacher for _, teacher in raw}:
+        keys = [key for key in raw if key[1] == teacher_id]
+        weights = tuple((key[0], raw[key]) for key in sorted(keys))
+        final = max(finals.get(Beneficiary("teacher", teacher_id), 0), 0)
+        if sum(weight for _, weight in weights) <= 0 or final <= 0:
+            continue
+        for index, amount in _proportional_parts(weights, final):
+            scaled[(index, teacher_id)] = amount
+    return scaled
+
+
 def _final_amounts(
     allocations: tuple[Allocation, ...],
     adjustments: list[tuple[int, Adjustment]],

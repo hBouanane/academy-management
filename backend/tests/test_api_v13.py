@@ -211,7 +211,7 @@ class TestTeacherInvoice:
         )
         response = client.get(f"/api/teachers/{teacher}/invoice.docx?month=2026-09")
         assert response.status_code == 200, response.text
-        assert "paie-2026-09.docx" in response.headers["content-disposition"]
+        assert "paie-Ahmed-2026-09.docx" in response.headers["content-disposition"]
         text = "\n".join(
             p.text for p in Document(io.BytesIO(response.content)).paragraphs
         )
@@ -240,3 +240,43 @@ class TestTeacherInvoice:
             client.get("/api/teachers/999/invoice.docx?month=2026-09").status_code
             == 404
         )
+
+    def test_the_class_lines_add_up_to_the_total_due(self, client):
+        # Le tableau et le total doivent parler de la MÊME chose : ce qui est
+        # dû. Une reprise en cours de mois ne doit pas les faire diverger.
+        import io
+
+        from docx import Document
+
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.post("/api/payments", json={"enrollment_id": enrollment})
+        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
+        handover(client, class_id, sara)
+        for who in (teacher, sara):
+            response = client.get(f"/api/teachers/{who}/invoice.docx?month=2026-09")
+            document = Document(io.BytesIO(response.content))
+            rows = [
+                [cell.text for cell in row.cells] for row in document.tables[0].rows
+            ][1:]
+            lines = sum(
+                int(row[3].replace(" DH", "").replace(",", "").replace(" ", ""))
+                for row in rows
+            )
+            text = "\n".join(p.text for p in document.paragraphs)
+            total = next(
+                line for line in text.splitlines() if line.startswith("Dû pour le mois")
+            )
+            due = int(
+                total.split(":")[1]
+                .replace("DH", "")
+                .replace(",", "")
+                .replace(" ", "")
+                .strip()
+            )
+            assert lines == due, f"{rows} ≠ {total}"
+
+    def test_the_file_carries_the_professor_name(self, client):
+        _, _, teacher, _ = setup_base(client)
+        response = client.get(f"/api/teachers/{teacher}/invoice.docx?month=2026-09")
+        assert "paie-Ahmed-2026-09.docx" in response.headers["content-disposition"]
