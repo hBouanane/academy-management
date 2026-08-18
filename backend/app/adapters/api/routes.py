@@ -477,6 +477,73 @@ def class_profile(class_id: int, conn: Conn, month: MonthQuery | None = None) ->
     return profile
 
 
+class ShareIn(BaseModel):
+    teacher_id: int
+    share_bp: Annotated[int, Field(ge=0, le=10_000)]
+
+
+class ShareBody(BaseModel):
+    month: Month
+    shares: list[ShareIn] = Field(min_length=1)
+
+
+@router.get("/classes/{class_id}/share")
+def class_share(class_id: int, conn: Conn, month: MonthQuery | None = None) -> dict:
+    """La répartition entre professeurs pour ce mois : automatique (au
+    prorata des jours enseignés) ou fixée par le propriétaire."""
+    share = crud.class_share(conn, class_id, month or clock.current_month())
+    if share is None:
+        raise LookupError(f"no class_group {class_id}")
+    return share
+
+
+@router.put("/classes/{class_id}/share")
+def set_class_share(class_id: int, body: ShareBody, conn: Conn) -> dict:
+    """Le propriétaire tranche lui-même. En pourcentages : un montant figé
+    deviendrait faux dès qu'un élève s'inscrit ou qu'une réduction tombe.
+    Les mois déjà encaissés ne bougent pas — le registre ne se réécrit
+    jamais ; cela vaut pour les encaissements à venir."""
+    total = sum(share.share_bp for share in body.shares)
+    if total != 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Les parts doivent faire 100% en tout — elles font"
+            f" {total / 100:.2f}%.",
+        )
+    if len({share.teacher_id for share in body.shares}) != len(body.shares):
+        raise HTTPException(
+            status_code=422,
+            detail="Un même professeur ne peut apparaître qu'une seule fois.",
+        )
+    if crud.class_share(conn, class_id, body.month) is None:
+        raise LookupError(f"no class_group {class_id}")
+    crud.set_class_share(
+        conn, class_id, body.month, [share.model_dump() for share in body.shares]
+    )
+    return {"id": class_id, "month": body.month}
+
+
+@router.delete("/classes/{class_id}/share")
+def clear_class_share(class_id: int, conn: Conn, month: MonthQuery) -> dict:
+    """Revenir au prorata des jours enseignés."""
+    crud.clear_class_share(conn, class_id, month)
+    return {"id": class_id, "month": month}
+
+
+@router.get("/teachers/{teacher_id}/invoice.docx")
+def teacher_invoice_route(teacher_id: int, month: MonthQuery, conn: Conn) -> Response:
+    """La fiche de paie du mois, imprimable et signable des deux côtés."""
+    from app.adapters.docx.teacher_invoice import teacher_invoice
+
+    content = teacher_invoice(conn, teacher_id, month)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument"
+        ".wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="paie-{month}.docx"'},
+    )
+
+
 @router.get("/classes/{class_id}/absence.docx")
 def absence_sheet_route(class_id: int, month: MonthQuery, conn: Conn) -> Response:
     from app.adapters.docx.absence_sheet import absence_sheet

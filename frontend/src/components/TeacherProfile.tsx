@@ -2,6 +2,7 @@
 // actually paid him, capabilities, six-month history, assignment periods.
 
 import { useEffect, useState } from "react"
+import { FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -96,7 +97,20 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
     <Dialog open={teacherId !== null} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{profile?.name ?? "Profil professeur"}</DialogTitle>
+          <DialogTitle className="flex flex-wrap items-center gap-3">
+            {profile?.name ?? "Profil professeur"}
+            {profile && (
+              <Button size="sm" variant="outline" asChild>
+                <a
+                  href={`/api/teachers/${profile.id}/invoice.docx?month=${month}`}
+                  download
+                  title="Sa fiche de paie du mois, à imprimer et signer"
+                >
+                  <FileText className="size-4" /> Fiche de paie
+                </a>
+              </Button>
+            )}
+          </DialogTitle>
         </DialogHeader>
         <Notice message={error} />
         {profile && (

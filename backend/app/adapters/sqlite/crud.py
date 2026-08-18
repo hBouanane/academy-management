@@ -1831,6 +1831,119 @@ def _overview_row(conn, store, row) -> dict:
     }
 
 
+def class_share(conn: sqlite3.Connection, class_id: int, month: str) -> dict | None:
+    """Qui touche quoi sur cette classe ce mois-ci : la décision du
+    propriétaire si elle existe, sinon le prorata des jours enseignés."""
+    if (
+        conn.execute("SELECT 1 FROM class_group WHERE id = ?", (class_id,)).fetchone()
+        is None
+    ):
+        return None
+    days = _teaching_days(conn, class_id, month)
+    manual = {
+        row["teacher_id"]: row["share_bp"]
+        for row in conn.execute(
+            "SELECT teacher_id, share_bp FROM class_month_share"
+            " WHERE class_id = ? AND month = ?",
+            (class_id, month),
+        )
+    }
+    total_days = sum(days.values()) or 1
+    automatic = _proportional_parts(
+        tuple((teacher_id, count) for teacher_id, count in sorted(days.items())),
+        10_000,
+    )
+    shares = [
+        {
+            "teacher_id": teacher_id,
+            "teacher_name": _teacher_name(conn, teacher_id),
+            "days": days.get(teacher_id, 0),
+            "share_bp": manual.get(teacher_id, share_bp),
+        }
+        for teacher_id, share_bp in automatic
+    ]
+    # Un professeur à qui on donne une part sans avoir enseigné ce mois-là.
+    for teacher_id, share_bp in manual.items():
+        if teacher_id not in days:
+            shares.append(
+                {
+                    "teacher_id": teacher_id,
+                    "teacher_name": _teacher_name(conn, teacher_id),
+                    "days": 0,
+                    "share_bp": share_bp,
+                }
+            )
+    return {
+        "class_id": class_id,
+        "month": month,
+        "manual": bool(manual),
+        "days_in_month": total_days,
+        "shares": shares,
+    }
+
+
+def _teaching_days(
+    conn: sqlite3.Connection, class_id: int, month: str
+) -> dict[int, int]:
+    """Combien de jours chacun a enseigné ce mois-ci (le professeur courant
+    couvre les jours que personne ne réclame)."""
+    from calendar import monthrange
+
+    current = conn.execute(
+        "SELECT teacher_id FROM class_group WHERE id = ?", (class_id,)
+    ).fetchone()["teacher_id"]
+    periods = conn.execute(
+        "SELECT teacher_id, from_date, to_date FROM class_teacher WHERE class_id = ?",
+        (class_id,),
+    ).fetchall()
+    days: dict[int, int] = {}
+    for day in range(1, monthrange(int(month[:4]), int(month[5:7]))[1] + 1):
+        date = f"{month}-{day:02d}"
+        active = sorted(
+            row["teacher_id"]
+            for row in periods
+            if (row["from_date"] is None or row["from_date"] <= date)
+            and (row["to_date"] is None or date <= row["to_date"])
+        ) or ([current] if current is not None else [])
+        for teacher_id in active:
+            days[teacher_id] = days.get(teacher_id, 0) + 1
+    return days
+
+
+def _teacher_name(conn: sqlite3.Connection, teacher_id: int) -> str:
+    row = conn.execute(
+        "SELECT name FROM teacher WHERE id = ?", (teacher_id,)
+    ).fetchone()
+    return row["name"] if row else f"professeur {teacher_id}"
+
+
+def set_class_share(
+    conn: sqlite3.Connection, class_id: int, month: str, shares: list[dict]
+) -> None:
+    with _transaction(conn):
+        conn.execute(
+            "DELETE FROM class_month_share WHERE class_id = ? AND month = ?",
+            (class_id, month),
+        )
+        conn.executemany(
+            "INSERT INTO class_month_share (class_id, month, teacher_id, share_bp)"
+            " VALUES (?, ?, ?, ?)",
+            [
+                (class_id, month, share["teacher_id"], share["share_bp"])
+                for share in shares
+            ],
+        )
+
+
+def clear_class_share(conn: sqlite3.Connection, class_id: int, month: str) -> None:
+    """Retour au prorata des jours enseignés."""
+    with _transaction(conn):
+        conn.execute(
+            "DELETE FROM class_month_share WHERE class_id = ? AND month = ?",
+            (class_id, month),
+        )
+
+
 def enrollment_refunds(conn: sqlite3.Connection, enrollment_id: int) -> dict:
     """Ce qui est promis à l'élève et ce qui lui a déjà été rendu : un mois
     payé dont la classe a été archivée n'est pas juste « Payé », il attend

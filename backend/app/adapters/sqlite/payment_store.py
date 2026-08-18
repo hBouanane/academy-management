@@ -110,6 +110,16 @@ class SqlitePaymentStore:
     def _month_teacher_weights(
         self, class_id: int, current_teacher: int | None, month: str
     ) -> tuple[tuple[int | None, int], ...]:
+        # Le propriétaire a tranché lui-même pour ce mois : sa décision passe
+        # avant le calcul aux jours.
+        manual = self._conn.execute(
+            "SELECT teacher_id, share_bp FROM class_month_share"
+            " WHERE class_id = ? AND month = ? AND share_bp > 0"
+            " ORDER BY teacher_id",
+            (class_id, month),
+        ).fetchall()
+        if manual:
+            return tuple((row["teacher_id"], row["share_bp"]) for row in manual)
         assignments = self._conn.execute(
             "SELECT teacher_id, from_date, to_date FROM class_teacher"
             " WHERE class_id = ?",

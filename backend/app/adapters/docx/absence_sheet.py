@@ -10,26 +10,9 @@ from io import BytesIO
 from docx import Document
 from docx.shared import Pt
 
+from app.adapters.docx.labels import annee_label, month_label
+
 SESSION_COLUMNS = 8
-
-MONTHS_FR = (
-    "janvier",
-    "février",
-    "mars",
-    "avril",
-    "mai",
-    "juin",
-    "juillet",
-    "août",
-    "septembre",
-    "octobre",
-    "novembre",
-    "décembre",
-)
-
-
-def _month_label(month: str) -> str:
-    return f"{MONTHS_FR[int(month[5:7]) - 1]} {month[:4]}"
 
 
 def absence_sheet(conn: sqlite3.Connection, class_id: int, month: str) -> bytes:
@@ -61,14 +44,13 @@ def absence_sheet(conn: sqlite3.Connection, class_id: int, month: str) -> bytes:
     ).fetchall()
 
     document = Document()
-    document.add_heading(
-        f"Liste d'absence — {facts['subject_name']} · Groupe {facts['group_name']}",
-        level=1,
-    )
+    # Pas de « Groupe A » : une classe se nomme par sa matière et son
+    # créneau, ses jumelles se distinguent par leur professeur.
+    document.add_heading(f"Liste d'absence — {facts['subject_name']}", level=1)
     document.add_paragraph(_segment_line(facts))
     document.add_paragraph(
         f"Professeur : {facts['teacher_name'] or 'Sans professeur'}"
-        f"    Mois : {_month_label(month)}"
+        f"    Mois : {month_label(month)}"
     )
 
     table = document.add_table(rows=1, cols=3 + SESSION_COLUMNS)
@@ -95,8 +77,9 @@ def absence_sheet(conn: sqlite3.Connection, class_id: int, month: str) -> bytes:
 
 def _segment_line(facts: sqlite3.Row) -> str:
     parts = [f"Niveau : {facts['level_name']}"]
-    if facts["annee"] is not None:
-        parts.append(f"{facts['annee']}ème année")
+    annee = annee_label(facts["level_name"], facts["annee"])
+    if annee:
+        parts.append(annee)
     if facts["parcours"]:
         parts.append(f"parcours {facts['parcours']}")
     if facts["filiere"]:

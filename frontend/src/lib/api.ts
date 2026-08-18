@@ -140,6 +140,19 @@ export type ProfileMonth = {
   refund_pending_centimes: number
   refunded_centimes: number
 }
+export type ClassShare = {
+  class_id: number
+  month: string
+  /** true = le propriétaire a fixé les parts lui-même. */
+  manual: boolean
+  days_in_month: number
+  shares: {
+    teacher_id: number
+    teacher_name: string
+    days: number
+    share_bp: number
+  }[]
+}
 export type ClassProfile = ClassRow & {
   enrolled_count: number
   students: {
