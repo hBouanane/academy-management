@@ -135,7 +135,7 @@ class TestSuccession:
         sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
         replaced = client.post(
             f"/api/classes/{class_id}/replace-teacher",
-            json={"date": "2026-09-21", "successor_ids": [sara]},
+            json={"date": "2026-09-21", "successor_id": sara},
         )
         assert replaced.status_code == 200, replaced.text
         (class_row,) = client.get("/api/classes").json()
@@ -150,20 +150,24 @@ class TestSuccession:
             "Sara": 60 * DH,
         }
 
-    def test_replacement_by_two_co_teachers(self, client):
+    def test_a_class_is_handed_to_exactly_one_professor(self, client):
+        # Une classe, un professeur : la reprise se donne à quelqu'un, pas à
+        # un groupe. Dédoublez la classe si deux professeurs doivent l'assurer.
         level, class_id, _, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
         karim = client.post("/api/teachers", json={"name": "Karim"}).json()["id"]
+        refused = client.post(
+            f"/api/classes/{class_id}/replace-teacher",
+            json={"date": "2026-09-01", "successor_id": [sara, karim]},
+        )
+        assert refused.status_code == 422
         client.post(
             f"/api/classes/{class_id}/replace-teacher",
-            json={"date": "2026-09-01", "successor_ids": [sara, karim]},
+            json={"date": "2026-09-01", "successor_id": sara},
         )
         client.post("/api/payments", json={"enrollment_id": enrollment})
-        assert teacher_totals(client, "2026-09") == {
-            "Sara": 90 * DH,
-            "Karim": 90 * DH,
-        }
+        assert teacher_totals(client, "2026-09") == {"Sara": 180 * DH}
 
     def test_direct_teacher_edit_is_a_correction_not_a_handover(self, client):
         # The pencil fixes a mistake: the new name applies to the whole past.

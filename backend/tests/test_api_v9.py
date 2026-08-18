@@ -183,7 +183,7 @@ class TestSansProfesseur:
         sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
         client.post(
             f"/api/classes/{class_id}/replace-teacher",
-            json={"date": "2026-09-21", "successor_ids": [sara]},
+            json={"date": "2026-09-21", "successor_id": sara},
         )
         (row,) = client.get("/api/classes").json()
         assert row["teacher_id"] == sara

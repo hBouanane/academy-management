@@ -313,7 +313,9 @@ class ClassPatch(BaseModel):
 
 class ReplaceTeacherBody(BaseModel):
     date: Annotated[str, StringConstraints(pattern=DATE_PATTERN)]
-    successor_ids: list[int] = Field(min_length=1)
+    # Une classe, un professeur : la reprise se donne à quelqu'un. Deux
+    # professeurs sur le même créneau ? Dédoublez la classe.
+    successor_id: int
 
 
 class DuplicateBody(BaseModel):
@@ -359,7 +361,7 @@ def patch_class(class_id: int, patch: ClassPatch, conn: Conn) -> dict:
 def replace_teacher(class_id: int, body: ReplaceTeacherBody, conn: Conn) -> dict:
     """Dated handover: the outgoing teacher earns up to the day before,
     successors from that day on — old months keep paying whoever taught."""
-    crud.replace_teacher(conn, class_id, body.date, body.successor_ids)
+    crud.replace_teacher(conn, class_id, body.date, body.successor_id)
     return {"id": class_id}
 
 

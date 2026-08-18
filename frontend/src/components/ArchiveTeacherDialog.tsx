@@ -130,6 +130,23 @@ export function ArchiveTeacherDialog({
       })
   }
 
+  /** Le cas courant : quelqu'un reprend TOUT ce qu'il enseignait. */
+  const handEverythingTo = (successorId: number) => {
+    for (const row of classes)
+      setDecision(row.id, { action: "replace", successorId })
+    setChecked(new Set(classes.map((row) => row.id)))
+  }
+  const everythingTo =
+    classes.length > 0 &&
+    classes.every(
+      (row) =>
+        decisions[row.id]?.action === "replace" &&
+        decisions[row.id]?.successorId !== null &&
+        decisions[row.id]?.successorId === decisions[classes[0].id]?.successorId,
+    )
+      ? decisions[classes[0].id].successorId
+      : null
+
   const problems = classes.filter(
     (row) =>
       decisions[row.id]?.action === "replace" &&
@@ -152,7 +169,7 @@ export function ArchiveTeacherDialog({
         if (decision.action === "replace") {
           await apiSend("POST", `/api/classes/${row.id}/replace-teacher`, {
             date,
-            successor_ids: [decision.successorId],
+            successor_id: decision.successorId,
           })
         } else if (decision.action === "vacate") {
           await apiSend("POST", `/api/classes/${row.id}/vacate-teacher`, { date })
@@ -189,6 +206,34 @@ export function ArchiveTeacherDialog({
           anciens mois continueront de lui revenir quand ils seront encaissés.
         </p>
         <div className="space-y-4">
+          {/* Le cas le plus courant en un geste : quelqu'un reprend tout.
+              Sinon, chaque classe garde sa propre décision plus bas. */}
+          {classes.length > 0 && successors.length > 0 && (
+            <div className="border-border flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3">
+              <span className="text-sm font-medium">
+                Tout confier à un seul professeur
+              </span>
+              <Select
+                value={everythingTo === null ? "" : String(everythingTo)}
+                onValueChange={(value) => handEverythingTo(Number(value))}
+              >
+                <SelectTrigger className="h-8 w-48 text-xs">
+                  <SelectValue placeholder="Choisir le successeur…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {successors.map((candidate) => (
+                    <SelectItem key={candidate.id} value={String(candidate.id)}>
+                      {candidate.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-muted-foreground text-xs">
+                il reprend les {classes.length} classe(s) — ajustez ensuite
+                celles qui font exception
+              </span>
+            </div>
+          )}
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-2">
               <Label>Date de départ</Label>

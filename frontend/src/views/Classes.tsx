@@ -866,21 +866,22 @@ function ReplaceTeacherDialog({
   onDone: () => void
 }) {
   const [date, setDate] = useState(todayIso())
-  const [successors, setSuccessors] = useState<Set<number>>(new Set())
+  // Une classe, un professeur : un seul choix possible.
+  const [successor, setSuccessor] = useState<number | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const vacant = target.teacher_id === null
 
   const submit = () => {
-    if (successors.size === 0) {
-      setNote("Choisissez au moins un successeur.")
+    if (successor === null) {
+      setNote("Choisissez le professeur qui reprend la classe.")
       return
     }
     setNote(null)
     setBusy(true)
     apiSend("POST", `/api/classes/${target.id}/replace-teacher`, {
       date,
-      successor_ids: [...successors],
+      successor_id: successor,
     })
       .then(onDone)
       .catch((err: Error) => {
@@ -915,7 +916,7 @@ function ReplaceTeacherDialog({
             ? "La classe est sans professeur : ses jours vacants reviennent à " +
               "l'académie. Le professeur nommé est payé à partir de cette date."
             : `${target.teacher_name} est payé jusqu'à la veille de cette date, ` +
-              "les successeurs à partir de celle-ci — même quand un vieux mois " +
+              "son successeur à partir de celle-ci — même quand un vieux mois " +
               "impayé se règle plus tard. L'ancien professeur peut ensuite être " +
               "archivé sans rien perdre."}
         </p>
@@ -929,30 +930,31 @@ function ReplaceTeacherDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label>Successeur(s) — un ou plusieurs</Label>
+            <Label>
+              {vacant ? "Qui prend la classe ?" : "Qui reprend la classe ?"}
+            </Label>
             <div className="border-border max-h-44 space-y-1.5 overflow-y-auto rounded-lg border p-3">
               {teachers
                 .filter((teacher) => teacher.id !== target.teacher_id)
                 .map((teacher) => (
                   <label
                     key={teacher.id}
-                    className="flex items-center gap-2 text-sm"
+                    className="flex cursor-pointer items-center gap-2 text-sm"
                   >
-                    <Checkbox
-                      checked={successors.has(teacher.id)}
-                      onCheckedChange={(state) =>
-                        setSuccessors((current) => {
-                          const next = new Set(current)
-                          if (state === true) next.add(teacher.id)
-                          else next.delete(teacher.id)
-                          return next
-                        })
-                      }
+                    <input
+                      type="radio"
+                      name="successeur"
+                      checked={successor === teacher.id}
+                      onChange={() => setSuccessor(teacher.id)}
                     />
                     {teacher.name}
                   </label>
                 ))}
             </div>
+            <p className="text-muted-foreground text-xs">
+              Une classe, un professeur — s'ils doivent être deux, dédoublez la
+              classe.
+            </p>
           </div>
           <Notice message={note} />
         </div>

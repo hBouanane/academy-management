@@ -427,10 +427,12 @@ def list_capabilities(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
 
 
 def replace_teacher(
-    conn: sqlite3.Connection, class_id: int, date: str, successor_ids: list[int]
+    conn: sqlite3.Connection, class_id: int, date: str, successor_id: int
 ) -> None:
-    """Dated handover: the money splits by days taught around `date`. The
-    outgoing teacher keeps earning whenever his old months get collected."""
+    """Dated handover to ONE professor — une classe, un professeur. La
+    répartition de l'argent suit les jours enseignés de part et d'autre de
+    `date`, et le partant continue de toucher ses anciens mois quand ils
+    sont enfin encaissés."""
     from datetime import date as date_type
     from datetime import timedelta
 
@@ -441,17 +443,16 @@ def replace_teacher(
             " AND to_date IS NULL",
             (day_before, class_id),
         )
-        conn.executemany(
+        conn.execute(
             "INSERT INTO class_teacher (class_id, teacher_id, from_date)"
             " VALUES (?, ?, ?)",
-            [(class_id, successor, date) for successor in successor_ids],
+            (class_id, successor_id, date),
         )
         conn.execute(
             "UPDATE class_group SET teacher_id = ? WHERE id = ?",
-            (successor_ids[0], class_id),
+            (successor_id, class_id),
         )
-        for successor in successor_ids:
-            _learn_capability_from_class(conn, class_id, successor)
+        _learn_capability_from_class(conn, class_id, successor_id)
 
 
 def vacate_teacher(conn: sqlite3.Connection, class_id: int, date: str) -> None:
