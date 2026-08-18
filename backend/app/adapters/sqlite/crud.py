@@ -1604,6 +1604,11 @@ def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dic
         )
         lines.append(entry)
 
+    for entry in lines:
+        entry["overpaid_centimes"] = max(
+            entry["overpaid_centimes"] - entry["charged_centimes"], 0
+        )
+
     paid_out = conn.execute(
         "SELECT COALESCE(SUM(amount_centimes), 0) FROM payout"
         " WHERE academy_id = ? AND month = ?",
@@ -1647,6 +1652,16 @@ def _caisse_line(
         # Versé de plus que le dû — arrive quand une réduction ou un
         # remboursement fait baisser le dû APRÈS le versement.
         "overpaid_centimes": 0,
+        # Ce que l'academie a pris a sa charge : le professeur garde
+        # l'argent, le rappel s'eteint, la trace reste.
+        "charged_centimes": charged_for(conn, academy_id, month, kind, ref_id),
+        "charges": _rows(
+            conn,
+            "SELECT id, amount_centimes, created_at, note FROM overpaid_charge"
+            " WHERE academy_id = ? AND month = ? AND beneficiary_kind = ?"
+            " AND beneficiary_id = ? ORDER BY id",
+            (academy_id, month, kind, ref_id),
+        ),
         "previous_overpaid_centimes": _previous_overpaid(
             conn, academy_id, month, kind, ref_id
         ),
@@ -1654,13 +1669,66 @@ def _caisse_line(
     }
 
 
+def overpaid_for(
+    conn: sqlite3.Connection, academy_id: int, month: str, kind: str, ref_id: int
+) -> int:
+    """Le trop-versé encore à régler pour ce mois : versé − dû − ce que
+    l'académie a déjà pris à sa charge."""
+    paid = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM payout"
+        " WHERE academy_id = ? AND beneficiary_kind = ? AND beneficiary_id = ?"
+        " AND month = ?",
+        (academy_id, kind, ref_id, month),
+    ).fetchone()[0]
+    return max(
+        paid
+        - _due_for(conn, academy_id, month, kind, ref_id)
+        - charged_for(conn, academy_id, month, kind, ref_id),
+        0,
+    )
+
+
+def charged_for(
+    conn: sqlite3.Connection, academy_id: int, month: str, kind: str, ref_id: int
+) -> int:
+    """Ce que l'académie a assumé — offert, pas oublié."""
+    return conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM overpaid_charge"
+        " WHERE academy_id = ? AND beneficiary_kind = ? AND beneficiary_id = ?"
+        " AND month = ?",
+        (academy_id, kind, ref_id, month),
+    ).fetchone()[0]
+
+
+def add_overpaid_charge(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    kind: str,
+    ref_id: int,
+    month: str,
+    amount: int,
+    note: str | None = None,
+) -> int:
+    return _insert(
+        conn,
+        "INSERT INTO overpaid_charge (academy_id, beneficiary_kind,"
+        " beneficiary_id, month, amount_centimes, note) VALUES (?, ?, ?, ?, ?, ?)",
+        (academy_id, kind, ref_id, month, amount, note),
+    )
+
+
+def delete_overpaid_charge(conn: sqlite3.Connection, charge_id: int) -> None:
+    with _transaction(conn):
+        conn.execute("DELETE FROM overpaid_charge WHERE id = ?", (charge_id,))
+
+
 def _previous_overpaid(
     conn: sqlite3.Connection, academy_id: int, month: str, kind: str, ref_id: int
 ) -> int:
     """Ce qui a été versé en trop les mois PRÉCÉDENTS et reste à déduire.
 
-    On ne reprend jamais l'argent tout seul : on le rappelle, le
-    propriétaire déduit quand il veut."""
+    On ne reprend jamais l'argent tout seul : on le rappelle, et le
+    propriétaire choisit — déduire plus tard, ou le prendre à sa charge."""
     months = [
         row["month"]
         for row in conn.execute(
@@ -1669,16 +1737,7 @@ def _previous_overpaid(
             (academy_id, kind, ref_id, month),
         )
     ]
-    total = 0
-    for past in months:
-        paid = conn.execute(
-            "SELECT COALESCE(SUM(amount_centimes), 0) FROM payout"
-            " WHERE academy_id = ? AND beneficiary_kind = ? AND beneficiary_id = ?"
-            " AND month = ?",
-            (academy_id, kind, ref_id, past),
-        ).fetchone()[0]
-        total += max(paid - _due_for(conn, academy_id, past, kind, ref_id), 0)
-    return total
+    return sum(overpaid_for(conn, academy_id, past, kind, ref_id) for past in months)
 
 
 def _due_for(

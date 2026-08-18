@@ -87,6 +87,32 @@ export function Payroll() {
         toast(err.message, "error")
       })
 
+  const takeCharge = (line: CaisseLine) =>
+    apiSend<{ amount_centimes: number }>("POST", "/api/overpaid-charges", {
+      kind: line.kind,
+      ref_id: line.ref_id,
+      month,
+    })
+      .then((done) => {
+        toast(
+          `${formatDH(done.amount_centimes)} pris en charge par l'académie —` +
+            ` ${line.name} garde la différence`,
+        )
+        reload()
+      })
+      .catch((err: Error) => {
+        setError(err.message)
+        toast(err.message, "error")
+      })
+
+  const cancelCharge = (chargeId: number) =>
+    apiSend("DELETE", `/api/overpaid-charges/${chargeId}`)
+      .then(() => {
+        toast("L'académie ne prend plus ce trop-versé à sa charge")
+        reload()
+      })
+      .catch((err: Error) => setError(err.message))
+
   const cancelPayout = (payoutId: number) =>
     apiSend("DELETE", `/api/payouts/${payoutId}`)
       .then(() => {
@@ -236,13 +262,46 @@ export function Payroll() {
                     {/* Il a reçu plus que son dû : on le dit pour pouvoir
                         le déduire — on ne reprend jamais tout seul. */}
                     {line.overpaid_centimes > 0 && (
-                      <p
-                        className="text-destructive text-xs"
-                        title="Une réduction ou un remboursement est passé après le versement"
-                      >
-                        trop-versé {formatDH(line.overpaid_centimes)}
-                      </p>
+                      <div className="flex flex-col items-end gap-0.5">
+                        <p
+                          className="text-destructive text-xs"
+                          title="Une réduction ou un remboursement est passé après le versement"
+                        >
+                          trop-versé {formatDH(line.overpaid_centimes)}
+                        </p>
+                        {/* Deux issues, et c'est lui qui choisit : le déduire
+                            plus tard, ou l'assumer et éteindre le rappel. */}
+                        <ConfirmButton
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs"
+                          title="L'académie assume ce trop-versé"
+                          confirmLabel="L'académie prend à sa charge ?"
+                          description={`${line.name} garde ${formatDH(
+                            line.overpaid_centimes,
+                          )} et plus rien ne sera déduit. La trace reste dans la caisse.`}
+                          onConfirm={() => takeCharge(line)}
+                        >
+                          prendre à ma charge
+                        </ConfirmButton>
+                      </div>
                     )}
+                    {line.charges.map((charge) => (
+                      <ConfirmButton
+                        key={charge.id}
+                        size="sm"
+                        variant="ghost"
+                        className="text-muted-foreground h-6 px-2 text-xs"
+                        title="L'académie a assumé ce trop-versé — cliquez pour revenir en arrière"
+                        confirmLabel="Ne plus le prendre à sa charge ?"
+                        description={`Le rappel de déduire ${formatDH(
+                          charge.amount_centimes,
+                        )} reviendra sur cette ligne.`}
+                        onConfirm={() => cancelCharge(charge.id)}
+                      >
+                        pris en charge {formatDH(charge.amount_centimes)}
+                      </ConfirmButton>
+                    ))}
                     {line.previous_overpaid_centimes > 0 && (
                       <p
                         className="text-muted-foreground text-xs"

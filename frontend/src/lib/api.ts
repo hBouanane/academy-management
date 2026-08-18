@@ -272,6 +272,12 @@ export type Payout = {
   paid_on: string
   note: string | null
 }
+export type OverpaidCharge = {
+  id: number
+  amount_centimes: number
+  created_at: string
+  note: string | null
+}
 export type CaisseLine = {
   kind: "teacher" | "venue" | "owner"
   ref_id: number
@@ -284,6 +290,10 @@ export type CaisseLine = {
   // après le versement. À déduire plus tard, jamais repris tout seul.
   overpaid_centimes: number
   previous_overpaid_centimes: number
+  // Le trop-versé que l'academie a assume : le beneficiaire garde
+  // l'argent, le rappel s'eteint, la trace reste.
+  charged_centimes: number
+  charges: OverpaidCharge[]
   payouts: Payout[]
 }
 export type Caisse = {

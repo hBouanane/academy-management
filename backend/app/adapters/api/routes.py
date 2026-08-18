@@ -1140,6 +1140,41 @@ def delete_payout(payout_id: int, conn: Conn) -> dict:
     return {"deleted": payout_id}
 
 
+class OverpaidChargeBody(BaseModel):
+    kind: Literal["teacher", "venue", "owner"]
+    ref_id: int
+    month: Month
+    amount_centimes: int | None = None  # None = tout le trop-versé
+    note: str | None = None
+
+
+@router.post("/overpaid-charges", status_code=201)
+def take_overpaid_charge(body: OverpaidChargeBody, conn: Conn) -> dict:
+    """L'académie prend le trop-versé à sa charge : le bénéficiaire garde
+    l'argent et le rappel s'éteint. C'est un cadeau assumé, pas un oubli —
+    la ligne reste datée, et s'annule si elle a été saisie par erreur."""
+    academy_id = default_academy_id(conn)
+    overpaid = crud.overpaid_for(conn, academy_id, body.month, body.kind, body.ref_id)
+    amount = body.amount_centimes if body.amount_centimes is not None else overpaid
+    if amount <= 0 or amount > overpaid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Le trop-versé de ce mois est de {overpaid / 100:.2f} DH —"
+            f" impossible d'en prendre {amount / 100:.2f} DH à sa charge.",
+        )
+    charge_id = crud.add_overpaid_charge(
+        conn, academy_id, body.kind, body.ref_id, body.month, amount, body.note
+    )
+    return {"id": charge_id, "amount_centimes": amount}
+
+
+@router.delete("/overpaid-charges/{charge_id}")
+def cancel_overpaid_charge(charge_id: int, conn: Conn) -> dict:
+    """L'académie ne l'assume plus : le rappel de déduction revient."""
+    crud.delete_overpaid_charge(conn, charge_id)
+    return {"deleted": charge_id}
+
+
 @router.get("/enrollments/{enrollment_id}/preview")
 def enrollment_preview(enrollment_id: int, conn: Conn) -> dict:
     """The split a payment would produce — shown before any money moves."""

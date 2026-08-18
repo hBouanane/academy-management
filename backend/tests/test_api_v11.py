@@ -218,3 +218,107 @@ class TestOverpaidTeacher:
         row = line(caisse(client), "teacher", teacher)
         assert row["overpaid_centimes"] == 0
         assert row["previous_overpaid_centimes"] == 0
+
+    def test_the_academie_can_take_the_charge_instead_of_deducting(self, client):
+        # Deuxième issue : plutôt que de le déduire, le propriétaire assume.
+        # Le professeur garde l'argent et le rappel s'éteint.
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        pay_out(client, "teacher", teacher)
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 100 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": teacher}],
+            },
+        )
+        charged = client.post(
+            "/api/overpaid-charges",
+            json={"kind": "teacher", "ref_id": teacher, "month": "2026-09"},
+        )
+        assert charged.status_code == 201, charged.text
+        assert charged.json()["amount_centimes"] == 100 * DH
+        row = line(caisse(client), "teacher", teacher)
+        assert row["overpaid_centimes"] == 0  # plus rien à réclamer
+        assert row["charged_centimes"] == 100 * DH  # l'académie l'a assumé
+        # Et le mois suivant ne le rappelle plus.
+        assert (
+            line(caisse(client, "2026-10"), "teacher", teacher)[
+                "previous_overpaid_centimes"
+            ]
+            == 0
+        )
+
+    def test_only_part_of_it_can_be_absorbed(self, client):
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        pay_out(client, "teacher", teacher)
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 100 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": teacher}],
+            },
+        )
+        client.post(
+            "/api/overpaid-charges",
+            json={
+                "kind": "teacher",
+                "ref_id": teacher,
+                "month": "2026-09",
+                "amount_centimes": 40 * DH,
+            },
+        )
+        row = line(caisse(client), "teacher", teacher)
+        assert row["charged_centimes"] == 40 * DH
+        assert row["overpaid_centimes"] == 60 * DH  # le reste est à déduire
+
+    def test_absorbing_more_than_the_excess_is_refused(self, client):
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        pay_out(client, "teacher", teacher)
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 100 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": teacher}],
+            },
+        )
+        refused = client.post(
+            "/api/overpaid-charges",
+            json={
+                "kind": "teacher",
+                "ref_id": teacher,
+                "month": "2026-09",
+                "amount_centimes": 150 * DH,
+            },
+        )
+        assert refused.status_code == 422
+        assert "trop-versé" in refused.json()["detail"]
+
+    def test_cancelling_the_charge_brings_the_reminder_back(self, client):
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        pay_out(client, "teacher", teacher)
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 100 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": teacher}],
+            },
+        )
+        client.post(
+            "/api/overpaid-charges",
+            json={"kind": "teacher", "ref_id": teacher, "month": "2026-09"},
+        )
+        # On l'annule depuis la caisse elle-même : la ligne y est visible.
+        charges = line(caisse(client), "teacher", teacher)["charges"]
+        assert [charge["amount_centimes"] for charge in charges] == [100 * DH]
+        client.delete(f"/api/overpaid-charges/{charges[0]['id']}")
+        row = line(caisse(client), "teacher", teacher)
+        assert row["overpaid_centimes"] == 100 * DH
+        assert row["charged_centimes"] == 0
