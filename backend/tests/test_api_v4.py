@@ -22,7 +22,17 @@ def client(tmp_path, monkeypatch):
 def setup_base(client):
     levels = client.get("/api/levels").json()
     level = next(lv["id"] for lv in levels if lv["name"] == "Primaire")
-    subject = client.post("/api/subjects", json={"name": "Math"}).json()["id"]
+    created = client.post("/api/subjects", json={"name": "Math", "level_id": level})
+    # Un autre helper a pu déjà créer « Math » à ce niveau : on la réutilise.
+    subject = (
+        created.json()["id"]
+        if created.status_code == 201
+        else next(
+            row["id"]
+            for row in client.get("/api/subjects").json()
+            if row["name"] == "Math" and row["level_id"] == level
+        )
+    )
     teacher = client.post("/api/teachers", json={"name": "Ahmed"}).json()["id"]
     class_id = client.post(
         "/api/classes",

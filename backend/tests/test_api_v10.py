@@ -42,6 +42,23 @@ def academy_id(client):
     return client.get("/api/academies").json()[0]["id"]
 
 
+def payout_row(client, teacher_id, month="2026-09"):
+    """La ligne d'un professeur dans la caisse — la feuille de paie du mois."""
+    caisse = client.get(f"/api/caisse?month={month}").json()
+    return next(
+        line
+        for line in caisse["lines"]
+        if line["kind"] == "teacher" and line["ref_id"] == teacher_id
+    )
+
+
+def pay_teacher(client, teacher_id, month="2026-09", amount=None):
+    body = {"kind": "teacher", "ref_id": teacher_id, "month": month}
+    if amount is not None:
+        body["amount_centimes"] = amount
+    return client.post("/api/payouts", json=body)
+
+
 def overview_row(client, student_id, month="2026-09"):
     rows = client.get(f"/api/months/{month}/overview").json()
     return next(r for r in rows if r["student_id"] == student_id)
@@ -191,11 +208,7 @@ class TestPayouts:
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         client.post("/api/payments", json={"enrollment_id": enrollment})
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["due_centimes"] == 180 * DH
         assert row["paid_centimes"] == 0
         assert row["remaining_centimes"] == 180 * DH
@@ -204,25 +217,14 @@ class TestPayouts:
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         client.post("/api/payments", json={"enrollment_id": enrollment})
-        first = client.post(
-            f"/api/teachers/{teacher}/payouts",
-            json={"month": "2026-09", "amount_centimes": 100 * DH},
-        )
+        first = pay_teacher(client, teacher, amount=100 * DH)
         assert first.status_code == 201, first.text
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["paid_centimes"] == 100 * DH
         assert row["remaining_centimes"] == 80 * DH
         # No amount = the whole remaining.
-        client.post(f"/api/teachers/{teacher}/payouts", json={"month": "2026-09"})
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        pay_teacher(client, teacher)
+        row = payout_row(client, teacher)
         assert row["remaining_centimes"] == 0
         assert len(row["payouts"]) == 2
 
@@ -230,10 +232,7 @@ class TestPayouts:
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         client.post("/api/payments", json={"enrollment_id": enrollment})
-        refused = client.post(
-            f"/api/teachers/{teacher}/payouts",
-            json={"month": "2026-09", "amount_centimes": 200 * DH},
-        )
+        refused = pay_teacher(client, teacher, amount=200 * DH)
         assert refused.status_code == 422
         assert "reste" in refused.json()["detail"]
 
@@ -243,14 +242,10 @@ class TestPayouts:
         level, class_id, teacher, package = setup_base(client)
         _, first = enroll(client, level, package, class_id)
         client.post("/api/payments", json={"enrollment_id": first})
-        client.post(f"/api/teachers/{teacher}/payouts", json={"month": "2026-09"})
+        pay_teacher(client, teacher)
         _, late = enroll(client, level, package, class_id, name="Nadia")
         client.post("/api/payments", json={"enrollment_id": late})
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["due_centimes"] == 360 * DH
         assert row["paid_centimes"] == 180 * DH
         assert row["remaining_centimes"] == 180 * DH
@@ -261,19 +256,13 @@ class TestPayouts:
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         client.post(f"/api/enrollments/{enrollment}/guarantee", json={})
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["due_centimes"] == 180 * DH
         assert row["remaining_centimes"] == 180 * DH
 
     def test_a_professor_owed_nothing_cannot_be_paid(self, client):
         _, _, teacher, _ = setup_base(client)
-        refused = client.post(
-            f"/api/teachers/{teacher}/payouts", json={"month": "2026-09"}
-        )
+        refused = pay_teacher(client, teacher)
         assert refused.status_code == 422
 
 
@@ -285,21 +274,15 @@ class TestDueOnEnrolled:
         # Personne n'a payé : le professeur a quand même enseigné, il est dû.
         level, class_id, teacher, package = setup_base(client)
         enroll(client, level, package, class_id)
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["due_centimes"] == 180 * DH
-        assert row["collected_centimes"] == 0  # rien d'encaissé pour l'instant
         assert row["remaining_centimes"] == 180 * DH
+        assert totals(client) == {}  # et pourtant rien n'a encore été encaissé
 
     def test_he_can_be_paid_before_any_student_pays(self, client):
         level, class_id, teacher, package = setup_base(client)
         enroll(client, level, package, class_id)
-        paid = client.post(
-            f"/api/teachers/{teacher}/payouts", json={"month": "2026-09"}
-        )
+        paid = pay_teacher(client, teacher)
         assert paid.status_code == 201, paid.text
         assert paid.json()["amount_centimes"] == 180 * DH
 
@@ -309,11 +292,7 @@ class TestDueOnEnrolled:
         client.post(
             f"/api/enrollments/{enrollment}/guarantee", json={"never_came": True}
         )
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["due_centimes"] == 0
 
     def test_partial_presence_lowers_the_due_to_the_days_taught(self, client):
@@ -323,11 +302,7 @@ class TestDueOnEnrolled:
             f"/api/enrollments/{enrollment}/guarantee",
             json={"present_until": "2026-09-15"},
         )
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["due_centimes"] == 90 * DH
 
     def test_once_the_student_pays_the_full_share_is_due_again(self, client):
@@ -340,11 +315,7 @@ class TestDueOnEnrolled:
             json={"present_until": "2026-09-15"},
         )
         client.post("/api/payments", json={"enrollment_id": enrollment})
-        (row,) = [
-            entry
-            for entry in client.get("/api/payouts?month=2026-09").json()
-            if entry["teacher_id"] == teacher
-        ]
+        row = payout_row(client, teacher)
         assert row["due_centimes"] == 180 * DH
 
     def test_every_active_professor_is_listed(self, client):
@@ -352,7 +323,8 @@ class TestDueOnEnrolled:
         setup_base(client)
         client.post("/api/teachers", json={"name": "Nadia"})
         names = [
-            entry["teacher_name"]
-            for entry in client.get("/api/payouts?month=2026-09").json()
+            line["name"]
+            for line in client.get("/api/caisse?month=2026-09").json()["lines"]
+            if line["kind"] == "teacher"
         ]
         assert "Nadia" in names and "Ahmed" in names

@@ -89,12 +89,12 @@ def _active_clause(include_inactive: bool, prefix: str = "") -> str:
     return "" if include_inactive else f" AND {prefix}is_active = 1"
 
 
-def list_subjects(
-    conn: sqlite3.Connection, academy_id: int, include_inactive: bool = False
-) -> list[dict]:
+def list_subjects(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
+    """Les matières ne s'archivent pas — elles se suppriment (round 9) : plus
+    rien n'est jamais masqué ici, et chacune appartient à son niveau."""
     return _rows(
         conn,
-        f"""
+        """
         SELECT s.*, sl.name AS level_name,
           (SELECT COUNT(*) FROM class_group cg
            WHERE cg.subject_id = s.id AND cg.is_active = 1) AS class_count,
@@ -105,16 +105,16 @@ def list_subjects(
            JOIN school_level sl2 ON sl2.id = cg.level_id
            WHERE cg.subject_id = s.id AND cg.is_active = 1) AS levels
         FROM subject s
-        LEFT JOIN school_level sl ON sl.id = s.level_id
-        WHERE s.academy_id = ?{_active_clause(include_inactive, "s.")}
-        ORDER BY COALESCE(sl.sort_order, 99), s.name
+        JOIN school_level sl ON sl.id = s.level_id
+        WHERE s.academy_id = ?
+        ORDER BY sl.sort_order, s.name
         """,
         (academy_id,),
     )
 
 
 def create_subject(
-    conn: sqlite3.Connection, academy_id: int, name: str, level_id: int | None = None
+    conn: sqlite3.Connection, academy_id: int, name: str, level_id: int
 ) -> int:
     return _insert(
         conn,
@@ -1398,52 +1398,6 @@ def stop_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:
         conn.execute("UPDATE enrollment SET stopped = 1 WHERE id = ?", (enrollment_id,))
 
 
-def guarantee_row(conn: sqlite3.Connection, enrollment_id: int) -> dict | None:
-    row = conn.execute(
-        "SELECT * FROM guarantee WHERE enrollment_id = ?", (enrollment_id,)
-    ).fetchone()
-    return dict(row) if row else None
-
-
-def payout_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> list[dict]:
-    """The end-of-month payout sheet. What a professor is DUE comes from the
-    students ENROLLED with him — he taught them whether or not they paid —
-    not from what the académie managed to collect. Next to it: what he was
-    actually HANDED (teacher_payout, deliberately outside the ledger, since
-    paying someone must never change what he earned) and what is left."""
-    dues = _teacher_dues(conn, academy_id, month)
-    teachers = _rows(
-        conn,
-        """
-        SELECT t.id AS teacher_id, t.name AS teacher_name, t.is_owner,
-          COALESCE((SELECT SUM(le.amount_centimes) FROM ledger_entry le
-                    WHERE le.beneficiary_kind = 'teacher'
-                      AND le.beneficiary_id = t.id AND le.month = ?), 0)
-              AS collected_centimes,
-          COALESCE((SELECT SUM(p.amount_centimes) FROM payout p
-                    WHERE p.beneficiary_kind = 'teacher'
-                      AND p.beneficiary_id = t.id AND p.month = ?), 0)
-              AS paid_centimes
-        FROM teacher t WHERE t.academy_id = ? AND t.is_active = 1
-        ORDER BY t.name
-        """,
-        (month, month, academy_id),
-    )
-    for teacher in teachers:
-        teacher["due_centimes"] = dues.get(teacher["teacher_id"], 0)
-        teacher["remaining_centimes"] = max(
-            teacher["due_centimes"] - teacher["paid_centimes"], 0
-        )
-        teacher["payouts"] = _rows(
-            conn,
-            "SELECT id, amount_centimes, paid_on, note FROM payout"
-            " WHERE beneficiary_kind = 'teacher' AND beneficiary_id = ?"
-            " AND month = ? ORDER BY id",
-            (teacher["teacher_id"], month),
-        )
-    return teachers
-
-
 def _teacher_dues(
     conn: sqlite3.Connection, academy_id: int, month: str
 ) -> dict[int, int]:
@@ -1659,12 +1613,6 @@ def beneficiary_remaining(
     if row is None:
         raise LookupError(f"no {kind} {ref_id}")
     return row["remaining_centimes"]
-
-
-def teacher_remaining(
-    conn: sqlite3.Connection, academy_id: int, teacher_id: int, month: str
-) -> int:
-    return beneficiary_remaining(conn, academy_id, "teacher", teacher_id, month)
 
 
 def add_payout(

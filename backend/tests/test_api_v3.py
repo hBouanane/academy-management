@@ -20,7 +20,9 @@ def client(tmp_path, monkeypatch):
 def setup_level_class(client, level_name="Primaire", subject="Math", teacher="Ahmed"):
     levels = client.get("/api/levels").json()
     level = next(lv["id"] for lv in levels if lv["name"] == level_name)
-    subject_id = client.post("/api/subjects", json={"name": subject}).json()["id"]
+    subject_id = client.post(
+        "/api/subjects", json={"name": subject, "level_id": level}
+    ).json()["id"]
     teacher_id = client.post("/api/teachers", json={"name": teacher}).json()["id"]
     class_id = client.post(
         "/api/classes",

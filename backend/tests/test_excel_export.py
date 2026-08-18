@@ -21,7 +21,9 @@ def client(tmp_path):
 def build_month(client):
     levels = client.get("/api/levels").json()
     primaire = next(level["id"] for level in levels if level["name"] == "Primaire")
-    subject = client.post("/api/subjects", json={"name": "Math"}).json()["id"]
+    subject = client.post(
+        "/api/subjects", json={"name": "Math", "level_id": primaire}
+    ).json()["id"]
     teacher = client.post("/api/teachers", json={"name": "Ahmed"}).json()["id"]
     class_id = client.post(
         "/api/classes",

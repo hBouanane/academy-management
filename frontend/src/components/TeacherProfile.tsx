@@ -26,6 +26,11 @@ import type { TeacherProfile as Profile } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
 import { formatDH } from "@/lib/money"
 
+const capabilityLabel = (capability: Profile["capabilities"][number]) =>
+  `${capability.subject_name} · ${capability.level_name}${
+    capability.annee ? ` ${capability.annee}` : ""
+  }${capability.parcours ? ` ${capability.parcours}` : ""}`
+
 type Props = {
   teacherId: number | null
   month: string
@@ -198,28 +203,22 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
                   Compétences
                 </p>
                 <p className="text-muted-foreground mb-1.5 text-xs">
-                  ✓ = classe déjà ouverte · cochez pour ouvrir les manquantes
+                  Ce qu'il peut enseigner — cochez pour ouvrir les classes qui
+                  manquent
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {profile.capabilities.map((capability) => {
-                    const done = alreadyTeaches(capability)
-                    const label = `${capability.subject_name} · ${capability.level_name}${
-                      capability.annee ? ` ${capability.annee}` : ""
-                    }${capability.parcours ? ` ${capability.parcours}` : ""}`
-                    if (done)
-                      return (
-                        <span
-                          key={capability.id}
-                          className="bg-secondary text-secondary-foreground rounded-full px-2.5 py-0.5 text-xs"
-                          title="Classe déjà ouverte"
-                        >
-                          ✓ {label}
-                        </span>
-                      )
-                    return (
+                {/* Deux états lisibles sans pictogramme : la classe ouverte
+                    est une pastille pleine et calme, celle qui manque garde
+                    sa case à cocher. */}
+                {openable.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {openable.map((capability) => (
                       <label
                         key={capability.id}
-                        className="border-border flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs"
+                        className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                          selected.has(capability.id)
+                            ? "border-primary text-foreground"
+                            : "border-border border-dashed"
+                        }`}
                       >
                         <Checkbox
                           checked={selected.has(capability.id)}
@@ -232,10 +231,21 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
                             })
                           }
                         />
-                        {label}
+                        {capabilityLabel(capability)}
                       </label>
-                    )
-                  })}
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {profile.capabilities.filter(alreadyTeaches).map((capability) => (
+                    <span
+                      key={capability.id}
+                      className="bg-secondary text-secondary-foreground rounded-full px-2.5 py-0.5 text-xs"
+                      title="Classe déjà ouverte"
+                    >
+                      {capabilityLabel(capability)}
+                    </span>
+                  ))}
                   {profile.capabilities.length === 0 && (
                     <p className="text-muted-foreground text-sm">
                       Aucune — modifiez le professeur pour cocher son arbre.
@@ -246,10 +256,7 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
                       <Checkbox
-                        checked={
-                          openable.length > 0 &&
-                          openable.every((c) => selected.has(c.id))
-                        }
+                        checked={openable.every((c) => selected.has(c.id))}
                         onCheckedChange={(state) =>
                           setSelected(
                             state === true
@@ -280,8 +287,7 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
                 <div className="space-y-1">
                   {profile.assignments.map((assignment, index) => (
                     <p key={index} className="text-muted-foreground text-sm">
-                      {assignment.subject_name} · Groupe {assignment.group_name} (
-                      {assignment.level_name}) —{" "}
+                      {assignment.subject_name} · {assignment.level_name} —{" "}
                       {assignment.from_date
                         ? `du ${assignment.from_date}`
                         : "depuis le début"}

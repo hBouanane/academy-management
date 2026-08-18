@@ -37,7 +37,10 @@ class TestTaxonomy:
 
     def test_class_carries_annee_filiere_parcours(self, client):
         levels = {lv["name"]: lv["id"] for lv in client.get("/api/levels").json()}
-        subject = client.post("/api/subjects", json={"name": "Math"}).json()["id"]
+        subject = client.post(
+            "/api/subjects",
+            json={"name": "Math", "level_id": levels["Collège"]},
+        ).json()["id"]
         teacher = client.post("/api/teachers", json={"name": "Ahmed"}).json()["id"]
         created = client.post(
             "/api/classes",
@@ -91,7 +94,10 @@ class TestTaxonomy:
 class TestCapabilities:
     def test_capabilities_replace_and_list(self, client):
         levels = {lv["name"]: lv["id"] for lv in client.get("/api/levels").json()}
-        subject = client.post("/api/subjects", json={"name": "Math"}).json()["id"]
+        subject = client.post(
+            "/api/subjects",
+            json={"name": "Math", "level_id": levels["Collège"]},
+        ).json()["id"]
         teacher = client.post("/api/teachers", json={"name": "Ahmed"}).json()["id"]
         put = client.put(
             f"/api/teachers/{teacher}/capabilities",

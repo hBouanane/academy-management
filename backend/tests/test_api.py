@@ -19,7 +19,9 @@ def setup_class_and_student(client, subject="Math", teacher="Ahmed", student="Sa
     """Creates a class and a student at Primaire; returns (class_id, student_id)."""
     levels = client.get("/api/levels").json()
     primaire = next(level["id"] for level in levels if level["name"] == "Primaire")
-    subject_id = client.post("/api/subjects", json={"name": subject}).json()["id"]
+    subject_id = client.post(
+        "/api/subjects", json={"name": subject, "level_id": primaire}
+    ).json()["id"]
     teacher_id = client.post("/api/teachers", json={"name": teacher}).json()["id"]
     class_id = client.post(
         "/api/classes",

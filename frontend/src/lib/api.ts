@@ -74,7 +74,6 @@ export type TeacherProfile = Teacher & {
     from_date: string | null
     to_date: string | null
     subject_name: string
-    group_name: string
     level_name: string
   }[]
 }
@@ -258,18 +257,6 @@ export type Caisse = {
   unpaid_centimes: number
   projection: { venue_centimes: number; owner_centimes: number }
   lines: CaisseLine[]
-}
-export type PayoutRow = {
-  teacher_id: number
-  teacher_name: string
-  is_owner: number
-  // Ce qu'il a gagné sur les élèves INSCRITS du mois — payé ou non.
-  due_centimes: number
-  // Ce que ses élèves ont réellement versé (registre) — pour information.
-  collected_centimes: number
-  paid_centimes: number
-  remaining_centimes: number
-  payouts: Payout[]
 }
 export type ArrearsEntry = {
   student_id: number

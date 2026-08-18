@@ -237,7 +237,17 @@ function SubjectChip({
       >
         <Pencil className="size-3" />
       </button>
-      {!taught && (
+      {/* La corbeille est TOUJOURS là — sinon on croit l'avoir perdue. Elle
+          est simplement désactivée quand la matière est enseignée, avec la
+          raison au survol. */}
+      {taught ? (
+        <span
+          className="cursor-not-allowed opacity-30"
+          title={`Enseignée dans ${row.class_count} classe(s) — gérez-les d'abord pour pouvoir la supprimer`}
+        >
+          <Trash2 className="size-3" />
+        </span>
+      ) : (
         <ConfirmButton
           variant="ghost"
           className="text-muted-foreground hover:text-destructive h-4 w-4 rounded-full p-0 opacity-60 hover:bg-transparent hover:opacity-100"

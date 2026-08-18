@@ -202,13 +202,16 @@ def _lifecycle_fields(patch: BaseModel) -> dict:
 
 
 @router.get("/subjects")
-def subjects(conn: Conn, include_inactive: bool = False) -> list[dict]:
-    return crud.list_subjects(conn, default_academy_id(conn), include_inactive)
+def subjects(conn: Conn) -> list[dict]:
+    return crud.list_subjects(conn, default_academy_id(conn))
 
 
 class SubjectCreate(BaseModel):
     name: str
-    level_id: int | None = None  # the niveau owning this matière
+    # Obligatoire : une matière appartient à SON niveau. Sans lui elle
+    # n'apparaîtrait nulle part — c'est l'ancien « Tous niveaux » qu'on a
+    # supprimé (migration 0012).
+    level_id: int
 
 
 @router.post("/subjects", status_code=201)
@@ -1006,12 +1009,6 @@ class CaissePayoutBody(PayoutBody):
     ref_id: int
 
 
-@router.get("/payouts")
-def payouts(month: MonthQuery, conn: Conn) -> list[dict]:
-    """La feuille de paie du mois : dû, versé, reste à verser."""
-    return crud.payout_summary(conn, default_academy_id(conn), month)
-
-
 @router.get("/caisse")
 def caisse(month: MonthQuery, conn: Conn) -> dict:
     """L'état de la caisse : entré, sorti, ce qu'il reste dedans, et la part
@@ -1042,11 +1039,6 @@ def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
     """Sortir de la caisse la part d'un bénéficiaire — professeur, salle ou
     le propriétaire lui-même : il se paie comme il paie les autres."""
     return _record_payout(conn, body.kind, body.ref_id, body)
-
-
-@router.post("/teachers/{teacher_id}/payouts", status_code=201)
-def create_payout(teacher_id: int, body: PayoutBody, conn: Conn) -> dict:
-    return _record_payout(conn, "teacher", teacher_id, body)
 
 
 @router.delete("/payouts/{payout_id}")
