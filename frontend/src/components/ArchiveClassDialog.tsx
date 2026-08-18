@@ -18,6 +18,7 @@ import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, OverviewRow } from "@/lib/api"
 import { currentMonth, formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 const todayIso = () => {
   const now = new Date()
@@ -164,7 +165,7 @@ export function ArchiveClassDialog({
   const [date, setDate] = useState(todayIso())
   const [affected, setAffected] = useState<AffectedStudent[]>([])
   const [percents, setPercents] = useState<Record<number, number>>({})
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -181,7 +182,7 @@ export function ArchiveClassDialog({
         )
       })
       .catch((err: Error) => setNote(err.message))
-  }, [target.id])
+  }, [target.id, setNote])
 
   const paid = affected.filter((student) => student.paid)
   const unpaid = affected.filter((student) => !student.paid)
@@ -273,7 +274,7 @@ export function ArchiveClassDialog({
             </p>
           )}
 
-          <Notice message={note} />
+          <Notice alert={note} />
         </div>
         <DialogFooter>
           <Button variant="destructive" onClick={submit} disabled={busy}>

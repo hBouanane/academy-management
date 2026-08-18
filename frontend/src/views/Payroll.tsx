@@ -33,6 +33,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { Caisse, CaisseLine, OverviewRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
 import { currentMonth, dhToCentimes, formatDH, previousMonth } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 const KIND_LABEL: Record<CaisseLine["kind"], string> = {
   venue: "Salle",
@@ -47,7 +48,7 @@ export function Payroll() {
   const [month, setMonth] = useState(() => previousMonth(currentMonth()))
   const [caisse, setCaisse] = useState<Caisse | null>(null)
   const [overview, setOverview] = useState<OverviewRow[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   // Encaisser un impayé, solder un professeur, ouvrir un profil — sans
   // quitter la page.
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
@@ -62,13 +63,14 @@ export function Payroll() {
   const toast = useToast()
 
   const reload = useCallback(() => {
+    setError(null)
     apiGet<Caisse>(`/api/caisse?month=${month}`)
       .then(setCaisse)
       .catch((err: Error) => setError(err.message))
     apiGet<OverviewRow[]>(`/api/months/${month}/overview`)
       .then(setOverview)
       .catch(() => setOverview([]))
-  }, [month])
+  }, [month, setError])
   useEffect(reload, [reload])
 
   const payOut = (line: CaisseLine, amount?: number) =>
@@ -79,6 +81,7 @@ export function Payroll() {
       ...(amount === undefined ? {} : { amount_centimes: amount }),
     })
       .then((done) => {
+        setError(null)
         toast(`Versé ${formatDH(done.amount_centimes)} — ${line.name}`)
         reload()
       })
@@ -94,6 +97,7 @@ export function Payroll() {
       month,
     })
       .then((done) => {
+        setError(null)
         toast(
           `${formatDH(done.amount_centimes)} pris en charge par l'académie —` +
             ` ${line.name} garde la différence`,
@@ -108,6 +112,7 @@ export function Payroll() {
   const cancelCharge = (chargeId: number) =>
     apiSend("DELETE", `/api/overpaid-charges/${chargeId}`)
       .then(() => {
+        setError(null)
         toast("L'académie ne prend plus ce trop-versé à sa charge")
         reload()
       })
@@ -116,6 +121,7 @@ export function Payroll() {
   const cancelPayout = (payoutId: number) =>
     apiSend("DELETE", `/api/payouts/${payoutId}`)
       .then(() => {
+        setError(null)
         toast("Versement annulé — l'argent revient en caisse")
         reload()
       })
@@ -158,7 +164,7 @@ export function Payroll() {
         </p>
       )}
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <StatCard

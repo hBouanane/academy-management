@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Notice } from "@/components/Notice"
 import { apiSend } from "@/lib/api"
 import { dhToCentimes, formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 type Props = {
   paymentId: number
@@ -32,7 +33,7 @@ export function CompleteDialog({
   onDone,
 }: Props) {
   const [amount, setAmount] = useState(String(remainingCentimes / 100))
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   const submit = () => {
@@ -72,7 +73,7 @@ export function CompleteDialog({
             inputMode="decimal"
           />
         </div>
-        <Notice message={note} />
+        <Notice alert={note} />
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>
             {busy ? "…" : "Encaisser"}

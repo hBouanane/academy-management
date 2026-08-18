@@ -20,6 +20,7 @@ import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Level, Subject } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
+import { useAlert } from "@/lib/alert"
 
 type Row = Subject & { class_count: number; archived_class_count: number }
 
@@ -30,16 +31,17 @@ export function Subjects() {
   const [levels, setLevels] = useState<Level[]>([])
   const [rows, setRows] = useState<Row[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   const [editing, setEditing] = useState<Row | null>(null)
 
   const reload = useCallback(() => {
+    setError(null)
     apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
     apiGet<ClassRow[]>("/api/classes").then(setClasses).catch(() => {})
     apiGet<Row[]>("/api/subjects")
       .then(setRows)
       .catch((err: Error) => setError(err.message))
-  }, [])
+  }, [setError])
   useEffect(reload, [reload])
 
   const deleteSubject = (row: Row) =>
@@ -96,7 +98,7 @@ export function Subjects() {
         </p>
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       {sections.map(({ level, entries, lines }) => {
         const taught = new Set(
@@ -329,7 +331,7 @@ function RenameDialog({
   onDone: () => void
 }) {
   const [name, setName] = useState(target.name)
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   const submit = () => {
@@ -352,7 +354,7 @@ function RenameDialog({
           <Label>Nom</Label>
           <Input value={name} onChange={(event) => setName(event.target.value)} />
         </div>
-        <Notice message={note} />
+        <Notice alert={note} />
         <DialogFooter>
           <Button onClick={submit} disabled={busy || !name.trim()}>
             {busy ? "…" : "Enregistrer"}

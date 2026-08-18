@@ -14,6 +14,7 @@ import { Notice } from "@/components/Notice"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Academy as AcademyType, Teacher } from "@/lib/api"
+import { useAlert } from "@/lib/alert"
 
 // Even prorata ladder: 3 tranches -> 100/67/33, 4 -> 100/75/50/25 — the
 // automatic default whenever a tranche is added or removed, editable after.
@@ -30,7 +31,7 @@ export function Academy() {
   const [segments, setSegments] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
 
   useEffect(() => {
     apiGet<AcademyType[]>("/api/academies")
@@ -43,7 +44,7 @@ export function Academy() {
         setSegments(first.proration_bp.map((bp) => String(bp / 100)))
       })
       .catch((err: Error) => setError(err.message))
-  }, [])
+  }, [setError])
 
   const venue = Number(venuePct)
   const owner = Number(ownerPct)
@@ -95,7 +96,7 @@ export function Academy() {
         </p>
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <div className="surface-card space-y-5 p-6">
         <div className="space-y-2">

@@ -20,6 +20,7 @@ import { Notice } from "@/components/Notice"
 import { apiSend } from "@/lib/api"
 import type { Level, Subject } from "@/lib/api"
 import { parcoursOptions, teachingAnnees } from "@/lib/levels"
+import { useAlert } from "@/lib/alert"
 
 export const slotKey = (
   slot: { level_id: number; annee: number | null; parcours: string | null },
@@ -66,11 +67,11 @@ type Props = {
 }
 
 export function ProgramTree({ levels, subjects, checked, onToggle, onGrown }: Props) {
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
 
   return (
     <div className="space-y-4">
-      <Notice message={error} />
+      <Notice alert={error} />
       {levels.map((level) => (
         <div key={level.id} className="border-border rounded-xl border p-3">
           <p className="mb-2 text-sm font-semibold">{level.name}</p>

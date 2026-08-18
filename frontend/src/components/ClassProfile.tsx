@@ -26,6 +26,7 @@ import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassProfile as Profile, ClassShare } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
+import { useAlert } from "@/lib/alert"
 
 type Props = {
   classId: number | null
@@ -36,7 +37,7 @@ type Props = {
 
 export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
 
   useEffect(() => {
     setError(null)
@@ -47,7 +48,7 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
     apiGet<Profile>(`/api/classes/${classId}/profile?month=${month}`)
       .then(setProfile)
       .catch((err: Error) => setError(err.message))
-  }, [classId, month])
+  }, [classId, month, setError])
 
   return (
     <Dialog open={classId !== null} onOpenChange={(next) => !next && onClose()}>
@@ -55,7 +56,7 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
         <DialogHeader>
           <DialogTitle>{profile?.subject_name ?? "Classe"}</DialogTitle>
         </DialogHeader>
-        <Notice message={error} />
+        <Notice alert={error} />
         {profile && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -176,14 +177,14 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
 function ShareSection({ classId, month }: { classId: number; month: string }) {
   const [share, setShare] = useState<ClassShare | null>(null)
   const [draft, setDraft] = useState<Record<number, string> | null>(null)
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   const reload = useCallback(() => {
     apiGet<ClassShare>(`/api/classes/${classId}/share?month=${month}`)
       .then(setShare)
       .catch((err: Error) => setNote(err.message))
-  }, [classId, month])
+  }, [classId, month, setNote])
   useEffect(reload, [reload])
 
   if (!share || share.shares.length === 0) return null
@@ -277,7 +278,7 @@ function ShareSection({ classId, month }: { classId: number; month: string }) {
           Le total fait {total}% — il doit faire exactement 100%.
         </p>
       )}
-      <Notice message={note} />
+      <Notice alert={note} />
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {draft ? (

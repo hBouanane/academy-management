@@ -24,6 +24,7 @@ import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Level, Package } from "@/lib/api"
 import { currentMonth, dhToCentimes, formatDH, previousMonth } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 type Props = {
   studentId: number
@@ -83,8 +84,8 @@ export function EnrollDialog({
   const [customPrice, setCustomPrice] = useState("")
   const [showAllClasses, setShowAllClasses] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
+  const [error, setError] = useAlert()
 
   useEffect(() => {
     if (!open) return
@@ -406,8 +407,8 @@ export function EnrollDialog({
                 : "Laissez vide pour le tarif plein du mois."}
             </p>
           </div>
-          <Notice message={note} />
-          <Notice message={error} />
+          <Notice alert={note} />
+          <Notice alert={error} />
         </div>
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>

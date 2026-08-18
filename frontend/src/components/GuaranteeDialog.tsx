@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Notice } from "@/components/Notice"
 import { apiSend } from "@/lib/api"
+import { useAlert } from "@/lib/alert"
 
 type Presence = "full" | "until" | "never"
 
@@ -38,7 +39,7 @@ export function GuaranteeDialog({
   const [presence, setPresence] = useState<Presence>("full")
   const [until, setUntil] = useState(`${month}-15`)
   const [stop, setStop] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   const submit = () => {
@@ -121,7 +122,7 @@ export function GuaranteeDialog({
             Il a arrêté — ne pas le réinscrire le mois prochain
           </label>
         </div>
-        <Notice message={note} />
+        <Notice alert={note} />
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>
             {busy ? "…" : "Payer le professeur"}

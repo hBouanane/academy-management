@@ -37,6 +37,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, OverviewRow, Teacher } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
 import { currentMonth } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 const todayIso = () => {
   const now = new Date()
@@ -73,7 +74,7 @@ export function ArchiveTeacherDialog({
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [bulkAction, setBulkAction] = useState<Action>("replace")
   const [bulkSuccessor, setBulkSuccessor] = useState<string>("")
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -93,7 +94,7 @@ export function ArchiveTeacherDialog({
     apiGet<OverviewRow[]>(`/api/months/${currentMonth()}/overview`)
       .then(setOverview)
       .catch(() => {})
-  }, [teacher.id])
+  }, [teacher.id, setNote])
 
   const successors = teachers.filter(
     (candidate) => candidate.id !== teacher.id,
@@ -438,7 +439,7 @@ export function ArchiveTeacherDialog({
             )}
           </div>
 
-          <Notice message={note} />
+          <Notice alert={note} />
         </div>
         <DialogFooter>
           <Button variant="destructive" onClick={execute} disabled={busy}>

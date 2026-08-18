@@ -25,6 +25,7 @@ import { Notice } from "@/components/Notice"
 import { ProgramTree, slotKey } from "@/components/ProgramTree"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, Level, Subject, Teacher } from "@/lib/api"
+import { useAlert } from "@/lib/alert"
 
 const phoneDigits = (value: string) => value.replace(/[\s.-]/g, "")
 
@@ -54,7 +55,7 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
   const [checked, setChecked] = useState<Set<string>>(new Set())
   // Optionally open one class per checked leaf right away (creation only).
   const [autoOpen, setAutoOpen] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   const loadTree = () => {
@@ -94,7 +95,7 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
         )
         .catch(() => {})
     }
-  }, [open, initial])
+  }, [open, initial, setNote])
 
   const toggle = (slots: { key: string }[], on: boolean) =>
     setChecked((current) => {
@@ -225,7 +226,7 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
             </label>
           )}
 
-          <Notice message={note} />
+          <Notice alert={note} />
         </div>
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>

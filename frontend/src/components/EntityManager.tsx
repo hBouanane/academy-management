@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { apiGet, apiSend } from "@/lib/api"
+import { useAlert } from "@/lib/alert"
 
 export type FieldSpec = {
   key: string
@@ -88,13 +89,13 @@ export function EntityManager({
   const [editing, setEditing] = useState<Row | null>(null)
   const [editValues, setEditValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
 
   const reload = useCallback(() => {
     apiGet<Row[]>(`${endpoint}?include_inactive=${showArchived}${query}`)
       .then(setRows)
       .catch((err: Error) => setError(err.message))
-  }, [endpoint, showArchived, query])
+  }, [endpoint, showArchived, query, setError])
 
   useEffect(reload, [reload, refreshKey])
 
@@ -151,7 +152,7 @@ export function EntityManager({
         {headerExtra}
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <div className="surface-card space-y-3 p-5">
         <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">

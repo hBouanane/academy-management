@@ -28,6 +28,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { HistoryEntry, Level, MonthlyReport, OverviewRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
 import { currentMonth, formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 type Props = { month: string; setMonth: (month: string) => void }
 
@@ -41,7 +42,7 @@ export function Dashboard({ month, setMonth }: Props) {
     levelId: null,
     annee: null,
   })
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   // A fresh enrollment chains straight into its pay dialog.
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
@@ -90,7 +91,7 @@ export function Dashboard({ month, setMonth }: Props) {
     } else {
       load()
     }
-  }, [month])
+  }, [month, setError])
 
   useEffect(reload, [reload])
   useEffect(() => {
@@ -125,7 +126,7 @@ export function Dashboard({ month, setMonth }: Props) {
         <MonthNav month={month} setMonth={setMonth} />
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="surface-card orb-backdrop p-5">

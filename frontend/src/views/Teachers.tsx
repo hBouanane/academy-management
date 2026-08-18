@@ -20,6 +20,7 @@ import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Teacher } from "@/lib/api"
 import { currentMonth, formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 type Row = Teacher & {
   created_at: string | null
@@ -33,7 +34,7 @@ type Props = { month: string; setMonth: (month: string) => void }
 export function Teachers({ month, setMonth }: Props) {
   const [rows, setRows] = useState<Row[]>([])
   const [showArchived, setShowArchived] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   const [busy, setBusy] = useState(false)
   // "new" opens creation; a row opens edition (identity + capability tree).
   const [editing, setEditing] = useState<Row | "new" | null>(null)
@@ -42,10 +43,11 @@ export function Teachers({ month, setMonth }: Props) {
   const [departing, setDeparting] = useState<Row | null>(null)
 
   const reload = useCallback(() => {
+    setError(null)
     apiGet<Row[]>(`/api/teachers?include_inactive=${showArchived}&month=${month}`)
       .then(setRows)
       .catch((err: Error) => setError(err.message))
-  }, [showArchived, month])
+  }, [showArchived, month, setError])
   useEffect(reload, [reload])
 
   const restore = (row: Row) => {
@@ -94,7 +96,7 @@ export function Teachers({ month, setMonth }: Props) {
         </div>
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <div className="surface-card p-5">
         <label className="text-muted-foreground mb-4 flex items-center gap-2 text-sm">

@@ -25,6 +25,7 @@ import type { Level, Student } from "@/lib/api"
 import { fuzzyFilter } from "@/lib/fuzzy"
 import { anneeLabel } from "@/lib/levels"
 import { formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 const fullName = (student: {
   first_name: string | null
@@ -47,7 +48,7 @@ export function Students({ month, setMonth }: Props) {
   const [showInactive, setShowInactive] = useState(false)
   const [search, setSearch] = useState("")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   // The student modal: null closed, "new" creating, a Student editing.
   const [editing, setEditing] = useState<Student | "new" | null>(null)
   const [profileId, setProfileId] = useState<number | null>(null)
@@ -66,12 +67,13 @@ export function Students({ month, setMonth }: Props) {
   )
 
   const reload = useCallback(() => {
+    setError(null)
     apiGet<Student[]>(
       `/api/students?include_inactive=${showInactive}&month=${month}`,
     )
       .then(setStudents)
       .catch((err: Error) => setError(err.message))
-  }, [showInactive, month])
+  }, [showInactive, month, setError])
 
   useEffect(() => {
     apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
@@ -104,7 +106,7 @@ export function Students({ month, setMonth }: Props) {
         </div>
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <div className="surface-card p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

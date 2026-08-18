@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input"
 import { ApiError, apiGet, apiSend } from "@/lib/api"
 import type { PaymentPreview, PreviewAdjustment, PreviewLine } from "@/lib/api"
 import { dhToCentimes, formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 type Props = {
   enrollmentId: number
@@ -48,14 +49,8 @@ export function PayDialog({
   const setOpen = onOpenChange ?? setInternalOpen
   const [preview, setPreview] = useState<PaymentPreview | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Refaire DEUX FOIS la même erreur doit la réafficher : le message est
-  // identique, donc seul ce compteur change — il remonte la Notice.
-  const [errorKey, setErrorKey] = useState(0)
-  const fail = (message: string) => {
-    setError(message)
-    setErrorKey((count) => count + 1)
-  }
+  const [error, setError] = useAlert()
+  const fail = (message: string) => setError(message)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [adding, setAdding] = useState(false)
   const [giftOpen, setGiftOpen] = useState(false)
@@ -73,7 +68,7 @@ export function PayDialog({
         setError(null)
       })
       .catch((err: Error) => setError(err.message))
-  }, [enrollmentId])
+  }, [enrollmentId, setError])
 
   useEffect(() => {
     if (open) reload()
@@ -316,7 +311,7 @@ export function PayDialog({
               )}
             </section>
 
-            <Notice key={errorKey} message={error} />
+            <Notice alert={error} />
 
             <footer className="border-border space-y-3 border-t pt-4">
               <div className="flex items-center justify-between">
@@ -379,10 +374,10 @@ export function PayDialog({
         {!preview && (
           <p
             className={
-              error ? "text-destructive text-sm" : "text-muted-foreground text-sm"
+              error.message ? "text-destructive text-sm" : "text-muted-foreground text-sm"
             }
           >
-            {error ?? "Chargement…"}
+            {error.message ?? "Chargement…"}
           </p>
         )}
       </DialogContent>

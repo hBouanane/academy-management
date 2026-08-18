@@ -27,6 +27,7 @@ import { apiGet } from "@/lib/api"
 import type { StudentProfile as Profile } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
 import { formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 type Props = {
   studentId: number | null
@@ -37,7 +38,7 @@ type Props = {
 
 export function StudentProfile({ studentId, onClose, onChanged }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   // Any unpaid month is payable right here, no month navigation needed.
   const [payId, setPayId] = useState<number | null>(null)
   // Completing an avance, likewise.
@@ -56,7 +57,7 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
     apiGet<Profile>(`/api/students/${studentId}/profile`)
       .then(setProfile)
       .catch((err: Error) => setError(err.message))
-  }, [studentId, refresh])
+  }, [studentId, refresh, setError])
 
   const fullName = profile
     ? [profile.first_name, profile.name].filter(Boolean).join(" ")
@@ -69,7 +70,7 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
         <DialogHeader>
           <DialogTitle>{fullName || "Profil étudiant"}</DialogTitle>
         </DialogHeader>
-        <Notice message={error} />
+        <Notice alert={error} />
         {profile && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">

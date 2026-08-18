@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Notice } from "@/components/Notice"
+import { useAlert } from "@/lib/alert"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, PhoneEntry, School, Student } from "@/lib/api"
 import { fuzzyFilter } from "@/lib/fuzzy"
@@ -70,7 +71,7 @@ export function StudentDialog({
   const [schools, setSchools] = useState<School[]>([])
   const [filieres, setFilieres] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
 
   useEffect(() => {
     if (!open) return
@@ -93,7 +94,7 @@ export function StudentDialog({
     }
     setNote(null)
     setBusy(false)
-  }, [open, initial])
+  }, [open, initial, setNote])
 
   const levelName = levels.find((level) => String(level.id) === levelId)?.name ?? ""
   const annees = anneeOptions(levelName)
@@ -338,7 +339,7 @@ export function StudentDialog({
             </Button>
           </div>
 
-          <Notice message={note} />
+          <Notice alert={note} />
         </div>
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>

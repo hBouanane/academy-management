@@ -32,6 +32,7 @@ import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Package } from "@/lib/api"
 import { dhToCentimes, formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 // The three natural price points for a bloc niveau — labels editable,
 // prices HIS to type (they are price variants, never reductions).
@@ -132,13 +133,14 @@ export function Packages() {
   const [editPrice, setEditPrice] = useState("")
   const [editLabel, setEditLabel] = useState("")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
 
   const reload = useCallback(() => {
+    setError(null)
     apiGet<Package[]>(`/api/packages?include_inactive=${showArchived}`)
       .then(setPackages)
       .catch((err: Error) => setError(err.message))
-  }, [showArchived])
+  }, [showArchived, setError])
 
   useEffect(() => {
     apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
@@ -193,7 +195,7 @@ export function Packages() {
         </p>
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <div className="surface-card space-y-3 p-5">
         <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">

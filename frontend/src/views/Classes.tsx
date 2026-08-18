@@ -47,6 +47,7 @@ import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { subjectsOfLevel } from "@/components/ProgramTree"
 import { TeacherProfile } from "@/components/TeacherProfile"
+import { useAlert } from "@/lib/alert"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, ClassRow, Level, Subject, Teacher } from "@/lib/api"
 import {
@@ -80,7 +81,7 @@ export function Classes({ month, setMonth }: Props) {
   const [capabilities, setCapabilities] = useState<Capability[]>([])
   const [filieres, setFilieres] = useState<string[]>([])
   const [showArchived, setShowArchived] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   const [createOpen, setCreateOpen] = useState(false)
   const [replaceTarget, setReplaceTarget] = useState<ClassRow | null>(null)
   const [duplicateTarget, setDuplicateTarget] = useState<ClassRow | null>(null)
@@ -90,6 +91,7 @@ export function Classes({ month, setMonth }: Props) {
   const [profileStudent, setProfileStudent] = useState<number | null>(null)
 
   const reload = useCallback(() => {
+    setError(null)
     apiGet<ClassRow[]>(
       `/api/classes?include_inactive=${showArchived}&month=${month}`,
     )
@@ -100,7 +102,7 @@ export function Classes({ month, setMonth }: Props) {
     apiGet<Teacher[]>("/api/teachers").then(setTeachers).catch(() => {})
     apiGet<Capability[]>("/api/capabilities").then(setCapabilities).catch(() => {})
     apiGet<string[]>("/api/filieres").then(setFilieres).catch(() => {})
-  }, [month, showArchived])
+  }, [month, showArchived, setError])
   useEffect(reload, [reload])
 
   const restore = (row: ClassRow) =>
@@ -173,7 +175,7 @@ export function Classes({ month, setMonth }: Props) {
         </div>
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
 
       <label className="text-muted-foreground flex items-center gap-2 text-sm">
         <Checkbox
@@ -487,7 +489,7 @@ function NewClassDialog({
   const [subjectDraft, setSubjectDraft] = useState("")
   const [teacherId, setTeacherId] = useState<number | null>(null)
   const [teacherDraft, setTeacherDraft] = useState("")
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -503,7 +505,7 @@ function NewClassDialog({
     setTeacherDraft("")
     setNote(null)
     setBusy(false)
-  }, [open])
+  }, [open, setNote])
 
   const level = levels.find((entry) => entry.id === levelId)
   const annees = level ? teachingAnnees(level) : []
@@ -866,7 +868,7 @@ function NewClassDialog({
             </Step>
           )}
 
-          <Notice message={note} />
+          <Notice alert={note} />
         </div>
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>
@@ -892,7 +894,7 @@ function ReplaceTeacherDialog({
   const [date, setDate] = useState(todayIso())
   // Une classe, un professeur : un seul choix possible.
   const [successor, setSuccessor] = useState<number | null>(null)
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
   const vacant = target.teacher_id === null
 
@@ -980,7 +982,7 @@ function ReplaceTeacherDialog({
               classe.
             </p>
           </div>
-          <Notice message={note} />
+          <Notice alert={note} />
         </div>
         <DialogFooter className="flex-wrap gap-2">
           {!vacant && (
@@ -1010,7 +1012,7 @@ function DuplicateDialog({
 }) {
   const [teacherId, setTeacherId] = useState(String(target.teacher_id))
   const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useAlert()
 
   const submit = () => {
     setBusy(true)
@@ -1049,7 +1051,7 @@ function DuplicateDialog({
             </SelectContent>
           </Select>
         </div>
-        <Notice message={note} />
+        <Notice alert={note} />
         <DialogFooter>
           <Button onClick={submit} disabled={busy}>
             {busy ? "…" : "Créer le groupe"}

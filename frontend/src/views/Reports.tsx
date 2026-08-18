@@ -25,6 +25,7 @@ import type {
 } from "@/lib/api"
 import { useCountUp, useGrowIn } from "@/lib/anim"
 import { formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 const KIND_LABEL: Record<BeneficiaryTotal["kind"], string> = {
   teacher: "Professeur",
@@ -44,7 +45,7 @@ export function Reports({ month, setMonth }: Props) {
   const [owing, setOwing] = useState<ArrearsEntry[]>([])
   const [refunds, setRefunds] = useState<Refund[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   const [refresh, setRefresh] = useState(0)
   // Collecting an owed month straight from the arrears list.
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
@@ -71,7 +72,7 @@ export function Reports({ month, setMonth }: Props) {
     apiGet<Teacher[]>("/api/teachers")
       .then(setTeachers)
       .catch(() => setTeachers([]))
-  }, [month, refresh])
+  }, [month, refresh, setError])
 
   const recordExport = () => {
     const stamp = utcNow()
@@ -150,7 +151,7 @@ export function Reports({ month, setMonth }: Props) {
         </div>
       </header>
 
-      <Notice message={error} />
+      <Notice alert={error} />
       <Notice
         tone="warning"
         message={

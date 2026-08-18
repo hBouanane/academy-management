@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Notice } from "@/components/Notice"
 import { apiSend } from "@/lib/api"
+import { useAlert } from "@/lib/alert"
 
 type Props = { paymentId: number; onDone: () => void }
 
@@ -19,7 +20,7 @@ export function ReverseDialog({ paymentId, onDone }: Props) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
 
   const reset = () => {
     setReason("")
@@ -73,7 +74,7 @@ export function ReverseDialog({ paymentId, onDone }: Props) {
             placeholder="Chèque refusé…"
           />
         </div>
-        <Notice message={error} />
+        <Notice alert={error} />
         <DialogFooter>
           <Button variant="destructive" onClick={submit} disabled={busy}>
             {busy ? "…" : "Contre-passer"}

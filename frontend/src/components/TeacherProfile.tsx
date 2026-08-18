@@ -26,6 +26,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { TeacherProfile as Profile } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
 import { formatDH } from "@/lib/money"
+import { useAlert } from "@/lib/alert"
 
 const capabilityLabel = (capability: Profile["capabilities"][number]) =>
   `${capability.subject_name} · ${capability.level_name}${
@@ -41,7 +42,7 @@ type Props = {
 
 export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
   const [refresh, setRefresh] = useState(0)
   // Batch class creation: check several capabilities, one « Créer » click.
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -56,7 +57,7 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
     apiGet<Profile>(`/api/teachers/${teacherId}/profile?month=${month}`)
       .then(setProfile)
       .catch((err: Error) => setError(err.message))
-  }, [teacherId, month, refresh])
+  }, [teacherId, month, refresh, setError])
 
   const alreadyTeaches = (capability: Profile["capabilities"][number]) =>
     (profile?.classes ?? []).some(
@@ -112,7 +113,7 @@ export function TeacherProfile({ teacherId, month, onClose, onChanged }: Props) 
             )}
           </DialogTitle>
         </DialogHeader>
-        <Notice message={error} />
+        <Notice alert={error} />
         {profile && (
           <div className="space-y-5">
             <FieldGrid>
