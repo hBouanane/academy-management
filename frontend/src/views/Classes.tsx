@@ -739,10 +739,12 @@ function NewClassDialog({
           {slotDone && (
             <Step number={step++} title="La matière">
               <div className="flex flex-wrap items-center gap-1.5">
-                {level !== undefined &&
-                  level.teaching_annees === 0 &&
-                  levelSubjects.length === 0 && (
-                    // Bloc niveau without matières: offer the honest one.
+                {level?.name === "Primaire" &&
+                  !levelSubjects.some(
+                    (subject) => subject.name === "Accompagnement complet",
+                  ) && (
+                    // Le Primaire est un seul groupe aidé sur tout : sa
+                    // matière unique se crée ici. Aucune suggestion ailleurs.
                     <StepChip
                       active={false}
                       onClick={() => {
