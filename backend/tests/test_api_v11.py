@@ -170,3 +170,51 @@ class TestCaisse:
         setup_base(client)
         kinds = {entry["kind"] for entry in caisse(client)["lines"]}
         assert kinds == {"venue", "owner", "teacher"}
+
+
+class TestOverpaidTeacher:
+    def test_paying_then_lowering_the_due_shows_the_excess(self, client):
+        # Cas rare mais réel : on solde un professeur, puis l'élève obtient
+        # une réduction ou se fait rembourser. Le professeur a reçu plus que
+        # son dû — il faut le voir pour le déduire plus tard.
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        paid = pay_out(client, "teacher", teacher)
+        assert paid.json()["amount_centimes"] == 180 * DH
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 100 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": teacher}],
+            },
+        )
+        row = line(caisse(client), "teacher", teacher)
+        assert row["due_centimes"] == 80 * DH
+        assert row["paid_centimes"] == 180 * DH
+        assert row["remaining_centimes"] == 0
+        assert row["overpaid_centimes"] == 100 * DH
+
+    def test_the_excess_follows_into_the_next_month(self, client):
+        # Le mois suivant doit le rappeler : « déduisez 100 DH ».
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        pay_out(client, "teacher", teacher)
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={
+                "kind": "amount",
+                "value": 100 * DH,
+                "bearers": [{"kind": "teacher", "ref_id": teacher}],
+            },
+        )
+        row = line(caisse(client, "2026-10"), "teacher", teacher)
+        assert row["previous_overpaid_centimes"] == 100 * DH
+
+    def test_nothing_owed_back_when_the_books_are_straight(self, client):
+        level, class_id, teacher, package = setup_base(client)
+        enroll(client, level, package, class_id)
+        pay_out(client, "teacher", teacher)
+        row = line(caisse(client), "teacher", teacher)
+        assert row["overpaid_centimes"] == 0
+        assert row["previous_overpaid_centimes"] == 0

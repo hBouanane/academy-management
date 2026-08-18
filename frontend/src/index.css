@@ -197,3 +197,19 @@
     overflow-x: auto;
     }
 }
+
+@layer components {
+  /* Les confirmations arrivent par la droite, sans bousculer la page. */
+  .toast-enter {
+    animation: toast-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(16px) scale(0.98); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+    }
+  /* Ce qui attend de l'argent se signale sans crier : un liseré, pas un
+     aplat rouge de plus. */
+  .row-attention {
+    box-shadow: inset 3px 0 0 var(--destructive);
+    }
+}

@@ -280,6 +280,10 @@ export type CaisseLine = {
   due_centimes: number // négatif = ce bénéficiaire a avancé de sa poche
   paid_centimes: number
   remaining_centimes: number
+  // Versé de plus que le dû — une réduction ou un remboursement est passé
+  // après le versement. À déduire plus tard, jamais repris tout seul.
+  overpaid_centimes: number
+  previous_overpaid_centimes: number
   payouts: Payout[]
 }
 export type Caisse = {

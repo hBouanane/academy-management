@@ -28,6 +28,7 @@ import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
 import { StudentProfile } from "@/components/StudentProfile"
 import { TeacherProfile } from "@/components/TeacherProfile"
+import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Caisse, CaisseLine, OverviewRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
@@ -58,6 +59,7 @@ export function Payroll() {
   } | null>(null)
   const [studentProfile, setStudentProfile] = useState<number | null>(null)
   const [teacherProfile, setTeacherProfile] = useState<number | null>(null)
+  const toast = useToast()
 
   const reload = useCallback(() => {
     apiGet<Caisse>(`/api/caisse?month=${month}`)
@@ -70,18 +72,27 @@ export function Payroll() {
   useEffect(reload, [reload])
 
   const payOut = (line: CaisseLine, amount?: number) =>
-    apiSend("POST", "/api/payouts", {
+    apiSend<{ amount_centimes: number }>("POST", "/api/payouts", {
       kind: line.kind,
       ref_id: line.ref_id,
       month,
       ...(amount === undefined ? {} : { amount_centimes: amount }),
     })
-      .then(reload)
-      .catch((err: Error) => setError(err.message))
+      .then((done) => {
+        toast(`Versé ${formatDH(done.amount_centimes)} — ${line.name}`)
+        reload()
+      })
+      .catch((err: Error) => {
+        setError(err.message)
+        toast(err.message, "error")
+      })
 
   const cancelPayout = (payoutId: number) =>
     apiSend("DELETE", `/api/payouts/${payoutId}`)
-      .then(reload)
+      .then(() => {
+        toast("Versement annulé — l'argent revient en caisse")
+        reload()
+      })
       .catch((err: Error) => setError(err.message))
 
   const lines = caisse?.lines ?? []
@@ -171,7 +182,12 @@ export function Payroll() {
               {lines.map((line, index) => (
                 <TableRow
                   key={`${line.kind}-${line.ref_id}`}
-                  className={`stagger-row ${line.kind === "teacher" ? "cursor-pointer" : ""}`}
+                  className={`stagger-row ${
+                    line.overpaid_centimes > 0 ||
+                    line.previous_overpaid_centimes > 0
+                      ? "row-attention"
+                      : ""
+                  } ${line.kind === "teacher" ? "cursor-pointer" : ""}`}
                   style={{ animationDelay: `${index * 40}ms` }}
                   title={
                     line.kind === "teacher"
@@ -217,6 +233,24 @@ export function Payroll() {
                     >
                       {formatDH(line.remaining_centimes)}
                     </span>
+                    {/* Il a reçu plus que son dû : on le dit pour pouvoir
+                        le déduire — on ne reprend jamais tout seul. */}
+                    {line.overpaid_centimes > 0 && (
+                      <p
+                        className="text-destructive text-xs"
+                        title="Une réduction ou un remboursement est passé après le versement"
+                      >
+                        trop-versé {formatDH(line.overpaid_centimes)}
+                      </p>
+                    )}
+                    {line.previous_overpaid_centimes > 0 && (
+                      <p
+                        className="text-muted-foreground text-xs"
+                        title="Trop-versé des mois précédents — pensez à le déduire"
+                      >
+                        à déduire {formatDH(line.previous_overpaid_centimes)}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">

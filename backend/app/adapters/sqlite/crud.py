@@ -1564,9 +1564,11 @@ def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dic
     if venue:
         lines[0]["due_centimes"] = venue_due
         lines[0]["remaining_centimes"] = max(venue_due - lines[0]["paid_centimes"], 0)
+        lines[0]["overpaid_centimes"] = max(lines[0]["paid_centimes"] - venue_due, 0)
     owner_line = lines[-1]
     owner_line["due_centimes"] = owner_due
     owner_line["remaining_centimes"] = max(owner_due - owner_line["paid_centimes"], 0)
+    owner_line["overpaid_centimes"] = max(owner_line["paid_centimes"] - owner_due, 0)
 
     # Un professeur archivé en cours de mois doit quand même être payé pour
     # ce qu'il a enseigné : on liste les actifs ET tous ceux à qui il reste
@@ -1594,6 +1596,11 @@ def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dic
         entry["due_centimes"] = dues.get(teacher["id"], 0)
         entry["remaining_centimes"] = max(
             entry["due_centimes"] - entry["paid_centimes"], 0
+        )
+        # Versé plus que dû : une réduction ou un remboursement est
+        # passé APRÈS le versement. On le montre, on ne le reprend pas.
+        entry["overpaid_centimes"] = max(
+            entry["paid_centimes"] - entry["due_centimes"], 0
         )
         lines.append(entry)
 
@@ -1637,8 +1644,60 @@ def _caisse_line(
         "due_centimes": 0,
         "paid_centimes": sum(payout["amount_centimes"] for payout in payouts),
         "remaining_centimes": 0,
+        # Versé de plus que le dû — arrive quand une réduction ou un
+        # remboursement fait baisser le dû APRÈS le versement.
+        "overpaid_centimes": 0,
+        "previous_overpaid_centimes": _previous_overpaid(
+            conn, academy_id, month, kind, ref_id
+        ),
         "payouts": payouts,
     }
+
+
+def _previous_overpaid(
+    conn: sqlite3.Connection, academy_id: int, month: str, kind: str, ref_id: int
+) -> int:
+    """Ce qui a été versé en trop les mois PRÉCÉDENTS et reste à déduire.
+
+    On ne reprend jamais l'argent tout seul : on le rappelle, le
+    propriétaire déduit quand il veut."""
+    months = [
+        row["month"]
+        for row in conn.execute(
+            "SELECT DISTINCT month FROM payout WHERE academy_id = ?"
+            " AND beneficiary_kind = ? AND beneficiary_id = ? AND month < ?",
+            (academy_id, kind, ref_id, month),
+        )
+    ]
+    total = 0
+    for past in months:
+        paid = conn.execute(
+            "SELECT COALESCE(SUM(amount_centimes), 0) FROM payout"
+            " WHERE academy_id = ? AND beneficiary_kind = ? AND beneficiary_id = ?"
+            " AND month = ?",
+            (academy_id, kind, ref_id, past),
+        ).fetchone()[0]
+        total += max(paid - _due_for(conn, academy_id, past, kind, ref_id), 0)
+    return total
+
+
+def _due_for(
+    conn: sqlite3.Connection, academy_id: int, month: str, kind: str, ref_id: int
+) -> int:
+    """Le dû d'un bénéficiaire pour un mois, sans recalculer toute la caisse."""
+    if kind == "teacher":
+        return _teacher_dues(conn, academy_id, month).get(ref_id, 0)
+    from app.adapters.sqlite.reports import _cash_in
+
+    venue_due = conn.execute(
+        "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+        " WHERE academy_id = ? AND month = ? AND beneficiary_kind = 'venue'",
+        (academy_id, month),
+    ).fetchone()[0]
+    if kind == "venue":
+        return venue_due
+    collected = _cash_in(conn, academy_id, month)
+    return collected - sum(_teacher_dues(conn, academy_id, month).values()) - venue_due
 
 
 def _unpaid_projection(

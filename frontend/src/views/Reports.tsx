@@ -152,6 +152,7 @@ export function Reports({ month, setMonth }: Props) {
 
       <Notice message={error} />
       <Notice
+        tone="warning"
         message={
           staleExport
             ? `Ce mois a changé depuis votre export Excel — ré-exportez ${monthLabel(

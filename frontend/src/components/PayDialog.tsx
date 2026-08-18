@@ -14,6 +14,7 @@ import { Notice } from "@/components/Notice"
 import { useMotifs } from "@/components/MotifInput"
 import { ReductionForm } from "@/components/ReductionForm"
 import type { ReductionPayload } from "@/components/ReductionForm"
+import { useToast } from "@/components/Toast"
 import { Input } from "@/components/ui/input"
 import { ApiError, apiGet, apiSend } from "@/lib/api"
 import type { PaymentPreview, PreviewAdjustment, PreviewLine } from "@/lib/api"
@@ -59,6 +60,7 @@ export function PayDialog({
   const [adding, setAdding] = useState(false)
   const [giftOpen, setGiftOpen] = useState(false)
   const { motifs, ensure } = useMotifs()
+  const toast = useToast()
 
   // The amount actually handed over — less than the net posts an avance.
   const [amount, setAmount] = useState("")
@@ -143,6 +145,14 @@ export function PayDialog({
         apiSend("POST", "/api/payments", {
           enrollment_id: enrollmentId,
           ...partial,
+        }).then((posted) => {
+          // La fenêtre se referme : sans un mot, on doute d'avoir cliqué.
+          toast(
+            nothingToPay
+              ? `Mois offert validé — ${studentName}`
+              : `Encaissé ${formatDH(centimes)} — ${studentName}`,
+          )
+          return posted
         }),
       { closeAfter: true, isPayment: true },
     )
