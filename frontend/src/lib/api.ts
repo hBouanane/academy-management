@@ -137,6 +137,23 @@ export type ProfileMonth = {
   arrival_date: string | null
   subject_count: number
   subjects: string[]
+  refund_pending_centimes: number
+  refunded_centimes: number
+}
+export type ClassProfile = ClassRow & {
+  enrolled_count: number
+  students: {
+    student_id: number
+    student_name: string
+    first_name: string | null
+    enrollment_id: number
+    paid: number
+  }[]
+  assignments: {
+    teacher_name: string
+    from_date: string | null
+    to_date: string | null
+  }[]
 }
 export type StudentProfile = Student & {
   phones: PhoneEntry[]
@@ -158,6 +175,9 @@ export type OverviewEnrollment = {
   // Unpaid month whose professors the académie already paid out of pocket.
   guaranteed_centimes: number
   stopped: boolean
+  // Classe archivée sous un élève qui avait payé : il attend son argent.
+  refund_pending_centimes: number
+  refunded_centimes: number
   classes: EnrollmentClass[]
   split: SplitChip[]
 }

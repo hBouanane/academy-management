@@ -250,6 +250,8 @@ def list_classes(
 
 def update_class(conn: sqlite3.Connection, class_id: int, fields: dict) -> None:
     with _transaction(conn):
+        if fields.get("is_active") == 1:
+            _reopen_teaching(conn, class_id)
         if "teacher_id" in fields:
             # The pencil is a CORRECTION ("wrong name"), not a handover: the
             # open assignment is rewritten as if this teacher always taught.
@@ -280,6 +282,27 @@ def update_class(conn: sqlite3.Connection, class_id: int, fields: dict) -> None:
             )
             if updated.rowcount == 0:
                 raise LookupError(f"no class_group {class_id}")
+
+
+def _reopen_teaching(conn: sqlite3.Connection, class_id: int) -> None:
+    """Archiver une classe ferme la période de son professeur. La restaurer
+    doit la rouvrir — sinon sa fiche prétend qu'il a arrêté alors qu'il
+    l'enseigne toujours. Il reprend à la date de la restauration."""
+    row = conn.execute(
+        "SELECT teacher_id FROM class_group WHERE id = ?", (class_id,)
+    ).fetchone()
+    if row is None or row["teacher_id"] is None:
+        return
+    open_period = conn.execute(
+        "SELECT 1 FROM class_teacher WHERE class_id = ? AND to_date IS NULL",
+        (class_id,),
+    ).fetchone()
+    if open_period is None:
+        conn.execute(
+            "INSERT INTO class_teacher (class_id, teacher_id, from_date)"
+            " VALUES (?, ?, date('now'))",
+            (class_id, row["teacher_id"]),
+        )
 
 
 def create_class(conn: sqlite3.Connection, academy_id: int, fields: dict) -> int:
@@ -1013,6 +1036,7 @@ def student_profile(conn: sqlite3.Connection, student_id: int) -> dict | None:
             "subjects": [
                 c["subject_name"] for c in _enrollment_classes(conn, enrollment["id"])
             ],
+            **enrollment_refunds(conn, enrollment["id"]),
         }
         for enrollment in _rows(
             conn,
@@ -1800,9 +1824,79 @@ def _overview_row(conn, store, row) -> dict:
             # Impayé mais professeur déjà payé par l'académie.
             "guaranteed_centimes": _guaranteed_total(conn, row["enrollment_id"]),
             "stopped": bool(row["stopped"]),
+            **enrollment_refunds(conn, row["enrollment_id"]),
             "classes": _enrollment_classes(conn, row["enrollment_id"]),
             "split": _row_split(conn, store, row["enrollment_id"]),
         },
+    }
+
+
+def enrollment_refunds(conn: sqlite3.Connection, enrollment_id: int) -> dict:
+    """Ce qui est promis à l'élève et ce qui lui a déjà été rendu : un mois
+    payé dont la classe a été archivée n'est pas juste « Payé », il attend
+    son argent."""
+    row = conn.execute(
+        "SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN amount_centimes"
+        " ELSE 0 END), 0) AS pending,"
+        " COALESCE(SUM(CASE WHEN status = 'settled' THEN amount_centimes"
+        " ELSE 0 END), 0) AS settled"
+        " FROM refund WHERE enrollment_id = ?",
+        (enrollment_id,),
+    ).fetchone()
+    return {
+        "refund_pending_centimes": row["pending"],
+        "refunded_centimes": row["settled"],
+    }
+
+
+def class_profile(conn: sqlite3.Connection, class_id: int, month: str) -> dict | None:
+    """Une classe, toute son histoire : son créneau, qui l'enseigne
+    aujourd'hui, qui l'a enseignée et quand, et les élèves inscrits ce
+    mois-ci."""
+    row = conn.execute(
+        """
+        SELECT cg.*, sub.name AS subject_name, sl.name AS level_name,
+               t.name AS teacher_name
+        FROM class_group cg
+        JOIN subject sub ON sub.id = cg.subject_id
+        JOIN school_level sl ON sl.id = cg.level_id
+        LEFT JOIN teacher t ON t.id = cg.teacher_id
+        WHERE cg.id = ?
+        """,
+        (class_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    students = _rows(
+        conn,
+        """
+        SELECT s.id AS student_id, s.name AS student_name, s.first_name,
+               e.id AS enrollment_id,
+               (p.id IS NOT NULL) AS paid
+        FROM enrollment_class ec
+        JOIN enrollment e ON e.id = ec.enrollment_id
+        JOIN student s ON s.id = e.student_id
+        LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
+        WHERE ec.class_id = ? AND e.month = ?
+        ORDER BY s.name, s.first_name
+        """,
+        (class_id, month),
+    )
+    return {
+        **dict(row),
+        "enrolled_count": len(students),
+        "students": students,
+        "assignments": _rows(
+            conn,
+            """
+            SELECT ct.from_date, ct.to_date, t.name AS teacher_name
+            FROM class_teacher ct
+            JOIN teacher t ON t.id = ct.teacher_id
+            WHERE ct.class_id = ?
+            ORDER BY ct.id
+            """,
+            (class_id,),
+        ),
     }
 
 

@@ -58,6 +58,49 @@ export function affectedStudents(
 
 const PERCENT_CHOICES = [100, 70, 50, 0]
 
+/** Un seul geste pour tout le monde — le cas courant. Chaque élève reste
+    ajustable ensuite pour les exceptions. */
+export function RefundForEveryone({
+  count,
+  onApply,
+}: {
+  count: number
+  onApply: (percent: number) => void
+}) {
+  const [custom, setCustom] = useState("")
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-sm">
+      <span className="text-muted-foreground mr-1 text-xs">
+        Appliquer à tous ({count}) :
+      </span>
+      {PERCENT_CHOICES.map((choice) => (
+        <button
+          key={choice}
+          type="button"
+          onClick={() => onApply(choice)}
+          className="border-border hover:border-foreground/40 rounded-full border px-2 py-0.5 text-xs"
+        >
+          {choice}%
+        </button>
+      ))}
+      <Input
+        value={custom}
+        onChange={(event) => setCustom(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return
+          event.preventDefault()
+          const value = Number(custom)
+          if (Number.isFinite(value))
+            onApply(Math.max(0, Math.min(100, Math.round(value))))
+        }}
+        placeholder="%"
+        className="h-7 w-14 text-center text-xs"
+        inputMode="numeric"
+      />
+    </div>
+  )
+}
+
 export function RefundPicker({
   student,
   percent,
@@ -190,6 +233,18 @@ export function ArchiveClassDialog({
               <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                 Remboursements — étudiants ayant payé
               </p>
+              {paid.length > 1 && (
+                <RefundForEveryone
+                  count={paid.length}
+                  onApply={(percent) =>
+                    setPercents(
+                      Object.fromEntries(
+                        paid.map((student) => [student.enrollmentId, percent]),
+                      ),
+                    )
+                  }
+                />
+              )}
               {paid.map((student) => (
                 <RefundPicker
                   key={student.enrollmentId}

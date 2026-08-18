@@ -29,6 +29,7 @@ import {
 import { Notice } from "@/components/Notice"
 import {
   affectedStudents,
+  RefundForEveryone,
   RefundPicker,
 } from "@/components/ArchiveClassDialog"
 import type { AffectedStudent } from "@/components/ArchiveClassDialog"
@@ -390,6 +391,22 @@ export function ArchiveTeacherDialog({
                       <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                         Remboursements (ont payé)
                       </p>
+                      {paid.length > 1 && (
+                        <RefundForEveryone
+                          count={paid.length}
+                          onApply={(percent) =>
+                            setPercents((current) => ({
+                              ...current,
+                              ...Object.fromEntries(
+                                paid.map((student) => [
+                                  student.enrollmentId,
+                                  percent,
+                                ]),
+                              ),
+                            }))
+                          }
+                        />
+                      )}
                       {paid.map((student) => (
                         <RefundPicker
                           key={student.enrollmentId}

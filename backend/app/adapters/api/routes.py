@@ -467,6 +467,16 @@ def teacher_profile(
     return profile
 
 
+@router.get("/classes/{class_id}/profile")
+def class_profile(class_id: int, conn: Conn, month: MonthQuery | None = None) -> dict:
+    """La fiche d'une classe : son créneau, son professeur, la succession
+    de ceux qui l'ont enseignée, et ses inscrits du mois."""
+    profile = crud.class_profile(conn, class_id, month or clock.current_month())
+    if profile is None:
+        raise LookupError(f"no class_group {class_id}")
+    return profile
+
+
 @router.get("/classes/{class_id}/absence.docx")
 def absence_sheet_route(class_id: int, month: MonthQuery, conn: Conn) -> Response:
     from app.adapters.docx.absence_sheet import absence_sheet

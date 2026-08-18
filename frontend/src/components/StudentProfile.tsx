@@ -179,9 +179,25 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
                               )}
                             </span>
                           ) : month.paid ? (
-                            <Badge className="bg-success/15 text-success border-success/20 border">
-                              Payé{month.paid_on ? ` · ${month.paid_on}` : ""}
-                            </Badge>
+                            <span className="flex flex-wrap items-center gap-1">
+                              <Badge className="bg-success/15 text-success border-success/20 border">
+                                Payé{month.paid_on ? ` · ${month.paid_on}` : ""}
+                              </Badge>
+                              {month.refund_pending_centimes > 0 && (
+                                <Badge
+                                  variant="destructive"
+                                  title="Classe archivée — à lui rendre"
+                                >
+                                  à rembourser{" "}
+                                  {formatDH(month.refund_pending_centimes)}
+                                </Badge>
+                              )}
+                              {month.refunded_centimes > 0 && (
+                                <Badge variant="outline" title="Argent déjà rendu">
+                                  remboursé {formatDH(month.refunded_centimes)}
+                                </Badge>
+                              )}
+                            </span>
                           ) : (
                             <span className="flex items-center gap-2">
                               <Badge variant="destructive">Impayé</Badge>

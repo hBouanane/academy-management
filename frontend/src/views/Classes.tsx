@@ -40,7 +40,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ArchiveClassDialog } from "@/components/ArchiveClassDialog"
+import { ClassProfile } from "@/components/ClassProfile"
 import { ConfirmButton } from "@/components/Confirm"
+import { StudentProfile } from "@/components/StudentProfile"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { subjectsOfLevel } from "@/components/ProgramTree"
@@ -84,6 +86,8 @@ export function Classes({ month, setMonth }: Props) {
   const [duplicateTarget, setDuplicateTarget] = useState<ClassRow | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<ClassRow | null>(null)
   const [profileTeacher, setProfileTeacher] = useState<number | null>(null)
+  const [profileClass, setProfileClass] = useState<number | null>(null)
+  const [profileStudent, setProfileStudent] = useState<number | null>(null)
 
   const reload = useCallback(() => {
     apiGet<ClassRow[]>(
@@ -215,8 +219,15 @@ export function Classes({ month, setMonth }: Props) {
                     {section.entries.map((row, index) => (
                       <TableRow
                         key={row.id}
-                        className="stagger-row"
+                        className="stagger-row cursor-pointer"
                         style={{ animationDelay: `${index * 40}ms` }}
+                        title="Ouvrir la fiche de la classe"
+                        onClick={(event) => {
+                          const target = event.target as HTMLElement
+                          if (!event.currentTarget.contains(target)) return
+                          if (target.closest("button, a")) return
+                          setProfileClass(row.id)
+                        }}
                       >
                         <TableCell className="font-medium">
                           {row.subject_name}
@@ -379,6 +390,19 @@ export function Classes({ month, setMonth }: Props) {
         teacherId={profileTeacher}
         month={month}
         onClose={() => setProfileTeacher(null)}
+        onChanged={reload}
+      />
+
+      <ClassProfile
+        classId={profileClass}
+        month={month}
+        onClose={() => setProfileClass(null)}
+        onShowStudent={setProfileStudent}
+      />
+
+      <StudentProfile
+        studentId={profileStudent}
+        onClose={() => setProfileStudent(null)}
         onChanged={reload}
       />
     </div>

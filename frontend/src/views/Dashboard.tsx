@@ -431,9 +431,22 @@ function StudentRow({
           </Badge>
         )}
         {enrollment?.paid && !avance && (
-          <Badge className="bg-success/15 text-success border-success/20 border">
-            Payé
-          </Badge>
+          <span className="flex flex-wrap items-center gap-1">
+            <Badge className="bg-success/15 text-success border-success/20 border">
+              Payé
+            </Badge>
+            {/* Classe archivée sous lui : il attend son argent, ou l'a reçu. */}
+            {enrollment.refund_pending_centimes > 0 && (
+              <Badge variant="destructive" title="Classe archivée — à lui rendre">
+                à rembourser {formatDH(enrollment.refund_pending_centimes)}
+              </Badge>
+            )}
+            {enrollment.refunded_centimes > 0 && (
+              <Badge variant="outline" title="Argent déjà rendu">
+                remboursé {formatDH(enrollment.refunded_centimes)}
+              </Badge>
+            )}
+          </span>
         )}
         {unpaid && (
           <span className="flex flex-wrap items-center gap-1">
