@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmButton } from "@/components/Confirm"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -142,6 +143,8 @@ export function EntityManager({
     )
   }
 
+  const paging = usePagination(rows)
+
   return (
     <div className="view-enter space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -197,7 +200,7 @@ export function EntityManager({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row, index) => (
+            {paging.visible.map((row, index) => (
               <TableRow
                 key={row.id}
                 className={`group stagger-row ${onRowClick ? "cursor-pointer" : ""}`}
@@ -262,6 +265,11 @@ export function EntityManager({
             )}
           </TableBody>
         </Table>
+        <Pagination
+          {...paging}
+          shown={paging.visible.length}
+          noun="lignes"
+        />
         </div>
         <p className="text-muted-foreground mt-3 text-xs">
           Rien n'est jamais supprimé définitivement — archiver retire l'élément

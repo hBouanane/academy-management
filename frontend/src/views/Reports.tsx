@@ -13,6 +13,7 @@ import { CashBars } from "@/components/charts"
 import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { FileDocument } from "@/components/FileDocument"
 import { StaleDocuments } from "@/components/StaleDocuments"
 import { PayDialog } from "@/components/PayDialog"
@@ -130,6 +131,11 @@ export function Reports({ month, setMonth }: Props) {
           ...rawTotals.filter((total) => !isOwnerHat(total)),
         ]
 
+  // Impayes et remboursements grossissent avec les rentrees : on les
+  // coupe en pages plutot que d'en faire un rouleau.
+  const owingPage = usePagination(owing, 10)
+  const refundsPage = usePagination(refunds, 10)
+
   return (
     <div className="view-enter space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -234,7 +240,7 @@ export function Reports({ month, setMonth }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {owing.map((entry, index) => (
+              {owingPage.visible.map((entry, index) => (
                 <TableRow
                   key={entry.student_id}
                   className="stagger-row row-unpaid"
@@ -281,6 +287,11 @@ export function Reports({ month, setMonth }: Props) {
               )}
             </TableBody>
           </Table>
+          <Pagination
+            {...owingPage}
+            shown={owingPage.visible.length}
+            noun="élèves"
+          />
         </div>
       </div>
 
@@ -313,7 +324,7 @@ export function Reports({ month, setMonth }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {refunds.map((refund, index) => (
+                {refundsPage.visible.map((refund, index) => (
                   <TableRow
                     key={refund.id}
                     className="stagger-row"
@@ -365,6 +376,11 @@ export function Reports({ month, setMonth }: Props) {
                 ))}
               </TableBody>
             </Table>
+            <Pagination
+              {...refundsPage}
+              shown={refundsPage.visible.length}
+              noun="remboursements"
+            />
           </div>
         </div>
       )}

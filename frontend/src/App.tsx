@@ -18,6 +18,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { LockScreen } from "@/components/LockScreen"
 import { useLock } from "@/lib/useLock"
+import { useTeacherRoute } from "@/lib/navigation"
+import { TeacherPage } from "@/components/TeacherPage"
 import { currentMonth } from "@/lib/money"
 import { Academy } from "@/views/Academy"
 import { Classes } from "@/views/Classes"
@@ -77,12 +79,14 @@ function App() {
   const [month, setMonth] = useState(currentMonth())
   const { dark, toggle } = useTheme()
   const lock = useLock()
+  // Le profil d'un professeur est une page, pas une fenetre : il prend
+  // la place du contenu et laisse la barre de gauche en place.
+  const teacher = useTeacherRoute()
 
   // Tant que le verrou n'a pas répondu, on n'affiche rien : montrer
   // l'académie une demi-seconde avant de la cacher serait pire que tout.
   if (lock.state === null) return null
-  if (!lock.open)
-    return <LockScreen onOpened={lock.opened} />
+  if (!lock.open) return <LockScreen onOpened={lock.opened} />
 
   return (
     <div className="flex min-h-svh">
@@ -112,7 +116,10 @@ function App() {
                   return (
                     <button
                       key={item.key}
-                      onClick={() => setView(item.key)}
+                      onClick={() => {
+                        teacher.close()
+                        setView(item.key)
+                      }}
                       className={`flex w-full items-center gap-2.5 rounded-full px-3 py-1.5 text-sm transition-colors duration-150 ${
                         active
                           ? "bg-sidebar-primary text-sidebar-primary-foreground"
@@ -153,18 +160,42 @@ function App() {
           </Button>
         )}
       </aside>
-      <main className="min-w-0 flex-1 px-8 py-6" key={view}>
-        {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}
-        {view === "reports" && <Reports month={month} setMonth={setMonth} />}
-        {/* La caisse a son propre mois : le mois écoulé, pas celui en cours. */}
-        {view === "payroll" && <Payroll />}
-        {view === "students" && <Students month={month} setMonth={setMonth} />}
-        {view === "teachers" && <Teachers month={month} setMonth={setMonth} />}
-        {view === "subjects" && <Subjects />}
-        {view === "classes" && <Classes month={month} setMonth={setMonth} />}
-        {view === "packages" && <Packages />}
-        {view === "motifs" && <Motifs />}
-        {view === "academy" && <Academy />}
+      <main
+        className="min-w-0 flex-1 px-8 py-6"
+        key={teacher.teacherId === null ? view : `teacher-${teacher.teacherId}`}
+      >
+        {teacher.teacherId !== null && (
+          <TeacherPage
+            teacherId={teacher.teacherId}
+            month={month}
+            onClose={teacher.close}
+          />
+        )}
+        {teacher.teacherId === null && (
+          <>
+            {view === "dashboard" && (
+              <Dashboard month={month} setMonth={setMonth} />
+            )}
+            {view === "reports" && (
+              <Reports month={month} setMonth={setMonth} />
+            )}
+            {/* La caisse a son propre mois : le mois écoulé, pas celui en cours. */}
+            {view === "payroll" && <Payroll />}
+            {view === "students" && (
+              <Students month={month} setMonth={setMonth} />
+            )}
+            {view === "teachers" && (
+              <Teachers month={month} setMonth={setMonth} />
+            )}
+            {view === "subjects" && <Subjects />}
+            {view === "classes" && (
+              <Classes month={month} setMonth={setMonth} />
+            )}
+            {view === "packages" && <Packages />}
+            {view === "motifs" && <Motifs />}
+            {view === "academy" && <Academy />}
+          </>
+        )}
       </main>
     </div>
   )

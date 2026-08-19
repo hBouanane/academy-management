@@ -21,6 +21,7 @@ import { LevelFilter, matchesLevelFilter } from "@/components/LevelFilter"
 import type { LevelFilterValue } from "@/components/LevelFilter"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { StudentProfile } from "@/components/StudentProfile"
 import { PayDialog } from "@/components/PayDialog"
 import { ReverseDialog } from "@/components/ReverseDialog"
@@ -113,6 +114,7 @@ export function Dashboard({ month, setMonth }: Props) {
       (!enrolledOnly || row.enrollment !== null) &&
       matchesLevelFilter(filter, row),
   )
+  const paging = usePagination(filtered)
 
   return (
     <div className="view-enter space-y-6">
@@ -194,7 +196,7 @@ export function Dashboard({ month, setMonth }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((row, index) => (
+              {paging.visible.map((row, index) => (
                 <StudentRow
                   key={row.student_id}
                   row={row}
@@ -233,6 +235,11 @@ export function Dashboard({ month, setMonth }: Props) {
               )}
             </TableBody>
           </Table>
+          <Pagination
+            {...paging}
+            shown={paging.visible.length}
+            noun="élèves"
+          />
         </div>
       </div>
 

@@ -22,6 +22,7 @@ import { StudentProfile } from "@/components/StudentProfile"
 import { Input } from "@/components/ui/input"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, Student } from "@/lib/api"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { fuzzyFilter } from "@/lib/fuzzy"
 import { anneeLabel } from "@/lib/levels"
 import { formatDH } from "@/lib/money"
@@ -89,6 +90,13 @@ export function Students({ month, setMonth }: Props) {
       .finally(() => setBusy(false))
   }
 
+  const matching = fuzzyFilter(
+    students.filter((s) => matchesLevelFilter(filter, s)),
+    search,
+    fullName,
+  )
+  const paging = usePagination(matching)
+
   return (
     <div className="view-enter space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -140,11 +148,7 @@ export function Students({ month, setMonth }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {fuzzyFilter(
-              students.filter((s) => matchesLevelFilter(filter, s)),
-              search,
-              fullName,
-            ).map((student, index) => (
+            {paging.visible.map((student, index) => (
               <TableRow
                 key={student.id}
                 className={`stagger-row cursor-pointer ${Number(student.unpaid_months) > 0 ? "row-unpaid" : ""}`}
@@ -287,6 +291,11 @@ export function Students({ month, setMonth }: Props) {
             )}
           </TableBody>
         </Table>
+        <Pagination
+          {...paging}
+          shown={paging.visible.length}
+          noun="élèves"
+        />
         <p className="text-muted-foreground mt-3 text-xs">
           Un étudiant n'est jamais supprimé : archivé, il disparaît des listes
           mais son profil et tout son historique restent consultables.

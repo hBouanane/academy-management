@@ -47,8 +47,8 @@ import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { FileDocument } from "@/components/FileDocument"
 import { subjectsOfLevel } from "@/components/ProgramTree"
-import { TeacherProfile } from "@/components/TeacherProfile"
 import { useAlert } from "@/lib/alert"
+import { openTeacher } from "@/lib/navigation"
 import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, ClassRow, Level, Subject, Teacher } from "@/lib/api"
@@ -88,7 +88,6 @@ export function Classes({ month, setMonth }: Props) {
   const [replaceTarget, setReplaceTarget] = useState<ClassRow | null>(null)
   const [duplicateTarget, setDuplicateTarget] = useState<ClassRow | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<ClassRow | null>(null)
-  const [profileTeacher, setProfileTeacher] = useState<number | null>(null)
   const [profileClass, setProfileClass] = useState<number | null>(null)
   const [profileStudent, setProfileStudent] = useState<number | null>(null)
 
@@ -99,11 +98,21 @@ export function Classes({ month, setMonth }: Props) {
     )
       .then(setRows)
       .catch((err: Error) => setError(err.message))
-    apiGet<Level[]>("/api/levels").then(setLevels).catch(() => {})
-    apiGet<Subject[]>("/api/subjects").then(setSubjects).catch(() => {})
-    apiGet<Teacher[]>("/api/teachers").then(setTeachers).catch(() => {})
-    apiGet<Capability[]>("/api/capabilities").then(setCapabilities).catch(() => {})
-    apiGet<string[]>("/api/filieres").then(setFilieres).catch(() => {})
+    apiGet<Level[]>("/api/levels")
+      .then(setLevels)
+      .catch(() => {})
+    apiGet<Subject[]>("/api/subjects")
+      .then(setSubjects)
+      .catch(() => {})
+    apiGet<Teacher[]>("/api/teachers")
+      .then(setTeachers)
+      .catch(() => {})
+    apiGet<Capability[]>("/api/capabilities")
+      .then(setCapabilities)
+      .catch(() => {})
+    apiGet<string[]>("/api/filieres")
+      .then(setFilieres)
+      .catch(() => {})
   }, [month, showArchived, setError])
   useEffect(reload, [reload])
 
@@ -129,7 +138,10 @@ export function Classes({ month, setMonth }: Props) {
   const sectionsOf = (level: Level, classes: ClassRow[]) => {
     if (level.teaching_annees === 0)
       return [{ key: "bloc", label: null as string | null, entries: classes }]
-    const keyed = new Map<string, { label: string | null; entries: ClassRow[] }>()
+    const keyed = new Map<
+      string,
+      { label: string | null; entries: ClassRow[] }
+    >()
     for (const row of classes) {
       const base = anneeLabel(level.name, row.annee) ?? "Sans année"
       const fork = row.parcours
@@ -260,7 +272,10 @@ export function Classes({ month, setMonth }: Props) {
                           ) : (
                             <button
                               className="underline-offset-4 hover:underline"
-                              onClick={() => setProfileTeacher(row.teacher_id)}
+                              onClick={() =>
+                                row.teacher_id !== null &&
+                                openTeacher(row.teacher_id)
+                              }
                               title="Profil du professeur"
                             >
                               {row.teacher_name}
@@ -398,13 +413,6 @@ export function Classes({ month, setMonth }: Props) {
           }}
         />
       )}
-
-      <TeacherProfile
-        teacherId={profileTeacher}
-        month={month}
-        onClose={() => setProfileTeacher(null)}
-        onChanged={reload}
-      />
 
       <ClassProfile
         classId={profileClass}
@@ -560,9 +568,11 @@ function NewClassDialog({
         capability.teacher_id === teacher.id &&
         capability.level_id === levelId &&
         capability.subject_id === subjectId &&
-        (capability.annee === null || annee === null ||
+        (capability.annee === null ||
+          annee === null ||
           capability.annee === annee) &&
-        (capability.parcours === null || slotParcours === null ||
+        (capability.parcours === null ||
+          slotParcours === null ||
           capability.parcours === slotParcours),
     )
   const orderedTeachers = [...teachers].sort(
@@ -890,8 +900,8 @@ function NewClassDialog({
                 </datalist>
               </div>
               <p className="text-muted-foreground mt-1.5 text-xs">
-                ★ = compétent pour ce créneau. Un nom nouveau crée le
-                professeur ; sa compétence s'enregistre toute seule.
+                ★ = compétent pour ce créneau. Un nom nouveau crée le professeur
+                ; sa compétence s'enregistre toute seule.
               </p>
             </Step>
           )}

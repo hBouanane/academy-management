@@ -15,9 +15,10 @@ import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
 import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { FileDocument } from "@/components/FileDocument"
+import { openTeacher } from "@/lib/navigation"
 import { TeacherDialog } from "@/components/TeacherDialog"
-import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Teacher } from "@/lib/api"
 import { currentMonth, formatDH } from "@/lib/money"
@@ -39,17 +40,19 @@ export function Teachers({ month, setMonth }: Props) {
   const [busy, setBusy] = useState(false)
   // "new" opens creation; a row opens edition (identity + capability tree).
   const [editing, setEditing] = useState<Row | "new" | null>(null)
-  const [profileId, setProfileId] = useState<number | null>(null)
   // Archiving someone who still teaches opens the guided departure instead.
   const [departing, setDeparting] = useState<Row | null>(null)
 
   const reload = useCallback(() => {
     setError(null)
-    apiGet<Row[]>(`/api/teachers?include_inactive=${showArchived}&month=${month}`)
+    apiGet<Row[]>(
+      `/api/teachers?include_inactive=${showArchived}&month=${month}`,
+    )
       .then(setRows)
       .catch((err: Error) => setError(err.message))
   }, [showArchived, month, setError])
   useEffect(reload, [reload])
+  const paging = usePagination(rows)
 
   const restore = (row: Row) => {
     setBusy(true)
@@ -120,7 +123,7 @@ export function Teachers({ month, setMonth }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row, index) => (
+            {paging.visible.map((row, index) => (
               <TableRow
                 key={row.id}
                 className="stagger-row cursor-pointer"
@@ -132,7 +135,7 @@ export function Teachers({ month, setMonth }: Props) {
                   const target = event.target as HTMLElement
                   if (!event.currentTarget.contains(target)) return
                   if (target.closest("button, a")) return
-                  setProfileId(row.id)
+                  openTeacher(row.id)
                 }}
               >
                 <TableCell className="font-medium">{row.name}</TableCell>
@@ -224,13 +227,21 @@ export function Teachers({ month, setMonth }: Props) {
             ))}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-muted-foreground text-center">
+                <TableCell
+                  colSpan={7}
+                  className="text-muted-foreground text-center"
+                >
                   Aucun professeur — créez le premier, tout part de là.
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
+        <Pagination
+          {...paging}
+          shown={paging.visible.length}
+          noun="professeurs"
+        />
       </div>
 
       <TeacherDialog
@@ -241,13 +252,6 @@ export function Teachers({ month, setMonth }: Props) {
           setEditing(null)
           reload()
         }}
-      />
-
-      <TeacherProfile
-        teacherId={profileId}
-        month={month}
-        onClose={() => setProfileId(null)}
-        onChanged={reload}
       />
 
       {departing && (

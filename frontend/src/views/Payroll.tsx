@@ -27,13 +27,18 @@ import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
 import { StudentProfile } from "@/components/StudentProfile"
-import { TeacherProfile } from "@/components/TeacherProfile"
 import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Caisse, CaisseLine, OverviewRow } from "@/lib/api"
 import { useCountUp } from "@/lib/anim"
-import { currentMonth, dhToCentimes, formatDH, previousMonth } from "@/lib/money"
+import {
+  currentMonth,
+  dhToCentimes,
+  formatDH,
+  previousMonth,
+} from "@/lib/money"
 import { useAlert } from "@/lib/alert"
+import { openTeacher } from "@/lib/navigation"
 
 const KIND_LABEL: Record<CaisseLine["kind"], string> = {
   venue: "Salle",
@@ -51,15 +56,15 @@ export function Payroll() {
   const [error, setError] = useAlert()
   // Encaisser un impayé, solder un professeur, ouvrir un profil — sans
   // quitter la page.
-  const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
-    null,
-  )
+  const [payTarget, setPayTarget] = useState<{
+    id: number
+    name: string
+  } | null>(null)
   const [guaranteeTarget, setGuaranteeTarget] = useState<{
     id: number
     name: string
   } | null>(null)
   const [studentProfile, setStudentProfile] = useState<number | null>(null)
-  const [teacherProfile, setTeacherProfile] = useState<number | null>(null)
   const toast = useToast()
 
   const reload = useCallback(() => {
@@ -128,7 +133,10 @@ export function Payroll() {
       .catch((err: Error) => setError(err.message))
 
   const lines = caisse?.lines ?? []
-  const stillOwed = lines.reduce((sum, line) => sum + line.remaining_centimes, 0)
+  const stillOwed = lines.reduce(
+    (sum, line) => sum + line.remaining_centimes,
+    0,
+  )
   const unpaid = overview.filter(
     (row) => row.enrollment !== null && !row.enrollment.paid,
   )
@@ -139,8 +147,8 @@ export function Payroll() {
         <div>
           <h2 className="text-2xl font-medium tracking-tight">Caisse</h2>
           <p className="text-muted-foreground text-sm">
-            L'argent du mois : ce qui est entré, ce qui en est sorti, et la
-            part qui revient encore à chacun
+            L'argent du mois : ce qui est entré, ce qui en est sorti, et la part
+            qui revient encore à chacun
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -231,7 +239,7 @@ export function Payroll() {
                     const target = event.target as HTMLElement
                     if (!event.currentTarget.contains(target)) return
                     if (target.closest("button, a, input")) return
-                    setTeacherProfile(line.ref_id)
+                    openTeacher(line.ref_id)
                   }}
                 >
                   <TableCell className="font-medium">
@@ -244,7 +252,9 @@ export function Payroll() {
                   </TableCell>
                   <TableCell className="text-right">
                     <span
-                      className={line.due_centimes < 0 ? "text-destructive" : ""}
+                      className={
+                        line.due_centimes < 0 ? "text-destructive" : ""
+                      }
                     >
                       {formatDH(line.due_centimes)}
                     </span>
@@ -518,13 +528,6 @@ export function Payroll() {
       <StudentProfile
         studentId={studentProfile}
         onClose={() => setStudentProfile(null)}
-        onChanged={reload}
-      />
-
-      <TeacherProfile
-        teacherId={teacherProfile}
-        month={month}
-        onClose={() => setTeacherProfile(null)}
         onChanged={reload}
       />
     </div>
