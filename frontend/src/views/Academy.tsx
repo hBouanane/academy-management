@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Plus } from "lucide-react"
+import { Copy, FolderOpen, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -262,9 +262,29 @@ function BackupFolder({ onError }: { onError: (message: string) => void }) {
           placeholder="D:\academX"
           className="w-80"
         />
+        {/* Personne ne connait par coeur l'adresse de sa cle USB : on
+            ouvre le selecteur de Windows. Le champ reste la pour ceux
+            qui preferent coller un chemin. */}
+        <Button
+          onClick={() =>
+            apiSend<{ path: string | null; cancelled?: boolean }>(
+              "POST",
+              "/api/settings/backup-root/browse",
+            )
+              .then((chosen) => {
+                if (chosen.cancelled) return
+                toast(`Tout sera rangé dans ${chosen.path}`)
+                void load()
+              })
+              .catch((err: Error) => onError(err.message))
+          }
+        >
+          <FolderOpen className="size-4" />
+          Parcourir…
+        </Button>
         <Button
           variant="outline"
-          disabled={!draft.trim()}
+          disabled={!draft.trim() || draft.trim() === path}
           onClick={() =>
             apiSend<{ path: string }>("PUT", "/api/settings/backup-root", {
               path: draft.trim(),
@@ -276,7 +296,7 @@ function BackupFolder({ onError }: { onError: (message: string) => void }) {
               .catch((err: Error) => onError(err.message))
           }
         >
-          {path ? "Changer de dossier" : "Choisir ce dossier"}
+          Utiliser ce chemin
         </Button>
       </div>
       {path && (
@@ -301,6 +321,7 @@ function PoseCode({
   const [code, setCode] = useState("")
   const [again, setAgain] = useState("")
   const [phrase, setPhrase] = useState<string | null>(null)
+  const toast = useToast()
 
   // La phrase de secours : montrée une fois, jamais réaffichée, et
   // seule porte de sortie si le code se perd.
@@ -315,9 +336,31 @@ function PoseCode({
             peut la retrouver à votre place.
           </p>
         </div>
-        <p className="border-border bg-muted/60 rounded-lg border p-3 text-center font-mono text-lg tracking-wide select-all">
-          {phrase}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="border-border bg-muted/60 flex-1 rounded-lg border p-3 text-center font-mono text-lg tracking-wide select-all">
+            {phrase}
+          </p>
+          {/* Recopier une phrase de cinq mots a la main invite a la
+              faute de frappe : on la copie, et on la colle ou l'on veut
+              la garder. */}
+          <Button
+            variant="outline"
+            title="Copier la phrase"
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(phrase)
+                .then(() => toast("Phrase copiée — collez-la quelque part de sûr"))
+                .catch(() =>
+                  onError(
+                    "Copie impossible — sélectionnez la phrase et copiez-la à la main.",
+                  ),
+                )
+            }}
+          >
+            <Copy className="size-4" />
+            Copier
+          </Button>
+        </div>
         <Button
           onClick={() => {
             setPhrase(null)

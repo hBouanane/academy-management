@@ -1543,6 +1543,65 @@ def backup_root(conn: Conn) -> dict:
     }
 
 
+@router.post("/settings/backup-root/browse")
+def browse_for_backup_root(conn: Conn) -> dict:
+    """Ouvrir la vraie fenêtre de Windows pour choisir un dossier.
+
+    Taper un chemin à la main marche, mais personne ne connaît par cœur
+    l'adresse de sa clé USB. L'application et la fenêtre sont le même
+    programme : on peut donc lui demander d'ouvrir le sélecteur du
+    système, comme n'importe quel logiciel.
+
+    Renvoie `null` si la fenêtre a été fermée sans choisir — annuler
+    n'est pas une erreur.
+    """
+    chosen = _ask_for_a_folder(_backup_root(conn))
+    if chosen is None:
+        return {"path": None, "cancelled": True}
+    return set_backup_root(BackupRootBody(path=chosen), conn)
+
+
+def _ask_for_a_folder(start_at: str | None) -> str | None:
+    """Le sélecteur de dossier du système, par la porte qui répond.
+
+    Dans l'application livrée c'est la fenêtre elle-même qui le fournit ;
+    en développement il n'y a pas de fenêtre, alors on se rabat sur
+    tkinter — même sélecteur Windows, autre chemin pour y arriver.
+    """
+    try:
+        import webview
+
+        if webview.windows:
+            # pywebview a renomme la constante en cours de route : on
+            # prend la nouvelle si elle existe, l'ancienne sinon.
+            folder = (
+                getattr(getattr(webview, "FileDialog", None), "FOLDER", None)
+                or webview.FOLDER_DIALOG
+            )
+            picked = webview.windows[0].create_file_dialog(
+                folder, directory=start_at or ""
+            )
+            return str(picked[0]) if picked else None
+    except Exception:  # noqa: S110, BLE001 - on se rabat, on ne casse pas
+        pass
+    try:
+        import tkinter
+        from tkinter import filedialog
+
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        picked = filedialog.askdirectory(initialdir=start_at or None)
+        root.destroy()
+        return picked or None
+    except Exception as error:
+        raise HTTPException(
+            status_code=501,
+            detail="Le sélecteur de dossier n'est pas disponible ici —"
+            " tapez le chemin à la main.",
+        ) from error
+
+
 @router.put("/settings/backup-root")
 def set_backup_root(body: BackupRootBody, conn: Conn) -> dict:
     """Le dossier ou l'application rangera tout. On le cree s'il manque —

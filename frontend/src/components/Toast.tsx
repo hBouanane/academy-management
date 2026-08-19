@@ -5,10 +5,26 @@
 // échecs (une alerte permanente en rouge finit par ne plus alerter).
 
 import { createContext, useCallback, useContext, useState } from "react"
-import { Check, TriangleAlert, X } from "lucide-react"
+import { Check, Info, TriangleAlert, X } from "lucide-react"
 
-type Tone = "success" | "error"
+type Tone = "success" | "error" | "warning" | "info"
 type Toast = { id: number; message: string; tone: Tone }
+
+// Un echec reste plus longtemps qu'une confirmation : il y a quelque
+// chose a lire et souvent a corriger.
+const LIVES: Record<Tone, number> = {
+  success: 3500,
+  error: 7000,
+  warning: 7000,
+  info: 5000,
+}
+
+const TONES: Record<Tone, string> = {
+  success: "border-success/25 bg-success/12 text-success",
+  error: "border-destructive/25 bg-destructive/12 text-destructive",
+  warning: "border-amber-500/30 bg-amber-500/12 text-amber-600",
+  info: "border-border bg-muted/80 text-foreground",
+}
 
 const ToastContext = createContext<(message: string, tone?: Tone) => void>(
   () => {},
@@ -25,7 +41,7 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
     setToasts((current) => [...current, { id, message, tone }])
     window.setTimeout(
       () => setToasts((current) => current.filter((entry) => entry.id !== id)),
-      tone === "error" ? 6000 : 3500,
+      LIVES[tone],
     )
   }, [])
 
@@ -36,14 +52,14 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`toast-enter pointer-events-auto flex max-w-sm items-start gap-2 rounded-xl border px-3.5 py-2.5 text-sm shadow-lg backdrop-blur ${
-              toast.tone === "success"
-                ? "border-success/25 bg-success/12 text-success"
-                : "border-destructive/25 bg-destructive/12 text-destructive"
-            }`}
+            className={`${
+              toast.tone === "error" ? "notice-enter" : "toast-enter"
+            } pointer-events-auto flex max-w-sm items-start gap-2 rounded-xl border px-3.5 py-2.5 text-sm shadow-lg backdrop-blur ${TONES[toast.tone]}`}
           >
             {toast.tone === "success" ? (
               <Check className="mt-0.5 size-4 shrink-0" />
+            ) : toast.tone === "info" ? (
+              <Info className="mt-0.5 size-4 shrink-0" />
             ) : (
               <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             )}
