@@ -9,12 +9,15 @@ import {
   Moon,
   Package,
   School,
+  Lock as LockIcon,
   Sun,
   Tags,
   Users,
   Wallet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { LockScreen } from "@/components/LockScreen"
+import { useLock } from "@/lib/useLock"
 import { currentMonth } from "@/lib/money"
 import { Academy } from "@/views/Academy"
 import { Classes } from "@/views/Classes"
@@ -73,6 +76,13 @@ function App() {
   const [view, setView] = useState("dashboard")
   const [month, setMonth] = useState(currentMonth())
   const { dark, toggle } = useTheme()
+  const lock = useLock()
+
+  // Tant que le verrou n'a pas répondu, on n'affiche rien : montrer
+  // l'académie une demi-seconde avant de la cacher serait pire que tout.
+  if (lock.state === null) return null
+  if (!lock.open)
+    return <LockScreen onOpened={lock.opened} />
 
   return (
     <div className="flex min-h-svh">
@@ -128,6 +138,20 @@ function App() {
           {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
           {dark ? "Mode clair" : "Mode sombre"}
         </Button>
+        {/* Quitter le bureau une minute ne devrait pas demander
+            d'attendre la minuterie. */}
+        {lock.state.configured && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={lock.close}
+            className="justify-start gap-2.5 rounded-full px-3"
+            title="Verrouiller maintenant"
+          >
+            <LockIcon className="size-4" />
+            Verrouiller
+          </Button>
+        )}
       </aside>
       <main className="min-w-0 flex-1 px-8 py-6" key={view}>
         {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}

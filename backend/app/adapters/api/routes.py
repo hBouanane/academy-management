@@ -11,6 +11,7 @@ from app.adapters.sqlite import crud
 from app.adapters.sqlite.db import connect
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
 from app.adapters.sqlite.reports import arrears, monthly_report
+from app.domain import lock as lock_rules
 from app.domain.adjustments import AdjustmentSpec
 from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
@@ -43,6 +44,130 @@ def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
 
 
 Conn = Annotated[sqlite3.Connection, Depends(get_conn)]
+
+
+# --- le verrou ------------------------------------------------------------
+
+
+class CodeBody(BaseModel):
+    code: Annotated[str, StringConstraints(min_length=4, max_length=64)]
+
+
+class RecoverBody(CodeBody):
+    phrase: str
+
+
+class LockPatch(BaseModel):
+    code: str | None = None
+    new_code: Annotated[str, StringConstraints(min_length=4, max_length=64)] | None = (
+        None
+    )
+    auto_lock_minutes: Annotated[int, Field(ge=1, le=240)] | None = None
+
+
+def _secret(row: dict, prefix: str) -> lock_rules.Secret:
+    return lock_rules.Secret(salt=row[f"{prefix}_salt"], digest=row[f"{prefix}_digest"])
+
+
+def _refuse_if_impatient(sessions) -> None:
+    """Deviner un code court est l'affaire d'une minute si l'on peut
+    essayer sans fin. La phrase de secours ouvre autant que le code :
+    les deux portes attendent donc pareil."""
+    waiting = sessions.seconds_to_wait()
+    if waiting > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Trop d'essais — patientez {waiting} seconde(s).",
+        )
+
+
+def _lock_row(conn: sqlite3.Connection) -> dict:
+    row = crud.read_lock(conn)
+    if row is None:
+        raise HTTPException(status_code=409, detail="Aucun code n'est posé.")
+    return row
+
+
+@router.get("/lock")
+def lock_state(request: Request, conn: Conn) -> dict:
+    """Toujours joignable, même verrouillé : sinon l'écran de
+    déverrouillage n'aurait rien à quoi se raccrocher."""
+    row = crud.read_lock(conn)
+    return {
+        "configured": row is not None,
+        "auto_lock_minutes": row["auto_lock_minutes"] if row else 5,
+        "unlocked": request.app.state.sessions.holds(
+            request.headers.get("X-Session-Token")
+            or request.cookies.get("academy_session")
+        ),
+    }
+
+
+@router.post("/lock", status_code=201)
+def pose_lock(body: CodeBody, conn: Conn) -> dict:
+    """Poser le code, une fois. La phrase de secours est rendue ICI et
+    nulle part ailleurs : c'est la seule fois où elle sera lisible."""
+    if crud.read_lock(conn) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Un code est déjà posé — changez-le plutôt que d'en poser"
+            " un second.",
+        )
+    phrase = lock_rules.recovery_phrase()
+    crud.write_lock(conn, lock_rules.seal(body.code), lock_rules.seal(phrase))
+    return {"recovery_phrase": phrase}
+
+
+@router.post("/lock/unlock")
+def unlock(body: CodeBody, request: Request, response: Response, conn: Conn) -> dict:
+    row = _lock_row(conn)
+    sessions = request.app.state.sessions
+    _refuse_if_impatient(sessions)
+    if not lock_rules.matches(body.code, _secret(row, "code")):
+        sessions.note_failure()
+        raise HTTPException(status_code=401, detail="Code incorrect.")
+    token = sessions.open()
+    # Le cookie ne sert qu'aux téléchargements, qui ne peuvent pas porter
+    # d'en-tête. Il meurt avec la fenêtre, comme la session elle-même.
+    response.set_cookie(
+        "academy_session", token, httponly=True, samesite="strict", path="/"
+    )
+    return {"token": token}
+
+
+@router.post("/lock/lock")
+def relock(request: Request, response: Response) -> dict:
+    """Quitter son poste : tous les jetons meurent d'un coup."""
+    request.app.state.sessions.close_all()
+    response.delete_cookie("academy_session", path="/")
+    return {"locked": True}
+
+
+@router.post("/lock/recover")
+def recover(body: RecoverBody, request: Request, conn: Conn) -> dict:
+    """La phrase notée sur papier repose un code — la seule porte de
+    sortie d'une application sans réseau."""
+    row = _lock_row(conn)
+    _refuse_if_impatient(request.app.state.sessions)
+    if not lock_rules.matches(body.phrase.strip().lower(), _secret(row, "recovery")):
+        request.app.state.sessions.note_failure()
+        raise HTTPException(status_code=401, detail="Phrase de secours incorrecte.")
+    # La phrase a servi : on en tire une neuve, l'ancienne ne vaut plus.
+    phrase = lock_rules.recovery_phrase()
+    crud.write_lock(conn, lock_rules.seal(body.code), lock_rules.seal(phrase))
+    return {"recovery_phrase": phrase}
+
+
+@router.patch("/lock")
+def change_lock(body: LockPatch, conn: Conn) -> dict:
+    row = _lock_row(conn)
+    if body.new_code is not None:
+        if body.code is None or not lock_rules.matches(body.code, _secret(row, "code")):
+            raise HTTPException(status_code=401, detail="Code actuel incorrect.")
+        crud.set_code(conn, lock_rules.seal(body.new_code))
+    if body.auto_lock_minutes is not None:
+        crud.set_auto_lock(conn, body.auto_lock_minutes)
+    return {"updated": True}
 
 
 def default_academy_id(conn: sqlite3.Connection) -> int:

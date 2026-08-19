@@ -13,8 +13,9 @@ import {
 import { Notice } from "@/components/Notice"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
-import type { Academy as AcademyType, Teacher } from "@/lib/api"
+import type { Academy as AcademyType, LockState, Teacher } from "@/lib/api"
 import { useAlert } from "@/lib/alert"
+import { useToast } from "@/components/Toast"
 
 // Even prorata ladder: 3 tranches -> 100/67/33, 4 -> 100/75/50/25 — the
 // automatic default whenever a tranche is added or removed, editable after.
@@ -208,6 +209,220 @@ export function Academy() {
       </div>
 
       <OwnerTeacher onError={setError} />
+      <Security onError={setError} />
+    </div>
+  )
+}
+
+/** Poser le code la première fois. Tant qu'il n'est pas posé, rien n'est
+    fermé : c'est ici, et nulle part ailleurs, qu'on ferme la porte. */
+function PoseCode({
+  onError,
+  onPosed,
+}: {
+  onError: (message: string) => void
+  onPosed: () => void
+}) {
+  const [code, setCode] = useState("")
+  const [again, setAgain] = useState("")
+  const [phrase, setPhrase] = useState<string | null>(null)
+
+  // La phrase de secours : montrée une fois, jamais réaffichée, et
+  // seule porte de sortie si le code se perd.
+  if (phrase)
+    return (
+      <div className="surface-card space-y-3 p-6">
+        <div>
+          <Label>Notez cette phrase, sur papier</Label>
+          <p className="text-muted-foreground text-xs">
+            C'est la seule façon de rouvrir l'application si vous oubliez
+            votre code. Elle ne sera plus jamais affichée, et personne ne
+            peut la retrouver à votre place.
+          </p>
+        </div>
+        <p className="border-border bg-muted/60 rounded-lg border p-3 text-center font-mono text-lg tracking-wide select-all">
+          {phrase}
+        </p>
+        <Button
+          onClick={() => {
+            setPhrase(null)
+            // Le reste de l'application doit apprendre que la porte
+            // existe : c'est ce qui fait sortir « Verrouiller ».
+            window.dispatchEvent(new Event("academy-lock-changed"))
+            onPosed()
+          }}
+        >
+          Je l'ai notée
+        </Button>
+      </div>
+    )
+
+  return (
+    <div className="surface-card space-y-4 p-6">
+      <div>
+        <Label>Verrouillage</Label>
+        <p className="text-muted-foreground text-xs">
+          Aucun code n'est posé : l'application s'ouvre sans rien demander,
+          et n'importe qui passant derrière le comptoir peut changer les
+          chiffres. Posez un code et il sera demandé à chaque ouverture.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="pose-code">Code</Label>
+          <Input
+            id="pose-code"
+            type="password"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            placeholder="au moins 4 caractères"
+            className="w-40"
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="pose-again">Encore une fois</Label>
+          <Input
+            id="pose-again"
+            type="password"
+            value={again}
+            onChange={(event) => setAgain(event.target.value)}
+            className="w-40"
+            autoComplete="off"
+          />
+        </div>
+        <Button
+          disabled={code.length < 4}
+          onClick={() => {
+            if (code !== again) {
+              onError("Les deux codes ne sont pas les mêmes.")
+              return
+            }
+            apiSend<{ recovery_phrase: string }>("POST", "/api/lock", { code })
+              .then((posed) => setPhrase(posed.recovery_phrase))
+              .catch((err: Error) => onError(err.message))
+          }}
+        >
+          Poser le code
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Le verrou, réglable une fois posé : changer le code, et décider au
+    bout de combien de temps sans un geste l'écran se referme. */
+function Security({ onError }: { onError: (message: string) => void }) {
+  const [lock, setLock] = useState<LockState | null>(null)
+  const [current, setCurrent] = useState("")
+  const [next, setNext] = useState("")
+  const toast = useToast()
+
+  const reload = useCallback(
+    () =>
+      apiGet<LockState>("/api/lock")
+        .then(setLock)
+        .catch(() => setLock(null)),
+    [],
+  )
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  if (!lock?.configured) return <PoseCode onError={onError} onPosed={reload} />
+
+  return (
+    <div className="surface-card space-y-4 p-6">
+      <div>
+        <Label>Verrouillage</Label>
+        <p className="text-muted-foreground text-xs">
+          Le code est demandé à l'ouverture, et dès que l'application reste
+          un moment sans servir — c'est le poste laissé ouvert pendant un
+          cours qui est le vrai risque.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="lock-delay">Se verrouille après</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="lock-delay"
+              type="number"
+              min="1"
+              max="240"
+              value={lock.auto_lock_minutes}
+              onChange={(event) =>
+                setLock({
+                  ...lock,
+                  auto_lock_minutes: Number(event.target.value),
+                })
+              }
+              className="w-24"
+            />
+            <span className="text-muted-foreground text-sm">minutes</span>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() =>
+            apiSend("PATCH", "/api/lock", {
+              auto_lock_minutes: lock.auto_lock_minutes,
+            })
+              .then(() => {
+                toast(
+                  `Verrouillage après ${lock.auto_lock_minutes} minute` +
+                    (lock.auto_lock_minutes > 1 ? "s" : ""),
+                )
+                // La minuterie qui tourne doit repartir sur le nouveau
+                // délai, pas attendre le prochain déverrouillage.
+                window.dispatchEvent(new Event("academy-lock-changed"))
+                void reload()
+              })
+              .catch((err: Error) => onError(err.message))
+          }
+        >
+          Enregistrer le délai
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="lock-current">Code actuel</Label>
+          <Input
+            id="lock-current"
+            type="password"
+            value={current}
+            onChange={(event) => setCurrent(event.target.value)}
+            className="w-40"
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="lock-next">Nouveau code</Label>
+          <Input
+            id="lock-next"
+            type="password"
+            value={next}
+            onChange={(event) => setNext(event.target.value)}
+            className="w-40"
+            autoComplete="off"
+          />
+        </div>
+        <Button
+          variant="outline"
+          disabled={next.length < 4 || current.length < 4}
+          onClick={() =>
+            apiSend("PATCH", "/api/lock", { code: current, new_code: next })
+              .then(() => {
+                setCurrent("")
+                setNext("")
+                toast("Code changé — la phrase de secours reste la même")
+              })
+              .catch((err: Error) => onError(err.message))
+          }
+        >
+          Changer le code
+        </Button>
+      </div>
     </div>
   )
 }

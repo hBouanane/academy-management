@@ -343,8 +343,35 @@ function detailMessage(body: unknown, status: number): string {
   return `Erreur ${status}`
 }
 
+// Le jeton de session vit en mémoire, jamais sur le disque : fermer
+// l'application referme le verrou, et rien ne traîne pour demain matin.
+let sessionToken: string | null = null
+// Prévenu quand le serveur répond « verrouillée » — l'écran de
+// déverrouillage remonte alors de lui-même, sans qu'on ait à recharger.
+let onLocked: (() => void) | null = null
+
+export function setSessionToken(token: string | null) {
+  sessionToken = token
+}
+
+export function whenLocked(handler: () => void) {
+  onLocked = handler
+}
+
+function authHeaders(base: Record<string, string> = {}): Record<string, string> {
+  return sessionToken ? { ...base, "X-Session-Token": sessionToken } : base
+}
+
+async function guard<T>(response: Response): Promise<T> {
+  if (response.status === 401 && !response.url.includes("/api/lock")) {
+    sessionToken = null
+    onLocked?.()
+  }
+  return parse<T>(response)
+}
+
 export async function apiGet<T>(url: string): Promise<T> {
-  return parse<T>(await fetch(url))
+  return guard<T>(await fetch(url, { headers: authHeaders() }))
 }
 
 export async function apiSend<T>(
@@ -352,11 +379,17 @@ export async function apiSend<T>(
   url: string,
   body?: unknown,
 ): Promise<T> {
-  return parse<T>(
+  return guard<T>(
     await fetch(url, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   )
+}
+
+export type LockState = {
+  configured: boolean
+  auto_lock_minutes: number
+  unlocked: boolean
 }

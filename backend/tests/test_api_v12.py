@@ -1,135 +1,158 @@
-"""Round 13 : la fiche d'une classe, et le remboursement visible côté élève.
+"""Round 13 : le verrou.
 
-Quand une classe est archivée, l'élève qui avait payé n'est pas simplement
-« Payé » : il attend son argent. Son mois doit le dire.
+Le risque n'est pas qu'on lise les chiffres, c'est qu'on les CHANGE — un
+élève qui passe derrière le comptoir et s'offre le mois. L'application
+demande donc un code, et se reverrouille toute seule quand personne ne
+s'en sert : c'est le moment où le portable reste ouvert sur le bureau
+qui est dangereux, pas le démarrage.
+
+Tant qu'aucun code n'est posé, rien n'est fermé : une installation neuve
+s'ouvre, et c'est le propriétaire qui décide d'en poser un.
+
+Hors ligne, personne ne peut réinitialiser un mot de passe oublié. La
+pose du code rend donc UNE FOIS une phrase de secours, à noter sur
+papier — sans elle, un code oublié emmure l'académie.
 """
 
 import pytest
 from fastapi.testclient import TestClient
-from test_api_v4 import enroll, setup_base
 
 from app.adapters.api.app import create_app
-from app.services import clock
-
-DH = 100
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(clock, "current_month", lambda: "2026-09")
+def client(tmp_path):
     app = create_app(str(tmp_path / "test.db"))
     with TestClient(app) as test_client:
         yield test_client
 
 
-def month_row(client, student_id, month="2026-09"):
-    rows = client.get(f"/api/months/{month}/overview").json()
-    return next(r for r in rows if r["student_id"] == student_id)
+def set_code(client, code="1234"):
+    response = client.post("/api/lock", json={"code": code})
+    assert response.status_code == 201, response.text
+    return response.json()["recovery_phrase"]
 
 
-class TestClassProfile:
-    def test_the_class_tells_its_whole_story(self, client):
-        level, class_id, teacher, package = setup_base(client)
-        student, _ = enroll(client, level, package, class_id)
-        profile = client.get(f"/api/classes/{class_id}/profile?month=2026-09")
-        assert profile.status_code == 200, profile.text
-        data = profile.json()
-        assert data["subject_name"] == "Math"
-        assert data["level_name"] == "Primaire"
-        assert data["teacher_id"] == teacher
-        assert data["teacher_name"] == "Ahmed"
-        assert data["enrolled_count"] == 1
-        assert [row["student_id"] for row in data["students"]] == [student]
-        # Un seul professeur pour l'instant, depuis toujours.
-        (period,) = data["assignments"]
-        assert period["teacher_name"] == "Ahmed"
-        assert period["from_date"] is None and period["to_date"] is None
+def unlock(client, code="1234"):
+    response = client.post("/api/lock/unlock", json={"code": code})
+    assert response.status_code == 200, response.text
+    return response.json()["token"]
 
-    def test_the_handover_shows_who_taught_when(self, client):
-        _, class_id, _, _ = setup_base(client)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        client.post(
-            f"/api/classes/{class_id}/replace-teacher",
-            json={"date": "2026-09-21", "successor_id": sara},
+
+class TestLock:
+    def test_a_fresh_install_is_open(self, client):
+        assert client.get("/api/lock").json()["configured"] is False
+        assert client.get("/api/teachers").status_code == 200
+
+    def test_setting_a_code_closes_the_door(self, client):
+        set_code(client)
+        assert client.get("/api/lock").json()["configured"] is True
+        assert client.get("/api/teachers").status_code == 401
+
+    def test_the_right_code_opens_it(self, client):
+        set_code(client)
+        token = unlock(client)
+        opened = client.get("/api/teachers", headers={"X-Session-Token": token})
+        assert opened.status_code == 200
+
+    def test_the_wrong_code_hands_out_nothing(self, client):
+        set_code(client)
+        refused = client.post("/api/lock/unlock", json={"code": "0000"})
+        assert refused.status_code == 401
+        assert "token" not in refused.json()
+
+    def test_a_made_up_token_does_not_pass(self, client):
+        set_code(client)
+        refused = client.get("/api/teachers", headers={"X-Session-Token": "pas-le-bon"})
+        assert refused.status_code == 401
+
+    def test_the_lock_itself_stays_reachable_while_locked(self, client):
+        # Sinon on ne pourrait jamais déverrouiller.
+        set_code(client)
+        assert client.get("/api/lock").status_code == 200
+
+    def test_a_second_code_cannot_be_posed_over_the_first(self, client):
+        set_code(client)
+        refused = client.post("/api/lock", json={"code": "9999"})
+        assert refused.status_code == 409
+
+    def test_the_recovery_phrase_poses_a_new_code(self, client):
+        phrase = set_code(client)
+        recovered = client.post(
+            "/api/lock/recover", json={"phrase": phrase, "code": "5678"}
         )
-        data = client.get(f"/api/classes/{class_id}/profile?month=2026-09").json()
-        assert data["teacher_name"] == "Sara"
-        periods = [
-            (row["teacher_name"], row["from_date"], row["to_date"])
-            for row in data["assignments"]
-        ]
-        assert periods == [
-            ("Ahmed", None, "2026-09-20"),
-            ("Sara", "2026-09-21", None),
-        ]
+        assert recovered.status_code == 200
+        assert client.post("/api/lock/unlock", json={"code": "5678"}).status_code == 200
+        assert client.post("/api/lock/unlock", json={"code": "1234"}).status_code == 401
 
-    def test_a_vacant_class_says_so(self, client):
-        _, class_id, _, _ = setup_base(client)
-        client.post(
-            f"/api/classes/{class_id}/vacate-teacher", json={"date": "2026-09-11"}
+    def test_a_wrong_phrase_changes_nothing(self, client):
+        set_code(client)
+        refused = client.post(
+            "/api/lock/recover", json={"phrase": "chat-chien-oiseau-42", "code": "5678"}
         )
-        data = client.get(f"/api/classes/{class_id}/profile?month=2026-09").json()
-        assert data["teacher_id"] is None
-        assert data["teacher_name"] is None
+        assert refused.status_code == 401
+        assert client.post("/api/lock/unlock", json={"code": "1234"}).status_code == 200
 
-    def test_restoring_a_class_puts_its_professor_back_in_charge(self, client):
-        # Archiver ferme la période d'enseignement ; restaurer doit la
-        # rouvrir, sinon la fiche dit qu'il a arrêté alors qu'il enseigne.
-        _, class_id, _, _ = setup_base(client)
-        client.post(
-            f"/api/classes/{class_id}/archive",
-            json={"date": "2026-09-15", "refunds": []},
+    def test_the_phrase_is_worth_writing_down(self, client):
+        # Quatre mots et un nombre : lisible à l'oreille, recopiable à la main.
+        phrase = set_code(client)
+        assert len(phrase.split("-")) >= 4
+
+    def test_changing_the_code_needs_the_current_one(self, client):
+        set_code(client)
+        token = unlock(client)
+        headers = {"X-Session-Token": token}
+        refused = client.patch(
+            "/api/lock", json={"code": "0000", "new_code": "5678"}, headers=headers
         )
-        client.patch(f"/api/classes/{class_id}", json={"is_active": True})
-        data = client.get(f"/api/classes/{class_id}/profile?month=2026-09").json()
-        assert data["teacher_name"] == "Ahmed"
-        assert data["assignments"][-1]["to_date"] is None  # de nouveau en cours
-
-    def test_unknown_class_is_404(self, client):
-        assert client.get("/api/classes/999/profile?month=2026-09").status_code == 404
-
-
-class TestRefundVisibleOnTheStudent:
-    def test_an_archived_class_leaves_the_month_paid_and_owed_back(self, client):
-        level, class_id, _, package = setup_base(client)
-        student, enrollment = enroll(client, level, package, class_id)
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        client.post(
-            f"/api/classes/{class_id}/archive",
-            json={
-                "date": "2026-09-15",
-                "refunds": [{"enrollment_id": enrollment, "percent_bp": 7000}],
-            },
+        assert refused.status_code == 401
+        changed = client.patch(
+            "/api/lock", json={"code": "1234", "new_code": "5678"}, headers=headers
         )
-        row = month_row(client, student)["enrollment"]
-        assert row["paid"] is True
-        assert row["refund_pending_centimes"] == 210 * DH  # 70% de 300
-        assert row["refunded_centimes"] == 0
-        # Le profil de l'élève le dit aussi, mois par mois.
-        profile = client.get(f"/api/students/{student}/profile").json()
-        assert profile["months"][0]["refund_pending_centimes"] == 210 * DH
+        assert changed.status_code == 200
+        assert client.post("/api/lock/unlock", json={"code": "5678"}).status_code == 200
 
-    def test_once_handed_back_it_shows_as_refunded(self, client):
-        level, class_id, _, package = setup_base(client)
-        student, enrollment = enroll(client, level, package, class_id)
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        client.post(
-            f"/api/classes/{class_id}/archive",
-            json={
-                "date": "2026-09-15",
-                "refunds": [{"enrollment_id": enrollment, "percent_bp": 10000}],
-            },
+    def test_the_auto_lock_delay_is_the_owners_call(self, client):
+        set_code(client)
+        headers = {"X-Session-Token": unlock(client)}
+        # Par défaut, court : c'est le portable laissé ouvert qui est le risque.
+        assert client.get("/api/lock").json()["auto_lock_minutes"] == 5
+        client.patch("/api/lock", json={"auto_lock_minutes": 20}, headers=headers)
+        assert client.get("/api/lock").json()["auto_lock_minutes"] == 20
+
+    def test_locking_again_burns_the_token(self, client):
+        set_code(client)
+        token = unlock(client)
+        headers = {"X-Session-Token": token}
+        assert client.post("/api/lock/lock", headers=headers).status_code == 200
+        assert client.get("/api/teachers", headers=headers).status_code == 401
+
+    def test_a_download_link_carries_no_header_so_it_gets_a_cookie(self, client):
+        """Un `<a download>` ne peut porter aucun en-tête, et on ne met
+        pas un jeton dans une adresse : l'ouverture pose donc un cookie."""
+        set_code(client)
+        opened = client.post("/api/lock/unlock", json={"code": "1234"})
+        assert "academy_session" in opened.cookies
+        # Le client garde le cookie : l'appel suivant passe sans en-tête.
+        assert client.get("/api/teachers").status_code == 200
+        client.post("/api/lock/lock")
+        assert client.get("/api/teachers").status_code == 401
+
+    def test_guessing_gets_slower(self, client):
+        """Un code court se devine en une minute si l'on peut essayer sans
+        fin. Après quelques échecs, chaque essai attend — y compris sur la
+        phrase de secours, qui ouvre tout autant."""
+        set_code(client)
+        for _ in range(4):
+            client.post("/api/lock/unlock", json={"code": "0000"})
+        assert client.post("/api/lock/unlock", json={"code": "1234"}).status_code == 429
+        assert (
+            client.post(
+                "/api/lock/recover", json={"phrase": "a-b-c-d-1", "code": "5678"}
+            ).status_code
+            == 429
         )
-        (refund,) = client.get("/api/refunds").json()
-        client.post(f"/api/refunds/{refund['id']}/settle")
-        row = month_row(client, student)["enrollment"]
-        assert row["refund_pending_centimes"] == 0
-        assert row["refunded_centimes"] == 300 * DH
 
-    def test_a_month_without_refund_stays_silent(self, client):
-        level, class_id, _, package = setup_base(client)
-        student, enrollment = enroll(client, level, package, class_id)
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        row = month_row(client, student)["enrollment"]
-        assert row["refund_pending_centimes"] == 0
-        assert row["refunded_centimes"] == 0
+    def test_the_code_is_never_stored_as_typed(self, client, tmp_path):
+        set_code(client, "monsecret")
+        assert "monsecret" not in (tmp_path / "test.db").read_bytes().decode("latin-1")

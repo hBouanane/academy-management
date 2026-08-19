@@ -9,6 +9,7 @@ import sqlite3
 from contextlib import contextmanager
 
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
+from app.domain import lock
 from app.domain.money import percent_of, split_equally
 from app.domain.splitting import _proportional_parts
 from app.services.payments import net_price, payment_preview
@@ -2274,6 +2275,59 @@ def _package_price(conn: sqlite3.Connection, package_id: int) -> int:
     if row is None:
         raise LookupError(f"no package {package_id}")
     return row["monthly_price_centimes"]
+
+
+# --- le verrou ------------------------------------------------------------
+
+
+def read_lock(conn: sqlite3.Connection) -> dict | None:
+    """La ligne du verrou, ou rien du tout — et rien du tout veut dire
+    que l'installation est neuve, donc ouverte."""
+    row = conn.execute("SELECT * FROM app_lock WHERE id = 1").fetchone()
+    return dict(row) if row else None
+
+
+def write_lock(
+    conn: sqlite3.Connection,
+    code: lock.Secret,
+    recovery: lock.Secret,
+    auto_lock_minutes: int = 5,
+) -> None:
+    """Poser le verrou, ou le reposer entièrement — c'est le même geste
+    qu'on vienne de l'installer ou qu'on se soit servi de la phrase."""
+    with _transaction(conn):
+        conn.execute(
+            "INSERT INTO app_lock (id, code_salt, code_digest, recovery_salt,"
+            " recovery_digest, auto_lock_minutes) VALUES (1, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET code_salt = excluded.code_salt,"
+            " code_digest = excluded.code_digest,"
+            " recovery_salt = excluded.recovery_salt,"
+            " recovery_digest = excluded.recovery_digest",
+            (
+                code.salt,
+                code.digest,
+                recovery.salt,
+                recovery.digest,
+                auto_lock_minutes,
+            ),
+        )
+
+
+def set_code(conn: sqlite3.Connection, code: lock.Secret) -> None:
+    """Changer le code sans toucher à la phrase de secours : elle a été
+    notée sur papier, elle ne doit pas se périmer sous la main."""
+    with _transaction(conn):
+        conn.execute(
+            "UPDATE app_lock SET code_salt = ?, code_digest = ? WHERE id = 1",
+            (code.salt, code.digest),
+        )
+
+
+def set_auto_lock(conn: sqlite3.Connection, minutes: int) -> None:
+    with _transaction(conn):
+        conn.execute(
+            "UPDATE app_lock SET auto_lock_minutes = ? WHERE id = 1", (minutes,)
+        )
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
