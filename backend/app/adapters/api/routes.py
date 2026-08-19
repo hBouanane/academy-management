@@ -16,6 +16,7 @@ from app.adapters.sqlite.payment_store import SqlitePaymentStore
 from app.adapters.sqlite.reports import arrears, monthly_report
 from app.domain import lock as lock_rules
 from app.domain.adjustments import AdjustmentSpec
+from app.domain.contact import whatsapp_number
 from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
 from app.services import clock, documents
@@ -1764,6 +1765,151 @@ def forget_folder(kind: FolderKind, conn: Conn) -> dict:
     conn.execute("DELETE FROM app_setting WHERE key = ?", (FOLDERS[kind],))
     conn.commit()
     return {"path": None}
+
+
+# --- prevenir la famille ---------------------------------------------------
+#
+# L application PREPARE le message et ouvre WhatsApp dessus. Elle n envoie
+# rien toute seule : c est le proprietaire qui relit et qui appuie. Un
+# logiciel qui ecrit aux familles sans qu on ait vu le texte est un
+# logiciel dont on se mefie -- et une erreur de montant partie toute seule
+# ne se rattrape pas.
+
+
+class WhatsAppBody(BaseModel):
+    phone: str
+    text: str
+
+
+def _open_outside(url: str) -> None:
+    """Ouvrir HORS de la fenetre : WhatsApp Desktop s il est installe,
+    le navigateur sinon. Surtout pas dans la fenetre de l application,
+    qui deviendrait un navigateur sans bouton retour.
+
+    os.startfile d abord : c est ce que Windows fait quand on clique un
+    lien, et c est le seul chemin sur lequel on peut compter dans une
+    application sans console -- webbrowser y cherche parfois un
+    navigateur en ligne de commande qui n existe pas.
+    """
+    import os
+    import webbrowser
+
+    opener = getattr(os, "startfile", None)
+    if opener is not None:
+        opener(url)
+        return
+    webbrowser.open(url)
+
+
+@router.post("/whatsapp")
+def open_whatsapp(body: WhatsAppBody) -> dict:
+    """Ouvrir WhatsApp sur ce numero, message deja ecrit."""
+    from urllib.parse import quote
+
+    number = whatsapp_number(body.phone)
+    if number is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"« {body.phone} » n'est pas un numero utilisable —"
+            " corrigez-le dans la fiche de l'eleve.",
+        )
+    url = f"https://wa.me/{number}?text={quote(body.text)}"
+    _open_outside(url)
+    return {"url": url}
+
+
+@router.get("/students/{student_id}/messages")
+def student_messages(student_id: int, month: MonthQuery, conn: Conn) -> dict:
+    """Ce qu'on peut annoncer a cette famille ce mois-ci, et a quel
+    numero. Rien d inscrit, rien a dire."""
+    student = conn.execute(
+        "SELECT id, name FROM student WHERE id = ?", (student_id,)
+    ).fetchone()
+    if student is None:
+        raise LookupError(f"no student {student_id}")
+    academy = conn.execute("SELECT name FROM academy ORDER BY id LIMIT 1").fetchone()
+    row = next(
+        (
+            entry
+            for entry in crud.month_overview(conn, default_academy_id(conn), month)
+            if entry["student_id"] == student_id
+        ),
+        None,
+    )
+    return {
+        "student_name": student["name"],
+        "phones": [
+            {
+                "tag": phone["tag"],
+                "number": phone["number"],
+                # None : le numero est inutilisable tel quel. On le montre
+                # quand meme, pour qu il sache lequel corriger.
+                "whatsapp": whatsapp_number(phone["number"]),
+            }
+            for phone in _rows_of(conn, student_id)
+        ],
+        "messages": _messages_for(row, student["name"], academy["name"], month),
+    }
+
+
+def _rows_of(conn: sqlite3.Connection, student_id: int) -> list[dict]:
+    return [
+        dict(row)
+        for row in conn.execute(
+            "SELECT tag, number FROM student_phone WHERE student_id = ? ORDER BY id",
+            (student_id,),
+        )
+    ]
+
+
+def _messages_for(row: dict | None, name: str, academy: str, month: str) -> list[dict]:
+    """Les messages qui ont un sens ce mois-ci — jamais plus.
+
+    Proposer « rappel de paiement » à une famille qui vient de régler
+    serait le meilleur moyen de faire désinstaller l'application."""
+    from app.adapters.docx.labels import month_label
+
+    enrollment = (row or {}).get("enrollment")
+    if not enrollment:
+        return []
+    when = month_label(month).lower()
+    classes = ", ".join(entry["subject_name"] for entry in enrollment["classes"])
+    due = enrollment["net_centimes"]
+    left = enrollment["remaining_centimes"]
+    signature = f"\n\n{academy}"
+
+    offers = [
+        {
+            "kind": "enrolled",
+            "label": "Confirmation d'inscription",
+            "text": f"Bonjour,\n\n{name} est bien inscrit(e) pour {when}"
+            f" en {classes}.\nMontant du mois : {_dh(due)}." + signature,
+        }
+    ]
+    if enrollment["paid"] and left == 0:
+        offers.append(
+            {
+                "kind": "paid",
+                "label": "Reçu de paiement",
+                "text": f"Bonjour,\n\nNous avons bien reçu le règlement de"
+                f" {_dh(due)} pour {when} ({name}).\nMerci." + signature,
+            }
+        )
+    else:
+        offers.append(
+            {
+                "kind": "unpaid",
+                "label": "Rappel de paiement",
+                "text": f"Bonjour,\n\nLe mois de {when} reste à régler pour"
+                f" {name} : {_dh(left or due)}.\nMerci de votre compréhension."
+                + signature,
+            }
+        )
+    return offers
+
+
+def _dh(centimes: int) -> str:
+    return f"{centimes / 100:,.2f} DH".replace(",", " ").replace(".", ",")
 
 
 # --- emporter ses sauvegardes ---------------------------------------------

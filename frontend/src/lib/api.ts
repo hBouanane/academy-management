@@ -403,6 +403,12 @@ export type Folders = {
   documents: { path: string | null; example: string | null }
 }
 
+export type StudentMessages = {
+  student_name: string
+  phones: { tag: string; number: string; whatsapp: string | null }[]
+  messages: { kind: string; label: string; text: string }[]
+}
+
 export type BackupState = {
   count: number
   newest: string | null
