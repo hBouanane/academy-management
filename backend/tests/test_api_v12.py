@@ -153,6 +153,14 @@ class TestLock:
             == 429
         )
 
+    def test_the_health_check_stays_open(self, client):
+        """La fenêtre attend que le serveur réponde sur /api/health avant
+        de s'ouvrir. Fermer cette porte rendrait l'application
+        impossible à lancer des qu'un code est posé — elle attendrait
+        vingt secondes puis annoncerait un serveur mort."""
+        set_code(client)
+        assert client.get("/api/health").status_code == 200
+
     def test_the_code_is_never_stored_as_typed(self, client, tmp_path):
         set_code(client, "monsecret")
         assert "monsecret" not in (tmp_path / "test.db").read_bytes().decode("latin-1")

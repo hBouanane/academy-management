@@ -56,10 +56,17 @@ def create_app(db_path: str, frontend_dist: Path | None = None) -> FastAPI:
     return app
 
 
-# Les routes du verrou lui-même restent ouvertes : sans elles, on ne
-# pourrait jamais déverrouiller. Elles ne rendent rien d'autre que l'état
-# du verrou et n'écrivent que si le code ou la phrase sont justes.
-_ALWAYS_OPEN = ("/api/lock",)
+# Deux exceptions, et pas une de plus.
+#
+# Les routes du verrou : sans elles, on ne pourrait jamais déverrouiller.
+# Elles ne rendent que l'état du verrou et n'écrivent que si le code, la
+# phrase ou la réponse de l'éditeur sont justes.
+#
+# Le battement de coeur : la FENÊTRE l'interroge avant de s'ouvrir. Le
+# fermer rendrait l'application impossible à lancer dès qu'un code est
+# posé — elle attendrait vingt secondes puis annoncerait un serveur
+# mort. Il ne dit rien d'autre que « je réponds ».
+_ALWAYS_OPEN = ("/api/lock", "/api/health")
 
 
 def _token_of(request: Request) -> str | None:
