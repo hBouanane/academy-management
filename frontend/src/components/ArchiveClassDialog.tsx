@@ -19,6 +19,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, OverviewRow } from "@/lib/api"
 import { currentMonth, formatDH } from "@/lib/money"
 import { useAlert } from "@/lib/alert"
+import { useToast } from "@/components/Toast"
 
 const todayIso = () => {
   const now = new Date()
@@ -69,6 +70,17 @@ export function RefundForEveryone({
   onApply: (percent: number) => void
 }) {
   const [custom, setCustom] = useState("")
+  // Ce qu'on vient d'appliquer reste marqué : sans ça, on clique un
+  // pourcentage et rien ne dit qu'il a pris.
+  const [applied, setApplied] = useState<number | null>(null)
+  const toast = useToast()
+
+  const apply = (percent: number) => {
+    onApply(percent)
+    setApplied(percent)
+    toast(`${percent} % pour les ${count} élèves qui ont payé`)
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-sm">
       <span className="text-muted-foreground mr-1 text-xs">
@@ -78,8 +90,12 @@ export function RefundForEveryone({
         <button
           key={choice}
           type="button"
-          onClick={() => onApply(choice)}
-          className="border-border hover:border-foreground/40 rounded-full border px-2 py-0.5 text-xs"
+          onClick={() => apply(choice)}
+          className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
+            applied === choice
+              ? "border-transparent bg-primary text-primary-foreground font-medium"
+              : "border-border hover:border-foreground/40"
+          }`}
         >
           {choice}%
         </button>
@@ -92,7 +108,7 @@ export function RefundForEveryone({
           event.preventDefault()
           const value = Number(custom)
           if (Number.isFinite(value))
-            onApply(Math.max(0, Math.min(100, Math.round(value))))
+            apply(Math.max(0, Math.min(100, Math.round(value))))
         }}
         placeholder="%"
         className="h-7 w-14 text-center text-xs"

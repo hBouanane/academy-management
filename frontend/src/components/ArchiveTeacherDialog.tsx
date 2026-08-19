@@ -38,6 +38,7 @@ import type { ClassRow, OverviewRow, Teacher } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
 import { currentMonth } from "@/lib/money"
 import { useAlert } from "@/lib/alert"
+import { useToast } from "@/components/Toast"
 
 const todayIso = () => {
   const now = new Date()
@@ -76,6 +77,16 @@ export function ArchiveTeacherDialog({
   const [bulkSuccessor, setBulkSuccessor] = useState<string>("")
   const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
+  // Les lignes qu'on vient de changer en lot : elles s'éclairent une
+  // seconde, sinon on clique sans savoir si quelque chose a bougé.
+  const [justApplied, setJustApplied] = useState<Set<number>>(new Set())
+  const toast = useToast()
+
+  useEffect(() => {
+    if (justApplied.size === 0) return
+    const timer = window.setTimeout(() => setJustApplied(new Set()), 1200)
+    return () => window.clearTimeout(timer)
+  }, [justApplied])
 
   useEffect(() => {
     apiGet<ClassRow[]>(`/api/classes?month=${currentMonth()}`)
@@ -124,12 +135,33 @@ export function ArchiveTeacherDialog({
     }
   }
 
+  /** Ce que le bouton fera, écrit en toutes lettres — « Appliquer » ne
+      disait ni à quoi ni à combien. */
+  const bulkSummary = () => {
+    const many = `${checked.size} classe${checked.size > 1 ? "s" : ""}`
+    if (bulkAction === "vacate") return `Laisser ${many} sans professeur`
+    if (bulkAction === "archive") return `Archiver ${many}`
+    const successor = successors.find(
+      (candidate) => String(candidate.id) === bulkSuccessor,
+    )
+    return successor
+      ? `Confier ${many} à ${successor.name}`
+      : "Choisissez d'abord le successeur"
+  }
+  const bulkReady = bulkAction !== "replace" || bulkSuccessor !== ""
+
   const applyBulk = () => {
-    for (const classId of checked)
+    const touched = new Set(checked)
+    for (const classId of touched)
       setDecision(classId, {
         action: bulkAction,
         successorId: bulkSuccessor ? Number(bulkSuccessor) : null,
       })
+    // La sélection a servi : on la relâche, sinon le geste suivant
+    // repartirait sur les mêmes lignes sans qu'on l'ait voulu.
+    setChecked(new Set())
+    setJustApplied(touched)
+    toast(bulkSummary())
   }
 
   /** Le cas courant : quelqu'un reprend TOUT ce qu'il enseignait. */
@@ -246,50 +278,6 @@ export function ArchiveTeacherDialog({
                 className="w-44"
               />
             </div>
-            {classes.length > 1 && (
-              <div className="flex flex-1 flex-wrap items-center gap-2">
-                <span className="text-muted-foreground text-xs">
-                  Pour la sélection :
-                </span>
-                <Select
-                  value={bulkAction}
-                  onValueChange={(value) => setBulkAction(value as Action)}
-                >
-                  <SelectTrigger className="h-8 w-40 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(ACTION_LABEL) as Action[]).map((action) => (
-                      <SelectItem key={action} value={action}>
-                        {ACTION_LABEL[action]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {bulkAction === "replace" && (
-                  <Select value={bulkSuccessor} onValueChange={setBulkSuccessor}>
-                    <SelectTrigger className="h-8 w-40 text-xs">
-                      <SelectValue placeholder="Successeur…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {successors.map((candidate) => (
-                        <SelectItem key={candidate.id} value={String(candidate.id)}>
-                          {candidate.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={checked.size === 0}
-                  onClick={applyBulk}
-                >
-                  Appliquer ({checked.size})
-                </Button>
-              </div>
-            )}
           </div>
 
           {classes.length > 1 && (
@@ -308,6 +296,57 @@ export function ArchiveTeacherDialog({
             </label>
           )}
 
+          {/* La barre ne sort que quand il y a de quoi agir, et elle dit
+              ce qu'elle fera : « Appliquer » ne disait ni à quoi, ni à
+              combien. Une fois fait, la sélection se relâche. */}
+          {classes.length > 1 && checked.size > 0 && (
+            <div className="border-primary/40 bg-primary/5 flex flex-wrap items-center gap-2 rounded-xl border p-2.5">
+              <span className="text-sm font-medium">
+                {checked.size} classe{checked.size > 1 ? "s" : ""} sélectionnée
+                {checked.size > 1 ? "s" : ""}
+              </span>
+              <Select
+                value={bulkAction}
+                onValueChange={(value) => setBulkAction(value as Action)}
+              >
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(ACTION_LABEL) as Action[]).map((action) => (
+                    <SelectItem key={action} value={action}>
+                      {ACTION_LABEL[action]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {bulkAction === "replace" && (
+                <Select value={bulkSuccessor} onValueChange={setBulkSuccessor}>
+                  <SelectTrigger className="h-8 w-40 text-xs">
+                    <SelectValue placeholder="Successeur…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {successors.map((candidate) => (
+                      <SelectItem key={candidate.id} value={String(candidate.id)}>
+                        {candidate.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button size="sm" disabled={!bulkReady} onClick={applyBulk}>
+                {bulkSummary()}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setChecked(new Set())}
+              >
+                Tout désélectionner
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-3">
             {classes.map((row) => {
               const decision = decisions[row.id] ?? {
@@ -320,12 +359,20 @@ export function ArchiveTeacherDialog({
               const unpaid = (affectedByClass[row.id] ?? []).filter(
                 (student) => !student.paid,
               )
+              const picked = checked.has(row.id)
               return (
-                <div key={row.id} className="border-border rounded-xl border p-3">
+                <div
+                  key={row.id}
+                  className={`rounded-xl border p-3 transition-colors ${
+                    picked
+                      ? "border-primary bg-primary/5"
+                      : "border-border"
+                  } ${justApplied.has(row.id) ? "row-applied" : ""}`}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     {classes.length > 1 && (
                       <Checkbox
-                        checked={checked.has(row.id)}
+                        checked={picked}
                         onCheckedChange={(state) =>
                           setChecked((current) => {
                             const next = new Set(current)

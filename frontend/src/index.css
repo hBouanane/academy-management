@@ -221,6 +221,18 @@
   @media (prefers-reduced-motion: reduce) {
     .chip-added { animation: none; outline: 2px solid var(--success); }
     }
+  /* Ce qu on vient de changer en lot doit se voir change : les lignes
+     touchees s eclairent une seconde. Sans ca, on clique et on doute. */
+  .row-applied {
+    animation: row-applied 1.1s ease-out both;
+    }
+  @keyframes row-applied {
+    0%   { background-color: color-mix(in oklab, var(--success) 22%, transparent); }
+    100% { background-color: transparent; }
+    }
+  @media (prefers-reduced-motion: reduce) {
+    .row-applied { animation: none; }
+    }
   /* Un refus qui se repete doit se voir se repeter : le message
      reapparait en sursautant, sinon un deuxieme echec identique au
      premier passerait pour un succes. */
