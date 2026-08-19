@@ -5,7 +5,7 @@
 // elsewhere creates this niveau's own copy). « Ajouter un niveau » grows the
 // tree itself. Used to declare what a professor can teach.
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,6 +21,7 @@ import { apiSend } from "@/lib/api"
 import type { Level, Subject } from "@/lib/api"
 import { parcoursOptions, teachingAnnees } from "@/lib/levels"
 import { useAlert } from "@/lib/alert"
+import { useToast } from "@/components/Toast"
 
 export const slotKey = (
   slot: { level_id: number; annee: number | null; parcours: string | null },
@@ -114,6 +115,18 @@ function NodeRow({
   onError: (message: string) => void
 }) {
   const [draft, setDraft] = useState("")
+  // La matière créée à l'instant : elle pulse le temps qu'on la repère
+  // parmi les autres, sinon on croit que rien ne s'est passé.
+  const [justAdded, setJustAdded] = useState<number | null>(null)
+  const field = useRef<HTMLInputElement>(null)
+  const toast = useToast()
+
+  useEffect(() => {
+    if (justAdded === null) return
+    const timer = window.setTimeout(() => setJustAdded(null), 1400)
+    return () => window.clearTimeout(timer)
+  }, [justAdded])
+
   const coords = {
     level_id: node.level.id,
     annee: node.annee,
@@ -137,6 +150,10 @@ function NodeRow({
             })
           ).id
       setDraft("")
+      setJustAdded(id)
+      toast(`Matière « ${name} » ajoutée${node.label ? ` — ${node.label}` : ""}`)
+      // Le champ garde la main : on en ajoute plusieurs de suite.
+      field.current?.focus()
       onGrown()
       onToggle([{ key: slotKey(coords, id), subjectId: id }], true)
     } catch (err) {
@@ -164,16 +181,16 @@ function NodeRow({
               }
               className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
                 active
-                  ? "border-transparent bg-primary text-primary-foreground"
+                  ? "border-transparent bg-primary text-primary-foreground font-medium"
                   : "border-border text-muted-foreground hover:border-foreground/40"
-              }`}
+              } ${justAdded === subject.id ? "chip-added" : ""}`}
             >
-              {active ? "✓ " : ""}
               {subject.name}
             </button>
           )
         })}
         <Input
+          ref={field}
           list="tree-subject-options"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

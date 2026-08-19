@@ -4,7 +4,7 @@
 // profile. No « Groupe A » : a class alone needs no label; siblings are
 // told apart by their professor.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Archive,
   ArchiveRestore,
@@ -48,6 +48,7 @@ import { Notice } from "@/components/Notice"
 import { subjectsOfLevel } from "@/components/ProgramTree"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { useAlert } from "@/lib/alert"
+import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, ClassRow, Level, Subject, Teacher } from "@/lib/api"
 import {
@@ -417,10 +418,13 @@ function StepChip({
   active,
   onClick,
   children,
+  flash = false,
 }: {
   active: boolean
   onClick: () => void
   children: React.ReactNode
+  /** Vient d'être créée : elle pulse une fois pour se faire trouver. */
+  flash?: boolean
 }) {
   return (
     <button
@@ -428,11 +432,10 @@ function StepChip({
       onClick={onClick}
       className={`rounded-full border px-3 py-1 text-sm transition-colors ${
         active
-          ? "border-transparent bg-primary text-primary-foreground"
+          ? "border-transparent bg-primary text-primary-foreground font-medium"
           : "border-border text-muted-foreground hover:border-foreground/40"
-      }`}
+      } ${flash ? "chip-added" : ""}`}
     >
-      {active ? "✓ " : ""}
       {children}
     </button>
   )
@@ -487,6 +490,10 @@ function NewClassDialog({
   const [filiereDraft, setFiliereDraft] = useState("")
   const [subjectId, setSubjectId] = useState<number | null>(null)
   const [subjectDraft, setSubjectDraft] = useState("")
+  // La matière créée à l'instant : elle pulse le temps qu'on la repère.
+  const [justAdded, setJustAdded] = useState<number | null>(null)
+  const subjectInput = useRef<HTMLInputElement>(null)
+  const toast = useToast()
   const [teacherId, setTeacherId] = useState<number | null>(null)
   const [teacherDraft, setTeacherDraft] = useState("")
   const [note, setNote] = useAlert()
@@ -563,6 +570,12 @@ function NewClassDialog({
     setTeacherId(null)
   }
 
+  useEffect(() => {
+    if (justAdded === null) return
+    const timer = window.setTimeout(() => setJustAdded(null), 1400)
+    return () => window.clearTimeout(timer)
+  }, [justAdded])
+
   const addSubject = async () => {
     const name = subjectDraft.trim()
     if (!name || levelId === null) return
@@ -580,6 +593,9 @@ function NewClassDialog({
           ).id
       setSubjectDraft("")
       setSubjectId(id)
+      setJustAdded(id)
+      toast(`Matière « ${name} » ajoutée`)
+      subjectInput.current?.focus()
       onDone()
     } catch (err) {
       setNote((err as Error).message)
@@ -793,6 +809,7 @@ function NewClassDialog({
                 {levelSubjects.map((subject) => (
                   <StepChip
                     key={subject.id}
+                    flash={justAdded === subject.id}
                     active={subjectId === subject.id}
                     onClick={() => {
                       setSubjectId(subject.id)
@@ -803,6 +820,7 @@ function NewClassDialog({
                   </StepChip>
                 ))}
                 <Input
+                  ref={subjectInput}
                   list="class-subject-options"
                   value={subjectDraft}
                   onChange={(event) => {

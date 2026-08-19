@@ -3,7 +3,7 @@
 // No archive here: a matière with zero classes deletes outright (created by
 // mistake), one with classes must have them handled first.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +21,7 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Level, Subject } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
 import { useAlert } from "@/lib/alert"
+import { useToast } from "@/components/Toast"
 
 type Row = Subject & { class_count: number; archived_class_count: number }
 
@@ -32,7 +33,16 @@ export function Subjects() {
   const [rows, setRows] = useState<Row[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
   const [error, setError] = useAlert()
+  // La matière créée à l'instant : elle pulse le temps qu'on la repère.
+  const [justAdded, setJustAdded] = useState<number | null>(null)
+  const toast = useToast()
   const [editing, setEditing] = useState<Row | null>(null)
+
+  useEffect(() => {
+    if (justAdded === null) return
+    const timer = window.setTimeout(() => setJustAdded(null), 1400)
+    return () => window.clearTimeout(timer)
+  }, [justAdded])
 
   const reload = useCallback(() => {
     setError(null)
@@ -124,6 +134,7 @@ export function Subjects() {
                         <SubjectChip
                           key={row.id}
                           row={row}
+                          flash={justAdded === row.id}
                           taught
                           onRename={() => setEditing(row)}
                           onDelete={() => deleteSubject(row)}
@@ -144,6 +155,7 @@ export function Subjects() {
                     <SubjectChip
                       key={row.id}
                       row={row}
+                      flash={justAdded === row.id}
                       taught={false}
                       onRename={() => setEditing(row)}
                       onDelete={() => deleteSubject(row)}
@@ -184,6 +196,10 @@ export function Subjects() {
               allNames={[...new Set(rows.map((row) => row.name))]}
               onDone={reload}
               onError={setError}
+              onAdded={(id, name) => {
+                setJustAdded(id)
+                toast(`Matière « ${name} » ajoutée à ${level.name}`)
+              }}
             />
           </div>
         )
@@ -210,11 +226,14 @@ function SubjectChip({
   taught,
   onRename,
   onDelete,
+  flash = false,
 }: {
   row: Row
   taught: boolean
   onRename: () => void
   onDelete: () => void
+  /** Vient d'être créée : elle pulse une fois pour se faire trouver. */
+  flash?: boolean
 }) {
   const blocked = row.archived_class_count > 0
   return (
@@ -223,7 +242,7 @@ function SubjectChip({
         taught
           ? "bg-secondary text-secondary-foreground"
           : "border-border text-muted-foreground border border-dashed"
-      }`}
+      } ${flash ? "chip-added" : ""}`}
     >
       {row.name}
       {!taught && blocked && (
@@ -275,20 +294,27 @@ function AddSubject({
   allNames,
   onDone,
   onError,
+  onAdded,
 }: {
   levelId: number
   allNames: string[]
   onDone: () => void
   onError: (message: string) => void
+  onAdded: (id: number, name: string) => void
 }) {
   const [draft, setDraft] = useState("")
+  const field = useRef<HTMLInputElement>(null)
 
   const submit = () => {
     const name = draft.trim()
     if (!name) return
-    apiSend("POST", "/api/subjects", { name, level_id: levelId })
-      .then(() => {
+    apiSend<{ id: number }>("POST", "/api/subjects", { name, level_id: levelId })
+      .then(({ id }) => {
         setDraft("")
+        // Le champ garde la main : on en ajoute trois de suite sans
+        // reprendre la souris.
+        field.current?.focus()
+        onAdded(id, name)
         onDone()
       })
       .catch((err: Error) => onError(err.message))
@@ -297,6 +323,7 @@ function AddSubject({
   return (
     <div className="mt-3 flex items-center gap-2">
       <Input
+        ref={field}
         list="subject-name-options"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
