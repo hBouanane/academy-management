@@ -7,6 +7,7 @@ terminal.
 
 import ctypes
 import os
+import shutil
 import socket
 import sqlite3
 import sys
@@ -66,13 +67,51 @@ def backup_database(db_path: Path, stamp: str | None = None) -> Path | None:
     finally:
         source.close()
     _prune(backups)
+    _also_in_his_own_folder(db_path, target, stamp)
     return target
 
 
-def _prune(backups: Path, keep: int = BACKUPS_TO_KEEP) -> None:
-    files = sorted(backups.glob("data-*.db"))
-    for old in files[:-keep]:
-        old.unlink()
+def _also_in_his_own_folder(db_path: Path, snapshot: Path, stamp: str) -> None:
+    """Poser une copie dans le dossier que le propriétaire a choisi.
+
+    Celle de %APPDATA% est parfaite et invisible : le jour où le portable
+    meurt, elle meurt avec. Le dossier qu'il a désigné — une clé USB, un
+    disque externe — est celui qu'il ouvre et qu'il emporte.
+
+    Rien ici ne doit empêcher l'application de se fermer : si la clé
+    n'est plus branchée, on garde la copie interne et on se tait.
+    """
+    root = _chosen_folder(db_path)
+    if root is None:
+        return
+    try:
+        folder = root / "sauvegardes"
+        folder.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(snapshot, folder / f"academie-{stamp}.db")
+        _prune(folder, pattern="academie-*.db")
+    except OSError:
+        return
+
+
+def _chosen_folder(db_path: Path) -> Path | None:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT value FROM app_setting WHERE key = 'backup_root'"
+        ).fetchone()
+    except sqlite3.Error:  # base d'avant le reglage : rien a faire
+        return None
+    finally:
+        conn.close()
+    return Path(row[0]) if row else None
+
+
+def _prune(
+    backups: Path, keep: int = BACKUPS_TO_KEEP, pattern: str = "data-*.db"
+) -> None:
+    files = sorted(backups.glob(pattern))
+    for stale in files[:-keep]:
+        stale.unlink()
 
 
 def pick_free_port() -> int:

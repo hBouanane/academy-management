@@ -28,7 +28,7 @@ const SUBTITLES: Record<Mode, string> = {
   phrase:
     "Entrez la phrase notée le jour où vous avez posé le code, puis choisissez-en un nouveau.",
   editeur:
-    "Appelez l'éditeur et lisez-lui le code ci-dessous. Il vous dictera une réponse valable aujourd'hui seulement.",
+    "Envoyez à l'éditeur le code ci-dessous. Il vous renverra un texte à coller, valable aujourd'hui seulement.",
 }
 
 /**
@@ -56,7 +56,7 @@ export function LockScreen({ onOpened }: Props) {
   // La phrase neuve rendue par un dépannage : montrée une fois, ici.
   const [freshPhrase, setFreshPhrase] = useState<string | null>(null)
   const [error, setError] = useAlert()
-  const field = useRef<HTMLInputElement>(null)
+  const field = useRef<HTMLTextAreaElement>(null)
 
   const switchTo = (next: Mode) => {
     setMode(next)
@@ -65,7 +65,14 @@ export function LockScreen({ onOpened }: Props) {
     setAnswer("")
   }
 
-  useEffect(() => field.current?.focus(), [mode])
+  const codeField = useRef<HTMLInputElement>(null)
+  const phraseField = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const target =
+      mode === "code" ? codeField : mode === "phrase" ? phraseField : field
+    target.current?.focus()
+  }, [mode])
 
   useEffect(() => {
     apiGet<{ available: boolean; challenge?: string }>("/api/lock/rescue")
@@ -100,7 +107,7 @@ export function LockScreen({ onOpened }: Props) {
     } catch (err) {
       setError((err as Error).message)
       setCode("")
-      field.current?.focus()
+      codeField.current?.focus()
     } finally {
       setBusy(false)
     }
@@ -117,7 +124,7 @@ export function LockScreen({ onOpened }: Props) {
             </h1>
             <p className="text-muted-foreground text-sm">
               L'ancienne ne vaut plus rien. Notez celle-ci sur papier : sans
-              elle, il faudra rappeler l'éditeur.
+              elle, il faudra recontacter l'éditeur.
             </p>
           </div>
           <p className="border-border bg-muted/60 rounded-lg border p-3 text-center font-mono text-lg tracking-wide select-all">
@@ -162,7 +169,7 @@ export function LockScreen({ onOpened }: Props) {
               <Label htmlFor="lock-phrase">Phrase de secours</Label>
               <Input
                 id="lock-phrase"
-                ref={field}
+                ref={phraseField}
                 value={phrase}
                 onChange={(event) => setPhrase(event.target.value)}
                 placeholder="pomme-sentier-lampe-tortue-42"
@@ -173,20 +180,24 @@ export function LockScreen({ onOpened }: Props) {
           {mode === "editeur" && (
             <div className="space-y-2">
               <div className="space-y-1">
-                <Label>Lisez ce code à l'éditeur</Label>
+                <Label>Envoyez ce code à l'éditeur</Label>
                 <p className="border-border bg-muted/60 rounded-lg border p-2.5 text-center font-mono text-base tracking-widest select-all">
                   {rescue?.challenge}
                 </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="lock-answer">Sa réponse</Label>
-                <Input
+                {/* Une signature fait quatre-vingt-huit caractères :
+                    elle se colle, elle ne se tape pas. */}
+                <textarea
                   id="lock-answer"
                   ref={field}
                   value={answer}
                   onChange={(event) => setAnswer(event.target.value)}
-                  placeholder="A1B2-C3D4"
-                  autoComplete="off"
+                  placeholder="Collez ici le texte envoyé par l'éditeur"
+                  rows={3}
+                  spellCheck={false}
+                  className="border-input bg-background focus-visible:ring-ring w-full resize-none rounded-md border px-3 py-2 font-mono text-xs break-all focus-visible:ring-1 focus-visible:outline-none"
                 />
               </div>
             </div>
@@ -197,7 +208,7 @@ export function LockScreen({ onOpened }: Props) {
             </Label>
             <Input
               id="lock-code"
-              ref={mode === "code" ? field : undefined}
+              ref={mode === "code" ? codeField : undefined}
               type="password"
               value={code}
               onChange={(event) => setCode(event.target.value)}
@@ -226,7 +237,7 @@ export function LockScreen({ onOpened }: Props) {
               className="text-muted-foreground/70 hover:text-foreground text-xs underline-offset-2 hover:underline"
               onClick={() => switchTo("editeur")}
             >
-              Phrase perdue aussi — appeler l'éditeur
+              Phrase perdue aussi — contacter l'éditeur
             </button>
           )}
         </div>

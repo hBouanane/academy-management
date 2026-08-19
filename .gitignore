@@ -21,5 +21,8 @@ frontend/dist/
 Thumbs.db
 .DS_Store
 
-# La cle de depannage de l'editeur : elle ne quitte jamais son poste.
+# Les cles de depannage de l'editeur.
+# La privee ne quitte JAMAIS ce poste ; la publique part dans la
+# version livree mais se regenere, donc ni l'une ni l'autre dans le depot.
+packaging/vendor_private.pem
 packaging/vendor_key.txt

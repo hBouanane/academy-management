@@ -2,38 +2,44 @@
 
 Le propriétaire peut tout perdre : son code, et la phrase notée sur
 papier. Hors ligne, plus personne ne peut rien pour lui — sauf celui
-qui a écrit le logiciel. D'où cette porte, qui ne s'ouvre qu'au
-téléphone : l'application affiche un défi, l'éditeur calcule la réponse
-avec sa clé, et la dicte.
+qui a écrit le logiciel. D'où cette porte : l'application affiche un
+défi, l'éditeur le signe avec sa clé privée, et renvoie la signature.
 
-Trois choses la rendent supportable :
+Ce qui voyage dans la version livrée n'est que la clé PUBLIQUE. Elle
+sait vérifier une signature ; elle ne sait pas en produire. L'extraire
+de l'exécutable ne donne donc aucun pouvoir — c'est toute la différence
+avec un secret partagé, qui ouvrirait toutes les installations dès
+qu'on saurait le lire.
 
-  - elle n'existe QUE si une clé a été déposée dans la version livrée ;
-    sans clé, ni bouton ni route ;
-  - le défi part de l'installation ET du jour : la réponse d'hier ne
-    vaut plus rien, et dépanner une académie ne donne pas la clé d'une
-    autre ;
+Le prix est la longueur : une signature fait quatre-vingt-huit
+caractères, à envoyer par message plutôt qu'à dicter au téléphone.
+
+Trois autres choses la rendent supportable :
+
+  - elle n'existe QUE si une clé publique a été déposée dans la version
+    livrée ; sans elle, ni bouton ni route ;
+  - le défi part de l'installation ET du jour : la signature d'hier ne
+    vaut plus rien, et dépanner une académie n'ouvre pas l'autre ;
   - dépanner ne prive pas le propriétaire de sa propre porte : il
     repart avec une phrase de secours neuve.
-
-Ce qu'il faut savoir et dire : la clé voyage dans l'exécutable livré.
-Qui saurait la lire pourrait ouvrir n'importe quelle installation.
-C'est le prix d'une réponse de huit caractères, dictable au téléphone ;
-une signature serait inviolable mais ferait cent caractères à recopier.
 """
 
+import base64
 import hashlib
-import hmac
 import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 _KEY_FILE = "vendor_key.txt"
 
 
 def vendor_key() -> str | None:
-    """La clé de l'éditeur, si cette version en porte une.
+    """La clé publique de l'éditeur, si cette version en porte une.
 
     Elle n'est jamais dans le dépôt : elle est déposée au moment de la
     construction, et une version sans clé n'a tout simplement pas de
@@ -63,31 +69,43 @@ def _key_folders() -> list[Path]:
 
 
 def today_stamp() -> str:
-    """Le jour, en clair. Il fait tourner le défi : la réponse dictée
+    """Le jour, en clair. Il fait tourner le défi : la signature envoyée
     hier ne rouvre rien aujourd'hui."""
     return datetime.now(UTC).strftime("%Y%m%d")
 
 
 def challenge_for(installation_id: str) -> str:
-    """Le défi affiché : court, lisible à voix haute, propre à cette
-    installation et à ce jour."""
+    """Le défi affiché : court, recopiable, propre à cette installation
+    et à ce jour."""
     material = f"{installation_id}:{today_stamp()}"
     digest = hashlib.sha256(material.encode()).hexdigest().upper()
     return f"{digest[:4]}-{digest[4:8]}-{digest[8:12]}"
 
 
-def answer_for(key: str, challenge: str) -> str:
-    """Ce que l'éditeur calcule de son côté."""
-    digest = hmac.new(key.encode(), challenge.encode(), hashlib.sha256).hexdigest()
-    return f"{digest[:4].upper()}-{digest[4:8].upper()}"
+def answer_matches(public_key_pem: str, challenge: str, given: str) -> bool:
+    """La signature répond-elle bien à CE défi ?
+
+    Indulgente sur la forme : la réponse voyage par message et arrive
+    souvent avec un retour à la ligne ou une espace collée.
+    """
+    try:
+        key = serialization.load_pem_public_key(public_key_pem.encode())
+        if not isinstance(key, Ed25519PublicKey):
+            return False
+        signature = base64.b64decode(_plain(given), validate=True)
+        key.verify(signature, challenge.encode())
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+    return True
 
 
-def answer_matches(key: str, challenge: str, given: str) -> bool:
-    """Comparaison à temps constant, et indulgente sur la forme : la
-    réponse est dictée au téléphone, elle doit passer telle qu'on
-    l'entend."""
-    return hmac.compare_digest(_plain(answer_for(key, challenge)), _plain(given))
+def public_key_text(public_key: Ed25519PublicKey) -> str:
+    """La clé publique telle qu'elle est déposée dans la version livrée."""
+    return public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
 
 
 def _plain(text: str) -> str:
-    return "".join(character for character in text if character.isalnum()).upper()
+    return "".join(text.split())

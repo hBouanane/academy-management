@@ -5,29 +5,37 @@ papier. Hors ligne, plus personne ne peut rien — sauf celui qui a écrit
 le logiciel. Il lui faut donc une porte à lui, qu'il n'ouvre qu'au
 téléphone.
 
-Le principe : l'application affiche un défi, l'éditeur calcule la
-réponse avec une clé qu'il est seul à posséder, et la dicte. Le défi
-change chaque jour, donc la réponse d'hier ne vaut plus rien.
+Le principe : l'application affiche un défi, l'éditeur le SIGNE avec sa
+clé privée, et renvoie la signature. Le défi change chaque jour, donc
+la signature d'hier ne vaut plus rien.
 
-Sans clé installée, cette porte n'existe pas du tout : elle ne
+Ce qui voyage dans la version livrée n'est que la clé PUBLIQUE : elle
+sait vérifier une signature, jamais en produire. L'extraire de
+l'exécutable ne donne donc aucun pouvoir — c'est toute la différence
+avec un secret partagé.
+
+Sans clé publique installée, cette porte n'existe pas du tout : elle ne
 s'affiche pas et l'API ne répond rien.
 """
 
-import hashlib
-import hmac
+import base64
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 
 from app.adapters.api import vendor
 from app.adapters.api.app import create_app
 
-SECRET = "clef-de-l-editeur-pour-les-essais"
+# La paire de l'éditeur : la privée reste chez lui, la publique part
+# dans la version livrée.
+PRIVATE = Ed25519PrivateKey.generate()
+PUBLIC = vendor.public_key_text(PRIVATE.public_key())
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(vendor, "vendor_key", lambda: SECRET)
+    monkeypatch.setattr(vendor, "vendor_key", lambda: PUBLIC)
     app = create_app(str(tmp_path / "test.db"))
     with TestClient(app) as test_client:
         yield test_client
@@ -48,9 +56,8 @@ def set_code(client, code="1234"):
 
 
 def answer_for(challenge: str) -> str:
-    """Ce que l'éditeur calcule de son côté, avec sa clé."""
-    digest = hmac.new(SECRET.encode(), challenge.encode(), hashlib.sha256).hexdigest()
-    return f"{digest[:4].upper()}-{digest[4:8].upper()}"
+    """Ce que l'éditeur signe de son côté, avec sa clé privée."""
+    return base64.b64encode(PRIVATE.sign(challenge.encode())).decode()
 
 
 class TestVendorRescue:
@@ -89,23 +96,30 @@ class TestVendorRescue:
     def test_a_wrong_answer_changes_nothing(self, client):
         set_code(client)
         refused = client.post(
-            "/api/lock/rescue", json={"answer": "0000-0000", "code": "5678"}
+            "/api/lock/rescue",
+            json={"answer": base64.b64encode(b"n" * 64).decode(), "code": "5678"},
         )
         assert refused.status_code == 401
         assert client.post("/api/lock/unlock", json={"code": "1234"}).status_code == 200
 
-    def test_dashes_and_case_do_not_matter(self, client):
-        """Elle est dictée au téléphone : elle doit passer telle qu'on
-        l'entend, pas telle qu'on la met en forme."""
+    def test_stray_spaces_and_line_breaks_do_not_matter(self, client):
+        """Elle voyage par message : elle arrive souvent avec un retour
+        à la ligne ou une espace collée."""
         set_code(client)
         challenge = client.get("/api/lock/rescue").json()["challenge"]
-        sloppy = answer_for(challenge).replace("-", " ").lower()
+        sloppy = "  " + answer_for(challenge) + chr(10) + " "
         assert (
             client.post(
                 "/api/lock/rescue", json={"answer": sloppy, "code": "5678"}
             ).status_code
             == 200
         )
+
+    def test_the_shipped_key_cannot_forge_anything(self, client):
+        """Le coeur de ce choix : ce qui voyage dans l'exécutable ne sait
+        que vérifier. Personne ne peut en tirer une réponse."""
+        assert "PUBLIC KEY" in PUBLIC
+        assert "PRIVATE" not in PUBLIC
 
     def test_yesterdays_answer_is_worthless(self, client, monkeypatch):
         set_code(client)
@@ -123,7 +137,7 @@ class TestVendorRescue:
         clé de l'autre."""
         set_code(client)
         mine = client.get("/api/lock/rescue").json()["challenge"]
-        monkeypatch.setattr(vendor, "vendor_key", lambda: SECRET)
+        monkeypatch.setattr(vendor, "vendor_key", lambda: PUBLIC)
         other_app = create_app(str(tmp_path / "autre.db"))
         with TestClient(other_app) as other:
             set_code(other)
@@ -149,10 +163,9 @@ class TestVendorRescue:
 
     def test_guessing_the_answer_gets_slower(self, client):
         set_code(client)
+        wrong = base64.b64encode(b"n" * 64).decode()
         for _ in range(4):
-            client.post(
-                "/api/lock/rescue", json={"answer": "0000-0000", "code": "5678"}
-            )
+            client.post("/api/lock/rescue", json={"answer": wrong, "code": "5678"})
         challenge = client.get("/api/lock/rescue").json()["challenge"]
         assert (
             client.post(
