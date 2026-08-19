@@ -45,6 +45,7 @@ import { ConfirmButton } from "@/components/Confirm"
 import { StudentProfile } from "@/components/StudentProfile"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { FileDocument } from "@/components/FileDocument"
 import { subjectsOfLevel } from "@/components/ProgramTree"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { useAlert } from "@/lib/alert"
@@ -281,6 +282,15 @@ export function Classes({ month, setMonth }: Props) {
                               <FileText className="size-4" />
                             </a>
                           </Button>
+                          <FileDocument
+                            kind="absence"
+                            month={month}
+                            refId={row.id}
+                            ready
+                            className="h-8 border-0 px-2 shadow-none"
+                          >
+                            {""}
+                          </FileDocument>
                           <Button
                             size="sm"
                             variant="ghost"

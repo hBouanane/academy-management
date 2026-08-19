@@ -2277,6 +2277,15 @@ def _package_price(conn: sqlite3.Connection, package_id: int) -> int:
     return row["monthly_price_centimes"]
 
 
+def payment_enrollment(conn: sqlite3.Connection, payment_id: int) -> int:
+    """L'inscription derrière un paiement — de quoi savoir qui un
+    encaissement ou une contre-passation vient de concerner."""
+    row = conn.execute(
+        "SELECT enrollment_id FROM payment WHERE id = ?", (payment_id,)
+    ).fetchone()
+    return row["enrollment_id"] if row else 0
+
+
 # --- le verrou ------------------------------------------------------------
 
 

@@ -15,6 +15,7 @@ import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
 import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { FileDocument } from "@/components/FileDocument"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { TeacherProfile } from "@/components/TeacherProfile"
 import { apiGet, apiSend } from "@/lib/api"
@@ -176,6 +177,17 @@ export function Teachers({ month, setMonth }: Props) {
                       <FileText className="size-4" />
                     </a>
                   </Button>
+                  {/* Ranger la fiche a sa place, plutot que de la
+                      retrouver en vrac dans Telechargements. */}
+                  <FileDocument
+                    kind="payslip"
+                    month={month}
+                    refId={row.id}
+                    ready
+                    className="h-8 border-0 px-2 shadow-none"
+                  >
+                    {""}
+                  </FileDocument>
                   <Button
                     size="sm"
                     variant="ghost"

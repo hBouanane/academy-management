@@ -1,8 +1,17 @@
-"""Round 14 : la répartition entre professeurs devient contrôlable.
+"""Round 14 : les documents et leur péremption.
 
-Par défaut elle suit les jours enseignés. Le propriétaire peut la fixer
-lui-même — en pourcentages, seuls valables quand les prix des élèves
-diffèrent — et revenir à l'automatique quand il veut.
+Une fiche de paie sortie le 5 devient fausse si un impayé rentre le 20.
+Le client veut être prévenu — mais prévenu JUSTE : dire « septembre a
+changé » signalerait toutes les fiches du mois alors qu'une seule est
+concernée, et un avertissement qui crie au loup finit ignoré.
+
+D'où la portée. Chaque écriture dit qui elle touche, et seuls les
+documents de cette portée-là remontent.
+
+Le dossier de sauvegarde va avec : plutôt que de choisir un
+emplacement à chaque téléchargement, le propriétaire désigne une fois
+un dossier, et l'application y range elle-même — un sous-dossier par
+mois, un par sorte de document.
 """
 
 import pytest
@@ -11,8 +20,6 @@ from test_api_v4 import enroll, setup_base
 
 from app.adapters.api.app import create_app
 from app.services import clock
-
-DH = 100
 
 
 @pytest.fixture
@@ -23,260 +30,202 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def teacher_totals(client, month="2026-09"):
-    report = client.get(f"/api/reports/monthly?month={month}").json()
-    return {
-        total["name"]: total["total"]
-        for total in report["totals"]
-        if total["kind"] == "teacher"
-    }
-
-
-def handover(client, class_id, successor, date="2026-09-21"):
-    response = client.post(
-        f"/api/classes/{class_id}/replace-teacher",
-        json={"date": date, "successor_id": successor},
-    )
+def stale(client, month="2026-09"):
+    response = client.get(f"/api/documents/stale?month={month}")
     assert response.status_code == 200, response.text
+    return response.json()
 
 
-class TestShareControl:
-    def test_by_default_the_split_follows_the_days_taught(self, client):
-        _, class_id, teacher, _ = setup_base(client)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        data = client.get(f"/api/classes/{class_id}/share?month=2026-09").json()
-        assert data["manual"] is False
-        assert {row["teacher_id"]: row["share_bp"] for row in data["shares"]} == {
-            teacher: 6667,  # 20 jours sur 30
-            sara: 3333,
-        }
+class TestBackupFolder:
+    def test_no_folder_chosen_yet(self, client):
+        assert client.get("/api/settings/backup-root").json()["path"] is None
 
-    def test_the_owner_can_fix_the_split_himself(self, client):
-        level, class_id, teacher, package = setup_base(client)
-        _, enrollment = enroll(client, level, package, class_id)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        saved = client.put(
-            f"/api/classes/{class_id}/share",
-            json={
-                "month": "2026-09",
-                "shares": [
-                    {"teacher_id": teacher, "share_bp": 4000},
-                    {"teacher_id": sara, "share_bp": 6000},
-                ],
-            },
-        )
+    def test_choosing_a_folder_sticks(self, client, tmp_path):
+        root = tmp_path / "academX"
+        saved = client.put("/api/settings/backup-root", json={"path": str(root)})
         assert saved.status_code == 200, saved.text
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        # 180 DH de part professeur : 40% / 60%.
-        assert teacher_totals(client) == {"Ahmed": 72 * DH, "Sara": 108 * DH}
-        data = client.get(f"/api/classes/{class_id}/share?month=2026-09").json()
-        assert data["manual"] is True
+        assert client.get("/api/settings/backup-root").json()["path"] == str(root)
 
-    def test_the_whole_month_can_go_to_the_one_who_left(self, client):
-        # Il a préparé le trimestre : le propriétaire lui laisse tout.
-        level, class_id, teacher, package = setup_base(client)
-        _, enrollment = enroll(client, level, package, class_id)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        client.put(
-            f"/api/classes/{class_id}/share",
-            json={
-                "month": "2026-09",
-                "shares": [
-                    {"teacher_id": teacher, "share_bp": 10000},
-                    {"teacher_id": sara, "share_bp": 0},
-                ],
-            },
-        )
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        assert teacher_totals(client) == {"Ahmed": 180 * DH}
+    def test_the_folder_is_created_if_it_does_not_exist(self, client, tmp_path):
+        root = tmp_path / "academX"
+        client.put("/api/settings/backup-root", json={"path": str(root)})
+        assert root.is_dir()
 
-    def test_an_archived_professor_keeps_his_agreed_share(self, client):
-        # Archivé ne veut pas dire oublié : ce qu'on lui a promis reste dû.
-        level, class_id, teacher, package = setup_base(client)
-        _, enrollment = enroll(client, level, package, class_id)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        client.put(
-            f"/api/classes/{class_id}/share",
-            json={
-                "month": "2026-09",
-                "shares": [
-                    {"teacher_id": teacher, "share_bp": 5000},
-                    {"teacher_id": sara, "share_bp": 5000},
-                ],
-            },
-        )
-        assert (
-            client.patch(f"/api/teachers/{teacher}", json={"is_active": False})
-        ).status_code == 200
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        assert teacher_totals(client) == {"Ahmed": 90 * DH, "Sara": 90 * DH}
-
-    def test_the_shares_must_make_a_whole(self, client):
-        _, class_id, teacher, _ = setup_base(client)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        refused = client.put(
-            f"/api/classes/{class_id}/share",
-            json={
-                "month": "2026-09",
-                "shares": [
-                    {"teacher_id": teacher, "share_bp": 4000},
-                    {"teacher_id": sara, "share_bp": 4000},
-                ],
-            },
-        )
+    def test_a_file_cannot_serve_as_a_folder(self, client, tmp_path):
+        intruder = tmp_path / "pas-un-dossier.txt"
+        intruder.write_text("x")
+        refused = client.put("/api/settings/backup-root", json={"path": str(intruder)})
         assert refused.status_code == 422
-        assert "100" in refused.json()["detail"]
-
-    def test_going_back_to_automatic(self, client):
-        level, class_id, teacher, package = setup_base(client)
-        _, enrollment = enroll(client, level, package, class_id)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        client.put(
-            f"/api/classes/{class_id}/share",
-            json={
-                "month": "2026-09",
-                "shares": [
-                    {"teacher_id": teacher, "share_bp": 10000},
-                    {"teacher_id": sara, "share_bp": 0},
-                ],
-            },
-        )
-        removed = client.delete(f"/api/classes/{class_id}/share?month=2026-09")
-        assert removed.status_code == 200, removed.text
-        assert (
-            client.get(f"/api/classes/{class_id}/share?month=2026-09").json()["manual"]
-            is False
-        )
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        assert teacher_totals(client) == {"Ahmed": 120 * DH, "Sara": 60 * DH}
-
-    def test_an_override_stays_in_its_own_month(self, client):
-        level, class_id, teacher, package = setup_base(client)
-        _, september = enroll(client, level, package, class_id)
-        _, october = enroll(
-            client, level, package, class_id, name="Lina", month="2026-10"
-        )
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        client.put(
-            f"/api/classes/{class_id}/share",
-            json={
-                "month": "2026-09",
-                "shares": [
-                    {"teacher_id": teacher, "share_bp": 10000},
-                    {"teacher_id": sara, "share_bp": 0},
-                ],
-            },
-        )
-        client.post("/api/payments", json={"enrollment_id": september})
-        client.post("/api/payments", json={"enrollment_id": october})
-        assert teacher_totals(client, "2026-09") == {"Ahmed": 180 * DH}
-        # Octobre : Sara enseigne seule, l'accord de septembre ne la suit pas.
-        assert teacher_totals(client, "2026-10") == {"Sara": 180 * DH}
-
-    def test_the_share_view_says_who_taught_how_many_days(self, client):
-        _, class_id, teacher, _ = setup_base(client)
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        data = client.get(f"/api/classes/{class_id}/share?month=2026-09").json()
-        by_id = {row["teacher_id"]: row for row in data["shares"]}
-        assert by_id[teacher]["days"] == 20
-        assert by_id[sara]["days"] == 10
-        assert by_id[teacher]["teacher_name"] == "Ahmed"
 
 
-class TestTeacherInvoice:
-    def test_the_invoice_states_what_is_due_and_what_was_paid(self, client):
-        import io
-
-        from docx import Document
-
-        level, class_id, teacher, package = setup_base(client)
-        _, enrollment = enroll(client, level, package, class_id)
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        client.post(
-            "/api/payouts",
-            json={
-                "kind": "teacher",
-                "ref_id": teacher,
-                "month": "2026-09",
-                "amount_centimes": 100 * DH,
-            },
-        )
-        response = client.get(f"/api/teachers/{teacher}/invoice.docx?month=2026-09")
-        assert response.status_code == 200, response.text
-        assert "paie-Ahmed-2026-09.docx" in response.headers["content-disposition"]
-        text = "\n".join(
-            p.text for p in Document(io.BytesIO(response.content)).paragraphs
-        )
-        assert "Fiche de paie — septembre 2026" in text
-        assert "Ahmed" in text
-        assert "Dû pour le mois : 180,00 DH" in text
-        assert "Déjà versé : 100,00 DH" in text
-        assert "Reste à verser : 80,00 DH" in text
-
-    def test_the_invoice_lists_the_classes(self, client):
-        import io
-
-        from docx import Document
-
+class TestFiling:
+    def test_a_payslip_lands_in_its_month_and_its_drawer(self, client, tmp_path):
         level, class_id, teacher, package = setup_base(client)
         enroll(client, level, package, class_id)
-        response = client.get(f"/api/teachers/{teacher}/invoice.docx?month=2026-09")
-        document = Document(io.BytesIO(response.content))
-        rows = [[cell.text for cell in row.cells] for row in document.tables[0].rows]
-        assert rows[0] == ["Classe", "Niveau", "Inscrits", "Montant"]
-        assert rows[1][0] == "Math"
-        assert rows[1][2] == "1"  # inscrit, même s'il n'a pas encore payé
-
-    def test_an_unknown_teacher_is_404(self, client):
-        assert (
-            client.get("/api/teachers/999/invoice.docx?month=2026-09").status_code
-            == 404
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        filed = client.post(
+            "/api/documents/file",
+            json={"kind": "payslip", "month": "2026-09", "ref_id": teacher},
         )
+        assert filed.status_code == 201, filed.text
+        written = tmp_path / "aX" / "2026-09 Septembre" / "fiches-de-paie"
+        assert [item.suffix for item in written.iterdir()] == [".docx"]
 
-    def test_the_class_lines_add_up_to_the_total_due(self, client):
-        # Le tableau et le total doivent parler de la MÊME chose : ce qui est
-        # dû. Une reprise en cours de mois ne doit pas les faire diverger.
-        import io
+    def test_an_absence_sheet_has_its_own_drawer(self, client, tmp_path):
+        level, class_id, _teacher, package = setup_base(client)
+        enroll(client, level, package, class_id)
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        client.post(
+            "/api/documents/file",
+            json={"kind": "absence", "month": "2026-09", "ref_id": class_id},
+        )
+        assert (tmp_path / "aX" / "2026-09 Septembre" / "absences").is_dir()
 
-        from docx import Document
+    def test_filing_needs_a_folder_first(self, client):
+        *_, teacher, _package = setup_base(client)
+        refused = client.post(
+            "/api/documents/file",
+            json={"kind": "payslip", "month": "2026-09", "ref_id": teacher},
+        )
+        assert refused.status_code == 409
+        assert "dossier" in refused.json()["detail"]
 
+    def test_filing_again_replaces_rather_than_piles_up(self, client, tmp_path):
+        level, class_id, teacher, package = setup_base(client)
+        enroll(client, level, package, class_id)
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        body = {"kind": "payslip", "month": "2026-09", "ref_id": teacher}
+        client.post("/api/documents/file", json=body)
+        client.post("/api/documents/file", json=body)
+        drawer = tmp_path / "aX" / "2026-09 Septembre" / "fiches-de-paie"
+        assert len(list(drawer.iterdir())) == 1
+
+
+class TestStaleness:
+    def test_a_fresh_document_is_not_stale(self, client, tmp_path):
+        level, class_id, teacher, package = setup_base(client)
+        enroll(client, level, package, class_id)
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        client.post(
+            "/api/documents/file",
+            json={"kind": "payslip", "month": "2026-09", "ref_id": teacher},
+        )
+        assert stale(client) == []
+
+    def test_money_moving_ages_the_payslip_it_concerns(self, client, tmp_path):
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
-        client.post("/api/payments", json={"enrollment_id": enrollment})
-        sara = client.post("/api/teachers", json={"name": "Sara"}).json()["id"]
-        handover(client, class_id, sara)
-        for who in (teacher, sara):
-            response = client.get(f"/api/teachers/{who}/invoice.docx?month=2026-09")
-            document = Document(io.BytesIO(response.content))
-            rows = [
-                [cell.text for cell in row.cells] for row in document.tables[0].rows
-            ][1:]
-            lines = sum(
-                int(row[3].replace(" DH", "").replace(",", "").replace(" ", ""))
-                for row in rows
-            )
-            text = "\n".join(p.text for p in document.paragraphs)
-            total = next(
-                line for line in text.splitlines() if line.startswith("Dû pour le mois")
-            )
-            due = int(
-                total.split(":")[1]
-                .replace("DH", "")
-                .replace(",", "")
-                .replace(" ", "")
-                .strip()
-            )
-            assert lines == due, f"{rows} ≠ {total}"
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        client.post(
+            "/api/documents/file",
+            json={"kind": "payslip", "month": "2026-09", "ref_id": teacher},
+        )
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
+        aged = stale(client)
+        assert [(item["kind"], item["ref_id"]) for item in aged] == [
+            ("payslip", teacher)
+        ]
+        assert "fiche de paie" in aged[0]["label"].lower()
 
-    def test_the_file_carries_the_professor_name(self, client):
-        _, _, teacher, _ = setup_base(client)
-        response = client.get(f"/api/teachers/{teacher}/invoice.docx?month=2026-09")
-        assert "paie-Ahmed-2026-09.docx" in response.headers["content-disposition"]
+    def test_another_teachers_payslip_stays_quiet(self, client, tmp_path):
+        """Le cœur de la demande : signaler JUSTE. Un professeur dont
+        rien n'a bougé ne doit pas voir sa fiche marquée périmée."""
+        level, class_id, teacher, package = setup_base(client)
+        other = client.post("/api/teachers", json={"name": "Sara Alami"}).json()["id"]
+        other_class = client.post(
+            "/api/classes",
+            json={
+                "level_id": level,
+                "subject_id": client.get("/api/subjects").json()[0]["id"],
+                "teacher_id": other,
+            },
+        ).json()["id"]
+        _, enrollment = enroll(client, level, package, class_id)
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        for who in (teacher, other):
+            client.post(
+                "/api/documents/file",
+                json={"kind": "payslip", "month": "2026-09", "ref_id": who},
+            )
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
+        aged = stale(client)
+        assert [item["ref_id"] for item in aged] == [teacher]
+        assert other_class is not None
+
+    def test_a_document_never_filed_is_never_stale(self, client, tmp_path):
+        level, class_id, _teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
+        # Rien n'a été sorti : il n'y a rien à regénérer.
+        assert stale(client) == []
+
+    def test_refiling_settles_the_warning(self, client, tmp_path):
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        body = {"kind": "payslip", "month": "2026-09", "ref_id": teacher}
+        client.post("/api/documents/file", json=body)
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
+        assert len(stale(client)) == 1
+        client.post("/api/documents/file", json=body)
+        assert stale(client) == []
+
+    def test_an_enrollment_ages_the_absence_sheet(self, client, tmp_path):
+        """La feuille d'absence liste les inscrits : un élève de plus la
+        périme, même si personne n'a encore payé."""
+        level, class_id, _teacher, package = setup_base(client)
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        client.post(
+            "/api/documents/file",
+            json={"kind": "absence", "month": "2026-09", "ref_id": class_id},
+        )
+        enroll(client, level, package, class_id)
+        aged = stale(client)
+        assert [(item["kind"], item["ref_id"]) for item in aged] == [
+            ("absence", class_id)
+        ]
+
+    def test_a_past_month_is_the_one_that_needs_saying(self, client, tmp_path):
+        """C'est la demande exacte : quand un mois PASSÉ change, il faut
+        savoir quel fichier retélécharger."""
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id, month="2026-08")
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        client.post(
+            "/api/documents/file",
+            json={"kind": "payslip", "month": "2026-08", "ref_id": teacher},
+        )
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-20"},
+        )
+        aged = stale(client, "2026-08")
+        assert [item["kind"] for item in aged] == ["payslip"]
+        assert aged[0]["month"] == "2026-08"
+
+    def test_without_a_month_every_stale_document_shows(self, client, tmp_path):
+        level, class_id, teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id, month="2026-08")
+        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        client.post(
+            "/api/documents/file",
+            json={"kind": "payslip", "month": "2026-08", "ref_id": teacher},
+        )
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-20"},
+        )
+        everything = client.get("/api/documents/stale").json()
+        assert [item["month"] for item in everything] == ["2026-08"]

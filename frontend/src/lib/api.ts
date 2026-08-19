@@ -388,6 +388,17 @@ export async function apiSend<T>(
   )
 }
 
+export type StaleDocument = {
+  kind: "payslip" | "absence" | "excel"
+  month: string
+  scope: string
+  ref_id: number
+  path: string
+  generated_at: string
+  touched_at: string
+  label: string
+}
+
 export type LockState = {
   configured: boolean
   auto_lock_minutes: number

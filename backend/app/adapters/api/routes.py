@@ -2,6 +2,7 @@
 
 import sqlite3
 from collections.abc import Iterator
+from pathlib import Path as FsPathlib
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
@@ -15,7 +16,7 @@ from app.domain import lock as lock_rules
 from app.domain.adjustments import AdjustmentSpec
 from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
-from app.services import clock
+from app.services import clock, documents
 from app.services.payments import (
     complete_payment,
     guarantee_unpaid,
@@ -944,6 +945,19 @@ def overview(month: MonthPath, conn: Conn) -> list[dict]:
     return crud.month_overview(conn, default_academy_id(conn), month)
 
 
+def _touched(conn: sqlite3.Connection, enrollment_id: int) -> None:
+    """Dire ce que ce geste vient de perimer, nommement.
+
+    Une seule ligne a chaque ecriture : c'est l'ecriture elle-meme qui
+    sait qui elle touche, et c'est ce qui permet de signaler JUSTE plutot
+    que de crier « ce mois a change » sur tous les documents."""
+    month = crud.enrollment_month(conn, enrollment_id)
+    if month is None:
+        return
+    documents.touch(conn, month, documents.scopes_of_enrollment(conn, enrollment_id))
+    conn.commit()
+
+
 @router.post("/enrollments", status_code=201)
 def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
     # Backfill is allowed: he really started in August, entered in September —
@@ -981,6 +995,7 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
         price,
         arrival_date=body.arrival_date,
     )
+    _touched(conn, enrollment_id)
     return {"id": enrollment_id}
 
 
@@ -1202,6 +1217,7 @@ def guarantee(enrollment_id: int, body: GuaranteeBody, conn: Conn) -> dict:
     )
     if body.stop:
         crud.stop_enrollment(conn, enrollment_id)
+    _touched(conn, enrollment_id)
     return {
         "enrollment_id": enrollment_id,
         "amount_centimes": posted.amount,
@@ -1407,6 +1423,7 @@ def create_payment(body: PaymentCreate, conn: Conn) -> dict:
         body.paid_on,
         amount=body.amount_centimes,
     )
+    _touched(conn, body.enrollment_id)
     return {"payment_id": posted.payment_id, "net_centimes": posted.net_amount}
 
 
@@ -1417,6 +1434,7 @@ def complete(payment_id: int, body: CompleteBody, conn: Conn) -> dict:
     posted = complete_payment(
         SqlitePaymentStore(conn), payment_id, body.amount_centimes
     )
+    _touched(conn, crud.payment_enrollment(conn, payment_id))
     return {"payment_id": payment_id, "posted_centimes": posted}
 
 
@@ -1425,6 +1443,7 @@ def reverse(payment_id: int, body: ReverseBody, conn: Conn) -> dict:
     reversed_payment = reverse_payment(
         SqlitePaymentStore(conn), payment_id, body.reason
     )
+    _touched(conn, crud.payment_enrollment(conn, payment_id))
     return {"payment_id": reversed_payment.payment_id}
 
 
@@ -1462,6 +1481,155 @@ def export_monthly(month: MonthQuery, conn: Conn) -> Response:
             "Content-Disposition": f'attachment; filename="paiements-{month}.xlsx"'
         },
     )
+
+
+# --- le classement des documents -----------------------------------------
+
+# Le mois en toutes lettres dans le nom du dossier : « 2026-09 Septembre »
+# se trie tout seul ET se lit d'un coup d'oeil dans l'explorateur.
+_MONTHS_FR = (
+    "Janvier",
+    "Fevrier",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Aout",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Decembre",
+)
+
+
+def _backup_root(conn: sqlite3.Connection) -> str | None:
+    row = conn.execute(
+        "SELECT value FROM app_setting WHERE key = 'backup_root'"
+    ).fetchone()
+    return row["value"] if row else None
+
+
+def _month_folder(month: str) -> str:
+    """« 2026-09 Septembre » : ça se trie tout seul dans l'explorateur, et
+    ça se lit sans compter sur ses doigts."""
+    return f"{month} {_MONTHS_FR[int(month.split('-')[1]) - 1]}"
+
+
+def _slug(text: str) -> str:
+    """Un nom de fichier lisible et sans piege : pas d'accent, pas
+    d'espace, rien que Windows refuserait."""
+    import re
+    import unicodedata
+
+    plain = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Za-z0-9]+", "-", plain).strip("-") or "sans-nom"
+
+
+class BackupRootBody(BaseModel):
+    path: str
+
+
+@router.get("/settings/backup-root")
+def backup_root(conn: Conn) -> dict:
+    """Le dossier, et un exemple de ce qu'il contiendra — l'interface ne
+    devine pas le nom du sous-dossier, elle le demande."""
+    root = _backup_root(conn)
+    return {
+        "path": root,
+        "example": None
+        if root is None
+        else str(FsPathlib(root) / _month_folder(clock.current_month())),
+    }
+
+
+@router.put("/settings/backup-root")
+def set_backup_root(body: BackupRootBody, conn: Conn) -> dict:
+    """Le dossier ou l'application rangera tout. On le cree s'il manque —
+    taper un chemin qui n'existe pas encore est le cas normal."""
+    root = FsPathlib(body.path).expanduser()
+    if root.exists() and not root.is_dir():
+        raise HTTPException(
+            status_code=422, detail=f"« {root} » est un fichier, pas un dossier."
+        )
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise HTTPException(
+            status_code=422, detail=f"Dossier impossible a creer : {error}"
+        ) from error
+    conn.execute(
+        "INSERT INTO app_setting (key, value) VALUES ('backup_root', ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (str(root),),
+    )
+    conn.commit()
+    return {"path": str(root)}
+
+
+class FileDocumentBody(BaseModel):
+    kind: Literal["payslip", "absence", "excel"]
+    month: Month
+    ref_id: int = 0
+
+
+@router.post("/documents/file", status_code=201)
+def file_document(body: FileDocumentBody, conn: Conn) -> dict:
+    """Ranger le document dans le dossier du proprietaire, a sa place.
+
+    Un dossier par mois, un tiroir par sorte : le classement qu'il ferait
+    a la main, fait pour lui — et un nom stable, pour que regenerer
+    remplace au lieu d'empiler des « (2) »."""
+    root = _backup_root(conn)
+    if root is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Choisissez d'abord un dossier de sauvegarde dans la page Academie.",
+        )
+    drawer = FsPathlib(root) / _month_folder(body.month) / documents.DRAWERS[body.kind]
+    drawer.mkdir(parents=True, exist_ok=True)
+    content, name = _render_document(conn, body.kind, body.month, body.ref_id)
+    target = drawer / name
+    target.write_bytes(content)
+    documents.record_export(conn, body.kind, body.month, body.ref_id, str(target))
+    return {"path": str(target)}
+
+
+def _render_document(
+    conn: sqlite3.Connection, kind: str, month: str, ref_id: int
+) -> tuple[bytes, str]:
+    if kind == "payslip":
+        from app.adapters.docx.teacher_invoice import teacher_invoice
+
+        row = conn.execute(
+            "SELECT name FROM teacher WHERE id = ?", (ref_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Professeur inconnu.")
+        return teacher_invoice(conn, ref_id, month), f"paie-{_slug(row['name'])}.docx"
+    if kind == "absence":
+        from app.adapters.docx.absence_sheet import absence_sheet
+
+        row = conn.execute(
+            "SELECT s.name AS subject FROM class_group c"
+            " JOIN subject s ON s.id = c.subject_id WHERE c.id = ?",
+            (ref_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Classe inconnue.")
+        return absence_sheet(conn, ref_id, month), f"{_slug(row['subject'])}.docx"
+    from app.adapters.excel.monthly_workbook import monthly_workbook
+
+    return monthly_workbook(conn, default_academy_id(conn), month), "paiements.xlsx"
+
+
+@router.get("/documents/stale")
+def stale_documents_route(
+    conn: Conn, month: Annotated[str | None, Query(pattern=MONTH_PATTERN)] = None
+) -> list[dict]:
+    """Ce qui a ete sorti avant que les chiffres ne bougent — et pour qui,
+    nommement, pour qu'on sache quel fichier retelecharger."""
+    return [vars(item) for item in documents.stale_documents(conn, month)]
 
 
 @router.get("/reports/history")

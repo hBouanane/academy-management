@@ -13,6 +13,8 @@ import { CashBars } from "@/components/charts"
 import { ConfirmButton } from "@/components/Confirm"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { FileDocument } from "@/components/FileDocument"
+import { StaleDocuments } from "@/components/StaleDocuments"
 import { PayDialog } from "@/components/PayDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type {
@@ -139,19 +141,25 @@ export function Reports({ month, setMonth }: Props) {
         </div>
         <div className="flex items-center gap-2">
           <MonthNav month={month} setMonth={setMonth} />
+          <FileDocument kind="excel" month={month} ready>
+            Ranger l'export
+          </FileDocument>
           <Button asChild variant="outline">
             <a
               href={`/api/export/monthly.xlsx?month=${month}`}
               download
               onClick={recordExport}
             >
-              Exporter Excel
+              Enregistrer sous…
             </a>
           </Button>
         </div>
       </header>
 
       <Notice alert={error} />
+      {/* Ce qui a ete range et que les chiffres ont depasse depuis :
+          nomme document par document, pas mois par mois. */}
+      <StaleDocuments />
       <Notice
         tone="warning"
         message={

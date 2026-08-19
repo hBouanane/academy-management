@@ -209,7 +209,82 @@ export function Academy() {
       </div>
 
       <OwnerTeacher onError={setError} />
+      <BackupFolder onError={setError} />
       <Security onError={setError} />
+    </div>
+  )
+}
+
+/** Le dossier où l'application range tout. Un seul choix, une fois, au
+    lieu d'un « où voulez-vous l'enregistrer ? » à chaque document — et
+    d'un dossier Téléchargements où plus rien ne se retrouve. */
+function BackupFolder({ onError }: { onError: (message: string) => void }) {
+  const [path, setPath] = useState<string | null>(null)
+  // Le nom exact du sous-dossier vient du serveur : l'interface ne le
+  // devine pas, sinon elle promettrait un chemin qui n'existe pas.
+  const [example, setExample] = useState<string | null>(null)
+  const [draft, setDraft] = useState("")
+  const toast = useToast()
+
+  const load = useCallback(
+    () =>
+      apiGet<{ path: string | null; example: string | null }>(
+        "/api/settings/backup-root",
+      )
+        .then((setting) => {
+          setPath(setting.path)
+          setExample(setting.example)
+          setDraft(setting.path ?? "")
+        })
+        .catch(() => {}),
+    [],
+  )
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <div className="surface-card space-y-3 p-6">
+      <div>
+        <Label htmlFor="backup-root">Dossier de sauvegarde</Label>
+        <p className="text-muted-foreground text-xs">
+          Fiches de paie, feuilles d'absence et exports s'y rangent tout
+          seuls : un dossier par mois, un tiroir par sorte de document.
+          Choisissez-le sur votre disque — une clé USB fait très bien
+          l'affaire.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <Input
+          id="backup-root"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="D:\academX"
+          className="w-80"
+        />
+        <Button
+          variant="outline"
+          disabled={!draft.trim()}
+          onClick={() =>
+            apiSend<{ path: string }>("PUT", "/api/settings/backup-root", {
+              path: draft.trim(),
+            })
+              .then((saved) => {
+                toast(`Tout sera rangé dans ${saved.path}`)
+                void load()
+              })
+              .catch((err: Error) => onError(err.message))
+          }
+        >
+          {path ? "Changer de dossier" : "Choisir ce dossier"}
+        </Button>
+      </div>
+      {path && (
+        <p className="text-muted-foreground text-xs">
+          Rangement actuel :{" "}
+          <span className="font-mono">{example ?? path}</span>
+        </p>
+      )}
     </div>
   )
 }
