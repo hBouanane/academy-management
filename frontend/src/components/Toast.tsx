@@ -33,7 +33,12 @@ const TONES: Record<Tone, string> = {
   info: "border-border bg-muted/80 text-foreground",
 }
 
-type Push = (message: string, tone?: Tone, elsewhere?: () => void) => void
+type Push = (
+  message: string,
+  tone?: Tone,
+  action?: () => void,
+  actionLabel?: string,
+) => void
 
 const ToastContext = createContext<Push>(() => {})
 
@@ -43,17 +48,18 @@ export const useToast = () => useContext(ToastContext)
 export function ToastHost({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const push = useCallback<Push>((message, tone = "success", elsewhere) => {
+  const push = useCallback<Push>(
+    (message, tone = "success", run, actionLabel = "Enregistrer ailleurs…") => {
     const id = Date.now() + Math.random()
-    const action = elsewhere
-      ? { label: "Enregistrer ailleurs…", run: elsewhere }
-      : undefined
+    const action = run ? { label: actionLabel, run } : undefined
     setToasts((current) => [...current, { id, message, tone, action }])
     window.setTimeout(
       () => setToasts((current) => current.filter((entry) => entry.id !== id)),
       LIVES[tone],
     )
-  }, [])
+    },
+    [],
+  )
 
   return (
     <ToastContext.Provider value={push}>

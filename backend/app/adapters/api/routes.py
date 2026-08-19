@@ -718,13 +718,21 @@ def clear_class_share(class_id: int, conn: Conn, month: MonthQuery) -> dict:
 
 
 @router.get("/teachers/{teacher_id}/invoice.docx")
-def teacher_invoice_route(teacher_id: int, month: MonthQuery, conn: Conn) -> Response:
-    """La fiche de paie du mois, imprimable et signable des deux côtés."""
+def teacher_invoice_route(
+    teacher_id: int,
+    month: MonthQuery,
+    conn: Conn,
+    payout: Annotated[int | None, Query()] = None,
+) -> Response:
+    """La fiche de paie du mois, imprimable et signable des deux côtés.
+
+    Avec un versement désigné, elle devient le reçu de ce versement :
+    c'est celle-là qu'on fait signer au moment de payer."""
     import unicodedata
 
     from app.adapters.docx.teacher_invoice import teacher_invoice
 
-    content = teacher_invoice(conn, teacher_id, month)
+    content = teacher_invoice(conn, teacher_id, month, payout)
     row = conn.execute(
         "SELECT name FROM teacher WHERE id = ?", (teacher_id,)
     ).fetchone()
@@ -1764,6 +1772,8 @@ class FileDocumentBody(BaseModel):
     kind: Literal["payslip", "absence", "excel"]
     month: Month
     ref_id: int = 0
+    # Une fiche de paie sortie au moment de payer devient un reçu.
+    payout_id: int | None = None
 
 
 @router.post("/documents/file", status_code=201)
@@ -1781,7 +1791,9 @@ def file_document(body: FileDocumentBody, conn: Conn) -> dict:
         )
     drawer = FsPathlib(root) / _month_folder(body.month) / documents.DRAWERS[body.kind]
     drawer.mkdir(parents=True, exist_ok=True)
-    content, name = _render_document(conn, body.kind, body.month, body.ref_id)
+    content, name = _render_document(
+        conn, body.kind, body.month, body.ref_id, body.payout_id
+    )
     target = drawer / name
     target.write_bytes(content)
     documents.record_export(conn, body.kind, body.month, body.ref_id, str(target))
@@ -1789,7 +1801,11 @@ def file_document(body: FileDocumentBody, conn: Conn) -> dict:
 
 
 def _render_document(
-    conn: sqlite3.Connection, kind: str, month: str, ref_id: int
+    conn: sqlite3.Connection,
+    kind: str,
+    month: str,
+    ref_id: int,
+    payout_id: int | None = None,
 ) -> tuple[bytes, str]:
     if kind == "payslip":
         from app.adapters.docx.teacher_invoice import teacher_invoice
@@ -1799,7 +1815,12 @@ def _render_document(
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Professeur inconnu.")
-        return teacher_invoice(conn, ref_id, month), f"paie-{_slug(row['name'])}.docx"
+        # Un reçu porte le numéro du versement : deux versements dans le
+        # mois font deux papiers, et le second n'écrase pas le premier.
+        name = f"paie-{_slug(row['name'])}"
+        if payout_id:
+            name += f"-versement-{payout_id}"
+        return teacher_invoice(conn, ref_id, month, payout_id), f"{name}.docx"
     if kind == "absence":
         from app.adapters.docx.absence_sheet import absence_sheet
 

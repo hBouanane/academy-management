@@ -11,6 +11,7 @@
 // prend son pourcentage, tout le reste va à l'académie qui avait avancé.
 
 import { useCallback, useEffect, useState } from "react"
+import { FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -39,6 +40,7 @@ import {
 } from "@/lib/money"
 import { useAlert } from "@/lib/alert"
 import { openTeacher } from "@/lib/navigation"
+import type { Folders } from "@/lib/api"
 
 const KIND_LABEL: Record<CaisseLine["kind"], string> = {
   venue: "Salle",
@@ -66,6 +68,15 @@ export function Payroll() {
   } | null>(null)
   const [studentProfile, setStudentProfile] = useState<number | null>(null)
   const toast = useToast()
+  // Null tant qu'on ne sait pas : le reçu se telecharge alors, faute de
+  // savoir ou le ranger.
+  const [documentsFolder, setDocumentsFolder] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiGet<Folders>("/api/settings/folders")
+      .then((settings) => setDocumentsFolder(settings.documents.path))
+      .catch(() => setDocumentsFolder(null))
+  }, [])
 
   const reload = useCallback(() => {
     setError(null)
@@ -79,7 +90,7 @@ export function Payroll() {
   useEffect(reload, [reload])
 
   const payOut = (line: CaisseLine, amount?: number) =>
-    apiSend<{ amount_centimes: number }>("POST", "/api/payouts", {
+    apiSend<{ id: number; amount_centimes: number }>("POST", "/api/payouts", {
       kind: line.kind,
       ref_id: line.ref_id,
       month,
@@ -87,7 +98,16 @@ export function Payroll() {
     })
       .then((done) => {
         setError(null)
-        toast(`Versé ${formatDH(done.amount_centimes)} — ${line.name}`)
+        // Le papier qu'on fait signer se propose ICI : c'est maintenant
+        // que le professeur est devant vous, l'argent à la main.
+        toast(
+          `Versé ${formatDH(done.amount_centimes)} — ${line.name}`,
+          "success",
+          line.kind === "teacher"
+            ? () => receipt(line.ref_id, done.id)
+            : undefined,
+          "Fiche de paie à signer",
+        )
         reload()
       })
       .catch((err: Error) => {
@@ -122,6 +142,28 @@ export function Payroll() {
         reload()
       })
       .catch((err: Error) => setError(err.message))
+
+  /** Le reçu d'un versement : rangé si un dossier est désigné, sinon
+      enregistré comme n'importe quel téléchargement. */
+  const receipt = (teacherId: number, payoutId: number) => {
+    const href =
+      `/api/teachers/${teacherId}/invoice.docx?month=${month}&payout=${payoutId}`
+    if (documentsFolder === null) {
+      const link = document.createElement("a")
+      link.href = href
+      link.download = ""
+      link.click()
+      return
+    }
+    apiSend<{ path: string }>("POST", "/api/documents/file", {
+      kind: "payslip",
+      month,
+      ref_id: teacherId,
+      payout_id: payoutId,
+    })
+      .then((filed) => toast(`Reçu rangé : ${filed.path.split(/[\\/]/).pop()}`))
+      .catch((err: Error) => toast(err.message, "error"))
+  }
 
   const cancelPayout = (payoutId: number) =>
     apiSend("DELETE", `/api/payouts/${payoutId}`)
@@ -330,8 +372,18 @@ export function Payroll() {
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {line.payouts.map((payout) => (
+                        <span key={payout.id} className="inline-flex items-center">
+                          {line.kind === "teacher" && (
+                            <button
+                              type="button"
+                              title="Reçu de ce versement, à faire signer"
+                              className="text-muted-foreground hover:text-foreground mr-1"
+                              onClick={() => receipt(line.ref_id, payout.id)}
+                            >
+                              <FileText className="size-3.5" />
+                            </button>
+                          )}
                         <ConfirmButton
-                          key={payout.id}
                           size="sm"
                           variant="outline"
                           className="h-6 px-2 text-xs"
@@ -342,6 +394,7 @@ export function Payroll() {
                         >
                           {formatDH(payout.amount_centimes)} · {payout.paid_on}
                         </ConfirmButton>
+                        </span>
                       ))}
                       {line.payouts.length === 0 && (
                         <span className="text-muted-foreground text-xs">—</span>

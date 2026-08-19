@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/table"
 import { Field, FieldGrid } from "@/components/Field"
 import { monthLabel } from "@/components/MonthNav"
-import { FileDocument } from "@/components/FileDocument"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { TeacherProfile as Profile } from "@/lib/api"
@@ -109,19 +108,6 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
             </p>
           </div>
         </div>
-        {profile && (
-          <div className="flex flex-wrap items-center gap-2">
-            <FileDocument
-              kind="payslip"
-              month={month}
-              refId={profile.id}
-              downloadHref={`/api/teachers/${profile.id}/invoice.docx?month=${month}`}
-              title="Sa fiche de paie du mois, à imprimer et signer"
-            >
-              Fiche de paie
-            </FileDocument>
-          </div>
-        )}
       </header>
       <Notice alert={error} />
       {profile && (

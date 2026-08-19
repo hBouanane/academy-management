@@ -1,8 +1,13 @@
-"""La facture du mois d'un professeur, en Word — imprimable et signable.
+"""La fiche de paie d'un professeur, en Word — imprimable et signable.
 
-Elle dit ce qu'il a gagné classe par classe, ce qui lui a déjà été versé et
-ce qui reste, puis laisse deux lignes de signature. Le dû vient des élèves
-INSCRITS (payés ou non) : le professeur a enseigné, il est payé.
+Elle dit ce qu'il a gagné classe par classe, ce qui lui a déjà été versé
+et ce qui reste, puis laisse deux lignes de signature. Le dû vient des
+élèves INSCRITS (payés ou non) : le professeur a enseigné, il est payé.
+
+Sortie AU MOMENT DE PAYER, elle devient un reçu : elle porte alors le
+versement — sa date et son montant — en haut, avant le détail. C'est
+celle-là qu'on fait signer, parce qu'elle atteste de ce qui vient
+d'être remis.
 """
 
 import sqlite3
@@ -19,7 +24,12 @@ def _dh(centimes: int) -> str:
     return f"{centimes / 100:,.2f} DH".replace(",", " ").replace(".", ",")
 
 
-def teacher_invoice(conn: sqlite3.Connection, teacher_id: int, month: str) -> bytes:
+def teacher_invoice(
+    conn: sqlite3.Connection,
+    teacher_id: int,
+    month: str,
+    payout_id: int | None = None,
+) -> bytes:
     from app.adapters.sqlite.crud import (
         caisse_summary,
         teacher_class_dues,
@@ -42,14 +52,31 @@ def teacher_invoice(conn: sqlite3.Connection, teacher_id: int, month: str) -> by
     )
     due = line["due_centimes"] if line else 0
     paid = line["paid_centimes"] if line else 0
+    payout = _payout(conn, payout_id, teacher_id) if payout_id else None
 
     document = Document()
-    document.add_heading(f"Fiche de paie — {month_label(month)}", level=1)
+    document.add_heading(
+        ("Reçu de versement — " if payout else "Fiche de paie — ") + month_label(month),
+        level=1,
+    )
     document.add_paragraph(academy["name"])
     document.add_paragraph(
         f"Professeur : {profile['name']}"
         + (f"    Téléphone : {profile['phone']}" if profile["phone"] else "")
     )
+
+    # Ce qu'on vient de lui remettre, avant tout le reste : c'est la
+    # raison d'être du papier qu'il signe.
+    if payout:
+        document.add_paragraph()
+        paragraph = document.add_paragraph()
+        run = paragraph.add_run(
+            f"Versé ce jour ({payout['paid_on']}) : {_dh(payout['amount_centimes'])}"
+        )
+        run.font.bold = True
+        run.font.size = Pt(14)
+        if payout["note"]:
+            document.add_paragraph(payout["note"]).runs[0].font.size = Pt(9)
 
     document.add_paragraph()
     table = document.add_table(rows=1, cols=4)
@@ -93,6 +120,11 @@ def teacher_invoice(conn: sqlite3.Connection, teacher_id: int, month: str) -> by
         " n'a pas encore payé ne change rien à ce qui est dû au professeur."
     ).runs[0].font.size = Pt(8)
     document.add_paragraph()
+    if payout:
+        document.add_paragraph(
+            "Reçu pour solde de ce versement. Le reste à verser, s'il y en"
+            " a, fera l'objet d'un autre reçu."
+        ).runs[0].font.size = Pt(8)
     signatures = document.add_table(rows=2, cols=2)
     signatures.rows[0].cells[0].text = "Signature du professeur"
     signatures.rows[0].cells[1].text = "Signature de l'académie"
@@ -102,6 +134,19 @@ def teacher_invoice(conn: sqlite3.Connection, teacher_id: int, month: str) -> by
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
+
+
+def _payout(conn: sqlite3.Connection, payout_id: int, teacher_id: int) -> dict:
+    """Le versement designe — et il doit bien avoir ete fait A CE
+    professeur : un recu atteste, il ne se recopie pas d'un autre."""
+    row = conn.execute(
+        "SELECT amount_centimes, paid_on, note FROM payout"
+        " WHERE id = ? AND beneficiary_kind = 'teacher' AND beneficiary_id = ?",
+        (payout_id, teacher_id),
+    ).fetchone()
+    if row is None:
+        raise LookupError(f"no payout {payout_id} for teacher {teacher_id}")
+    return dict(row)
 
 
 def _segment(entry: dict) -> str:

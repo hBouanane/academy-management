@@ -91,10 +91,46 @@ def _also_in_his_own_folder(db_path: Path, snapshot: Path, stamp: str) -> None:
         return
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(snapshot, folder / f"academie-{stamp}.db")
+        shutil.copy2(snapshot, folder / f"academie-{stamp}-v{_schema(db_path)}.db")
         _prune(folder, pattern="academie-*.db")
     except OSError:
         return
+
+
+def _schema(db_path: Path) -> int:
+    """La version du schéma, telle que SQLite la porte dans le fichier."""
+    conn = sqlite3.connect(db_path)
+    try:
+        return conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def database_complaint(db_path: Path) -> str | None:
+    """Ce qui empêche d'ouvrir cette base, dit en clair — ou rien.
+
+    Une sauvegarde ANCIENNE se rattrape toute seule : les migrations la
+    ramènent au présent au démarrage. C'est l'inverse qui est dangereux —
+    un fichier écrit par une version plus récente contient des colonnes
+    que cette version-ci ne connaît pas.
+
+    Sans ce garde-fou, le client lirait « le serveur interne n'a pas
+    démarré » et n'aurait aucune idée de la vraie raison.
+    """
+    if not db_path.exists():
+        return None
+    from app.adapters.sqlite.migrations import latest_version
+
+    found = _schema(db_path)
+    known = latest_version()
+    if found <= known:
+        return None
+    return (
+        "Cette sauvegarde vient d'une version plus récente de"
+        f" l'application (schéma {found}, celle-ci connaît {known}).\n\n"
+        "Installez la dernière version, ou restaurez une sauvegarde plus"
+        " ancienne."
+    )
 
 
 def _setting(db_path: Path, key: str) -> Path | None:
@@ -167,6 +203,9 @@ def main() -> None:
     if another_instance_is_running():
         _fatal("L'application est déjà ouverte.")
     db_path = data_dir() / "data.db"
+    complaint = database_complaint(db_path)
+    if complaint:
+        _fatal(complaint)
     app = create_app(str(db_path), frontend_dist=frontend_dist())
     port = pick_free_port()
     threading.Thread(

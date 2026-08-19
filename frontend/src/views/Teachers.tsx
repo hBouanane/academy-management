@@ -13,10 +13,9 @@ import {
 } from "@/components/ui/table"
 import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
 import { ConfirmButton } from "@/components/Confirm"
-import { MonthNav, monthLabel } from "@/components/MonthNav"
+import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { Pagination, usePagination } from "@/components/Pagination"
-import { FileDocument } from "@/components/FileDocument"
 import { openTeacher } from "@/lib/navigation"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
@@ -167,14 +166,6 @@ export function Teachers({ month, setMonth }: Props) {
                   </span>
                 </TableCell>
                 <TableCell className="space-x-1 text-right whitespace-nowrap">
-                  <FileDocument
-                    kind="payslip"
-                    month={month}
-                    refId={row.id}
-                    variant="ghost"
-                    downloadHref={`/api/teachers/${row.id}/invoice.docx?month=${month}`}
-                    title={`Fiche de paie de ${monthLabel(month)} — à imprimer et signer`}
-                  />
                   <Button
                     size="sm"
                     variant="ghost"
