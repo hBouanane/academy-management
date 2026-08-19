@@ -20,3 +20,6 @@ frontend/dist/
 .idea/
 Thumbs.db
 .DS_Store
+
+# La cle de depannage de l'editeur : elle ne quitte jamais son poste.
+packaging/vendor_key.txt

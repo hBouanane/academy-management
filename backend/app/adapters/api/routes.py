@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
+from app.adapters.api import vendor
 from app.adapters.sqlite import crud
 from app.adapters.sqlite.db import connect
 from app.adapters.sqlite.payment_store import SqlitePaymentStore
@@ -154,6 +155,66 @@ def recover(body: RecoverBody, request: Request, conn: Conn) -> dict:
         request.app.state.sessions.note_failure()
         raise HTTPException(status_code=401, detail="Phrase de secours incorrecte.")
     # La phrase a servi : on en tire une neuve, l'ancienne ne vaut plus.
+    phrase = lock_rules.recovery_phrase()
+    crud.write_lock(conn, lock_rules.seal(body.code), lock_rules.seal(phrase))
+    return {"recovery_phrase": phrase}
+
+
+class RescueBody(BaseModel):
+    answer: str
+    code: Annotated[str, StringConstraints(min_length=4, max_length=64)]
+
+
+def _installation_id(conn: sqlite3.Connection) -> str:
+    """Ce qui distingue CETTE installation. Tiré une fois, gardé pour
+    toujours : c'est lui qui fait qu'un dépannage ne vaut que pour une
+    académie."""
+    import secrets
+
+    row = conn.execute(
+        "SELECT value FROM app_setting WHERE key = 'installation_id'"
+    ).fetchone()
+    if row:
+        return row["value"]
+    fresh = secrets.token_hex(8)
+    conn.execute(
+        "INSERT INTO app_setting (key, value) VALUES ('installation_id', ?)",
+        (fresh,),
+    )
+    conn.commit()
+    return fresh
+
+
+@router.get("/lock/rescue")
+def rescue_challenge(conn: Conn) -> dict:
+    """Le défi à lire à l'éditeur. Sans clé dans cette version, il n'y a
+    rien à montrer et le bouton ne s'affiche pas."""
+    if vendor.vendor_key() is None:
+        return {"available": False}
+    return {
+        "available": True,
+        "challenge": vendor.challenge_for(_installation_id(conn)),
+    }
+
+
+@router.post("/lock/rescue")
+def rescue(body: RescueBody, request: Request, conn: Conn) -> dict:
+    """Le dernier recours : le code ET la phrase sont perdus.
+
+    L'éditeur dicte la réponse au défi du jour ; l'académie repart avec
+    un code neuf ET une phrase de secours neuve — dépanner ne doit pas
+    le priver de sa propre porte."""
+    key = vendor.vendor_key()
+    if key is None:
+        raise HTTPException(
+            status_code=404, detail="Cette version n'a pas de dépannage éditeur."
+        )
+    _lock_row(conn)
+    _refuse_if_impatient(request.app.state.sessions)
+    challenge = vendor.challenge_for(_installation_id(conn))
+    if not vendor.answer_matches(key, challenge, body.answer):
+        request.app.state.sessions.note_failure()
+        raise HTTPException(status_code=401, detail="Réponse incorrecte.")
     phrase = lock_rules.recovery_phrase()
     crud.write_lock(conn, lock_rules.seal(body.code), lock_rules.seal(phrase))
     return {"recovery_phrase": phrase}
