@@ -20,6 +20,7 @@ import { GuaranteeDialog } from "@/components/GuaranteeDialog"
 import { LevelFilter, matchesLevelFilter } from "@/components/LevelFilter"
 import type { LevelFilterValue } from "@/components/LevelFilter"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
+import { BackupReminder } from "@/components/BackupReminder"
 import { Notice } from "@/components/Notice"
 import { Pagination, usePagination } from "@/components/Pagination"
 import { StudentProfile } from "@/components/StudentProfile"
@@ -129,6 +130,9 @@ export function Dashboard({ month, setMonth }: Props) {
       </header>
 
       <Notice alert={error} />
+      {/* Emporter ses sauvegardes se remet toujours a demain : le rappel
+          vit ici parce que c'est l'ecran qu'on ouvre le matin. */}
+      <BackupReminder />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="surface-card orb-backdrop p-5">

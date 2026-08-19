@@ -58,35 +58,23 @@ class TestBackupFolder:
         assert refused.status_code == 422
 
 
-class TestTheTwoFolders:
-    """Les documents se donnent ; la base contient toute l'académie. Une
-    clé USB tendue à un professeur ne doit pas emporter le tout."""
-
-    def test_they_are_two_separate_settings(self, client, tmp_path):
+class TestTheDocumentsFolder:
+    def test_it_is_the_only_one_to_configure(self, client, tmp_path):
+        """Les sauvegardes de la base ne se reglent pas : elles se font
+        toutes seules, et s'emportent a la demande sur une cle."""
         client.put(
             "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
         )
-        client.put(
-            "/api/settings/folders/database", json={"path": str(tmp_path / "coffre")}
-        )
-        both = client.get("/api/settings/folders").json()
-        assert both["documents"]["path"] == str(tmp_path / "aX")
-        assert both["database"]["path"] == str(tmp_path / "coffre")
-
-    def test_choosing_documents_leaves_the_database_folder_alone(
-        self, client, tmp_path
-    ):
-        client.put(
-            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
-        )
-        assert client.get("/api/settings/folders").json()["database"]["path"] is None
+        settings = client.get("/api/settings/folders").json()
+        assert list(settings) == ["documents"]
+        assert settings["documents"]["path"] == str(tmp_path / "aX")
 
     def test_a_folder_can_be_given_up(self, client, tmp_path):
         client.put(
-            "/api/settings/folders/database", json={"path": str(tmp_path / "coffre")}
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
         )
-        client.delete("/api/settings/folders/database")
-        assert client.get("/api/settings/folders").json()["database"]["path"] is None
+        client.delete("/api/settings/folders/documents")
+        assert client.get("/api/settings/folders").json()["documents"]["path"] is None
 
     def test_an_unknown_kind_is_refused(self, client, tmp_path):
         refused = client.put(

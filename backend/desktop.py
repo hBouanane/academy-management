@@ -7,7 +7,6 @@ terminal.
 
 import ctypes
 import os
-import shutil
 import socket
 import sqlite3
 import sys
@@ -67,34 +66,15 @@ def backup_database(db_path: Path, stamp: str | None = None) -> Path | None:
     finally:
         source.close()
     _prune(backups)
-    _also_in_his_own_folder(db_path, target, stamp)
     return target
 
 
-def _also_in_his_own_folder(db_path: Path, snapshot: Path, stamp: str) -> None:
-    """Poser une copie dans le dossier prévu POUR ÇA.
-
-    Celle de %APPDATA% est parfaite et invisible : le jour où le portable
-    meurt, elle meurt avec. Un dossier désigné — une clé USB, un disque
-    externe — est celui qu'il ouvre et qu'il emporte.
-
-    Ce dossier n'est PAS celui des documents. Une fiche de paie se donne
-    au professeur, s'imprime, se partage ; la base contient toute
-    l'académie. Les mélanger ferait voyager le tout dès qu'il tend sa
-    clé à quelqu'un.
-
-    Rien ici ne doit empêcher l'application de se fermer : si la clé
-    n'est plus branchée, on garde la copie interne et on se tait.
-    """
-    folder = _setting(db_path, "db_backup_root")
-    if folder is None:
-        return
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(snapshot, folder / f"academie-{stamp}-v{_schema(db_path)}.db")
-        _prune(folder, pattern="academie-*.db")
-    except OSError:
-        return
+def _prune(backups: Path, keep: int = BACKUPS_TO_KEEP) -> None:
+    """Une photographie par fermeture remplirait le disque en quelques
+    annees : on garde les plus recentes, soit environ un mois."""
+    files = sorted(backups.glob("data-*.db"))
+    for stale in files[:-keep]:
+        stale.unlink()
 
 
 def _schema(db_path: Path) -> int:
@@ -131,27 +111,6 @@ def database_complaint(db_path: Path) -> str | None:
         "Installez la dernière version, ou restaurez une sauvegarde plus"
         " ancienne."
     )
-
-
-def _setting(db_path: Path, key: str) -> Path | None:
-    conn = sqlite3.connect(db_path)
-    try:
-        row = conn.execute(
-            "SELECT value FROM app_setting WHERE key = ?", (key,)
-        ).fetchone()
-    except sqlite3.Error:  # base d'avant le reglage : rien a faire
-        return None
-    finally:
-        conn.close()
-    return Path(row[0]) if row else None
-
-
-def _prune(
-    backups: Path, keep: int = BACKUPS_TO_KEEP, pattern: str = "data-*.db"
-) -> None:
-    files = sorted(backups.glob(pattern))
-    for stale in files[:-keep]:
-        stale.unlink()
 
 
 def pick_free_port() -> int:

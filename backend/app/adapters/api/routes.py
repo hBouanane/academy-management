@@ -2,6 +2,7 @@
 
 import sqlite3
 from collections.abc import Iterator
+from datetime import UTC
 from pathlib import Path as FsPathlib
 from typing import Annotated, Literal
 
@@ -1572,17 +1573,15 @@ _MONTHS_FR = (
 )
 
 
-# Deux dossiers, et surtout PAS le meme.
+# Un seul dossier a configurer : celui ou l'application range les
+# documents. Les sauvegardes de la base, elles, ne se configurent pas --
+# elles se font toutes seules a cote du fichier, et s'emportent sur une
+# cle a la demande (voir /api/backups).
 #
-# Les documents se donnent : une fiche de paie s'imprime et se tend au
-# professeur, une feuille d'absence circule. La base, elle, contient
-# toute l'academie -- chaque eleve, chaque paiement. Les melanger ferait
-# voyager le tout des qu'il tend sa cle USB a quelqu'un.
-#
-# Les cles de stockage gardent leurs anciens noms : les renommer
-# effacerait le reglage des installations deja posees.
-FOLDERS = {"documents": "backup_root", "database": "db_backup_root"}
-FolderKind = Literal["documents", "database"]
+# La cle de stockage garde son ancien nom : la renommer effacerait le
+# reglage des installations deja posees.
+FOLDERS = {"documents": "backup_root"}
+FolderKind = Literal["documents"]
 
 
 def _folder(conn: sqlite3.Connection, kind: str) -> str | None:
@@ -1629,8 +1628,7 @@ def folders(conn: Conn) -> dict:
             "example": None
             if documents is None
             else str(FsPathlib(documents) / _month_folder(clock.current_month())),
-        },
-        "database": {"path": _folder(conn, "database")},
+        }
     }
 
 
@@ -1766,6 +1764,103 @@ def forget_folder(kind: FolderKind, conn: Conn) -> dict:
     conn.execute("DELETE FROM app_setting WHERE key = ?", (FOLDERS[kind],))
     conn.commit()
     return {"path": None}
+
+
+# --- emporter ses sauvegardes ---------------------------------------------
+
+# Au-dela, on le lui rappelle. Une semaine : assez pour ne pas harceler,
+# assez peu pour qu'un mois de travail ne parte jamais en fumee.
+_STALE_AFTER_DAYS = 7
+
+# Sur la cle, tout se range dans un dossier a nous : une cle sert a
+# vingt choses, la notre ne doit pas s'y perdre.
+_ON_THE_STICK = "AcademyManagement"
+
+
+class CopyBackupsBody(BaseModel):
+    # Absent : on ouvre le selecteur de dossiers.
+    path: str | None = None
+
+
+def _backups_folder(request: Request) -> FsPathlib:
+    """Les copies vivent a cote de la base, la ou la fermeture les pose."""
+    return FsPathlib(request.app.state.db_path).parent / "backups"
+
+
+def _snapshots(request: Request) -> list[FsPathlib]:
+    folder = _backups_folder(request)
+    return sorted(folder.glob("data-*.db")) if folder.is_dir() else []
+
+
+@router.get("/backups")
+def backups_state(request: Request, conn: Conn) -> dict:
+    """Ou en sont les sauvegardes, et depuis quand elles n'ont pas quitte
+    cet ordinateur."""
+    from datetime import datetime
+
+    copies = _snapshots(request)
+    last = _setting_value(conn, "backups_copied_at")
+    days = None
+    if last:
+        try:
+            days = (datetime.now(UTC) - datetime.fromisoformat(last)).days
+        except ValueError:
+            days = None
+    return {
+        "count": len(copies),
+        "newest": copies[-1].name if copies else None,
+        "destination": _setting_value(conn, "backups_destination"),
+        "last_copied_at": last,
+        "days_since": days,
+        # Jamais copiees compte comme trop vieux : c'est le cas le plus
+        # dangereux, et le plus courant.
+        "stale": bool(copies) and (days is None or days >= _STALE_AFTER_DAYS),
+    }
+
+
+@router.post("/backups/copy")
+def copy_backups(body: CopyBackupsBody, request: Request, conn: Conn) -> dict:
+    """Emporter les sauvegardes sur une cle, ou n'importe quel disque.
+
+    Une copie automatique vers une cle ne marche pas : personne ne la
+    laisse branchee, et un filet qui echoue en silence est pire que pas
+    de filet. Il branche quand il y pense, il clique, tout part.
+    """
+    import shutil
+    from datetime import datetime
+
+    chosen = body.path or _ask_for_a_folder(_setting_value(conn, "backups_destination"))
+    if chosen is None:
+        return {"copied": 0, "cancelled": True}
+    destination = _usable_folder(chosen) / _ON_THE_STICK
+    destination.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for snapshot in _snapshots(request):
+        target = destination / snapshot.name
+        # Deja la : on ne recopie pas dix fois le meme fichier.
+        if target.exists() and target.stat().st_size == snapshot.stat().st_size:
+            continue
+        shutil.copy2(snapshot, target)
+        copied += 1
+    _remember(conn, "backups_destination", chosen)
+    _remember(
+        conn, "backups_copied_at", datetime.now(UTC).isoformat(timespec="seconds")
+    )
+    return {"copied": copied, "destination": str(destination)}
+
+
+def _setting_value(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM app_setting WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def _remember(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO app_setting (key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
 
 
 class FileDocumentBody(BaseModel):

@@ -20,6 +20,7 @@ import type {
   Teacher,
 } from "@/lib/api"
 import { useAlert } from "@/lib/alert"
+import { Backups } from "@/components/Backups"
 import { FolderSetting } from "@/components/FolderSetting"
 import { useToast } from "@/components/Toast"
 
@@ -216,6 +217,7 @@ export function Academy() {
 
       <OwnerTeacher onError={setError} />
       <BackupFolder onError={setError} />
+      <Backups onError={setError} />
       <Security onError={setError} />
     </div>
   )
@@ -239,9 +241,7 @@ function BackupFolder({ onError }: { onError: (message: string) => void }) {
   }, [load])
 
   return (
-    <div className="surface-card space-y-5 p-6">
-      {/* Deux dossiers, et surtout pas le même. Une fiche de paie se
-          tend au professeur ; la base contient toute l'académie. */}
+    <div className="surface-card p-6">
       <FolderSetting
         kind="documents"
         label="Dossier des documents"
@@ -249,15 +249,6 @@ function BackupFolder({ onError }: { onError: (message: string) => void }) {
         path={folders?.documents.path ?? null}
         example={folders?.documents.example}
         fallback="Aucun dossier : chaque document vous demandera où l'enregistrer."
-        onChanged={load}
-        onError={onError}
-      />
-      <FolderSetting
-        kind="database"
-        label="Copie de sécurité"
-        explanation="À chaque fermeture, une copie complète de l'académie. Choisissez un support qui survit à l'ordinateur — une clé USB, un disque externe. Ne le confondez pas avec le dossier des documents : ce fichier-là contient tout, et ne se prête pas."
-        path={folders?.database.path ?? null}
-        fallback="Aucun dossier : les copies restent sur cet ordinateur, dans un dossier caché — elles disparaîtront avec lui."
         onChanged={load}
         onError={onError}
       />

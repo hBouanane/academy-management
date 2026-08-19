@@ -401,7 +401,16 @@ export type StaleDocument = {
 
 export type Folders = {
   documents: { path: string | null; example: string | null }
-  database: { path: string | null }
+}
+
+export type BackupState = {
+  count: number
+  newest: string | null
+  destination: string | null
+  last_copied_at: string | null
+  days_since: number | null
+  /** Trop longtemps qu'elles n'ont pas quitté cet ordinateur. */
+  stale: boolean
 }
 
 export type LockState = {
