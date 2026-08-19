@@ -2339,6 +2339,16 @@ def set_auto_lock(conn: sqlite3.Connection, minutes: int) -> None:
         )
 
 
+def rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
+    """Lire des lignes en dictionnaires — utile aussi hors d'ici."""
+    return _rows(conn, sql, params)
+
+
+def insert(conn: sqlite3.Connection, sql: str, params: tuple) -> int:
+    """Ecrire une ligne et rendre son identifiant."""
+    return _insert(conn, sql, params)
+
+
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
     return [dict(row) for row in conn.execute(sql, params)]
 

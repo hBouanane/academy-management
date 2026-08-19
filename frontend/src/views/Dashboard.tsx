@@ -165,7 +165,7 @@ export function Dashboard({ month, setMonth }: Props) {
             <h3 className="font-medium">Étudiants</h3>
             <p className="text-muted-foreground text-sm">
               {locked
-                ? "Mois passé : consultation et encaissement des impayés uniquement"
+                ? "Mois passé : on peut seulement recevoir les paiements en retard"
                 : "Rouge clair = impayé · fond pêche = réduction appliquée"}
             </p>
           </div>
@@ -443,7 +443,7 @@ function StudentRow({
             )}
             {enrollment.arrival_date && (
               <p className="text-muted-foreground text-xs">
-                prorata — début le{" "}
+                mois entamé — début le{" "}
                 {new Date(
                   `${enrollment.arrival_date}T00:00:00`,
                 ).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
@@ -529,7 +529,7 @@ function StudentRow({
               <Button
                 size="sm"
                 variant="outline"
-                title="Payer le professeur malgré l'impayé (l'académie avance)"
+                title="Payer le professeur même si l'élève n'a pas payé (l'académie met l'argent)"
                 onClick={() => onGuarantee(enrollment.id)}
               >
                 Solder le prof

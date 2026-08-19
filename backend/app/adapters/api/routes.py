@@ -23,6 +23,7 @@ from app.services import clock, documents
 from app.services.payments import (
     complete_payment,
     guarantee_unpaid,
+    net_price,
     payment_preview,
     post_payment,
     reverse_payment,
@@ -1260,6 +1261,50 @@ class GuaranteeBody(BaseModel):
     present_until: Annotated[str, StringConstraints(pattern=DATE_PATTERN)] | None = None
     never_came: bool = False  # nothing taught, nothing owed to anyone
     stop: bool = False  # « il a arrêté » : don't carry him into next month
+    # Ce qu'on donne vraiment. Absent : ce que disent les jours enseignés.
+    # C'est son argent : il peut donner moins, ou davantage.
+    amount_centimes: int | None = None
+
+
+@router.get("/enrollments/{enrollment_id}/guarantee")
+def guarantee_proposal(
+    enrollment_id: int,
+    conn: Conn,
+    present_until: Annotated[str | None, Query(pattern=DATE_PATTERN)] = None,
+) -> dict:
+    """Ce qu'on propose de donner au professeur, et le plafond.
+
+    La proposition suit les jours enseignés ; le plafond est le prix du
+    mois -- au-dela, c'est une faute de frappe, pas une generosite."""
+    store = SqlitePaymentStore(conn)
+    context = store.enrollment_context(enrollment_id)
+    if context is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    from app.services.payments import guarantee_proposal as proposed
+
+    return proposed(context, present_until)
+
+
+def _check_guarantee_amount(
+    store: SqlitePaymentStore, enrollment_id: int, amount: int
+) -> None:
+    """Un montant negatif n a pas de sens, et au-dela du prix du mois
+    c est une faute de frappe -- on ne laisse pas passer un zero de trop
+    sur une ecriture qui touche a l argent."""
+    if amount < 0:
+        raise HTTPException(
+            status_code=422, detail="Le montant ne peut pas etre negatif."
+        )
+    context = store.enrollment_context(enrollment_id)
+    if context is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    ceiling = net_price(context)
+    if amount > ceiling:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Le mois vaut {_dh(ceiling)} — impossible d'en avancer"
+            f" {_dh(amount)} au professeur.",
+        )
 
 
 @router.post("/enrollments/{enrollment_id}/guarantee")
@@ -1280,11 +1325,15 @@ def guarantee(enrollment_id: int, body: GuaranteeBody, conn: Conn) -> dict:
             status_code=422,
             detail="La date de présence doit être dans le mois concerné.",
         )
+    store = SqlitePaymentStore(conn)
+    if body.amount_centimes is not None:
+        _check_guarantee_amount(store, enrollment_id, body.amount_centimes)
     posted = guarantee_unpaid(
-        SqlitePaymentStore(conn),
+        store,
         enrollment_id,
         None if body.never_came else body.present_until,
         body.never_came,
+        body.amount_centimes,
     )
     if body.stop:
         crud.stop_enrollment(conn, enrollment_id)
@@ -1818,6 +1867,68 @@ def open_whatsapp(body: WhatsAppBody) -> dict:
     return {"url": url}
 
 
+class TemplateBody(BaseModel):
+    label: str
+    body: str
+
+
+class TemplatePatch(BaseModel):
+    label: str | None = None
+    body: str | None = None
+
+
+def _clean_template(label: str | None, body: str | None) -> None:
+    """Un modèle vide n'a rien à faire dans la liste : il occuperait une
+    place et ne dirait rien."""
+    if label is not None and not label.strip():
+        raise HTTPException(status_code=422, detail="Donnez un nom au modèle.")
+    if body is not None and not body.strip():
+        raise HTTPException(status_code=422, detail="Le message est vide.")
+
+
+@router.get("/message-templates")
+def message_templates(conn: Conn) -> list[dict]:
+    """Ses modèles à lui, dans l'ordre qu'il leur a donné."""
+    return crud.rows(
+        conn,
+        "SELECT id, label, body, position FROM message_template ORDER BY position, id",
+    )
+
+
+@router.post("/message-templates", status_code=201)
+def add_message_template(body: TemplateBody, conn: Conn) -> dict:
+    _clean_template(body.label, body.body)
+    position = conn.execute(
+        "SELECT COALESCE(MAX(position), 0) + 1 FROM message_template"
+    ).fetchone()[0]
+    template_id = crud.insert(
+        conn,
+        "INSERT INTO message_template (label, body, position) VALUES (?, ?, ?)",
+        (body.label.strip(), body.body.strip(), position),
+    )
+    return {"id": template_id}
+
+
+@router.patch("/message-templates/{template_id}")
+def edit_message_template(template_id: int, body: TemplatePatch, conn: Conn) -> dict:
+    _clean_template(body.label, body.body)
+    for column, value in (("label", body.label), ("body", body.body)):
+        if value is not None:
+            conn.execute(
+                f"UPDATE message_template SET {column} = ? WHERE id = ?",
+                (value.strip(), template_id),
+            )
+    conn.commit()
+    return {"id": template_id}
+
+
+@router.delete("/message-templates/{template_id}")
+def delete_message_template(template_id: int, conn: Conn) -> dict:
+    conn.execute("DELETE FROM message_template WHERE id = ?", (template_id,))
+    conn.commit()
+    return {"deleted": template_id}
+
+
 @router.get("/students/{student_id}/messages")
 def student_messages(student_id: int, month: MonthQuery, conn: Conn) -> dict:
     """Ce qu'on peut annoncer a cette famille ce mois-ci, et a quel
@@ -1848,7 +1959,7 @@ def student_messages(student_id: int, month: MonthQuery, conn: Conn) -> dict:
             }
             for phone in _rows_of(conn, student_id)
         ],
-        "messages": _messages_for(row, student["name"], academy["name"], month),
+        "messages": _messages_for(conn, row, student["name"], academy["name"], month),
     }
 
 
@@ -1862,7 +1973,9 @@ def _rows_of(conn: sqlite3.Connection, student_id: int) -> list[dict]:
     ]
 
 
-def _messages_for(row: dict | None, name: str, academy: str, month: str) -> list[dict]:
+def _messages_for(
+    conn, row: dict | None, name: str, academy: str, month: str
+) -> list[dict]:
     """Les messages qui ont un sens ce mois-ci — jamais plus.
 
     Proposer « rappel de paiement » à une famille qui vient de régler
@@ -1904,6 +2017,38 @@ def _messages_for(row: dict | None, name: str, academy: str, month: str) -> list
                 f" {name} : {_dh(left or due)}.\nMerci de votre compréhension."
                 + signature,
             }
+        )
+    return offers + _his_own(
+        conn,
+        {
+            "eleve": name,
+            "mois": when,
+            "montant": _dh(left or due),
+            "classes": classes,
+            "academie": academy,
+        },
+    )
+
+
+def _his_own(conn, filling: dict) -> list[dict]:
+    """Ses modèles, les repères remplis.
+
+    Un repère inconnu reste visible tel quel : mieux vaut qu'il voie
+    « {{truc}} » dans l'aperçu que de le laisser croire qu'on a compris
+    ce qu'il voulait dire."""
+    offers = []
+    for index, template in enumerate(
+        crud.rows(
+            conn,
+            "SELECT label, body FROM message_template ORDER BY position, id",
+        ),
+        start=1,
+    ):
+        text = template["body"]
+        for marker, value in filling.items():
+            text = text.replace("{" + marker + "}", value)
+        offers.append(
+            {"kind": f"custom-{index}", "label": template["label"], "text": text}
         )
     return offers
 

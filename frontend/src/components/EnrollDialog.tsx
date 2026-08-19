@@ -319,7 +319,7 @@ export function EnrollDialog({
                   className="w-44"
                 />
                 <span className="text-muted-foreground text-xs">
-                  optionnel — remplace la variante pour cet étudiant (prorata
+                  optionnel — remplace la variante pour cet étudiant (réduction
                   non appliqué)
                 </span>
               </div>
@@ -381,7 +381,7 @@ export function EnrollDialog({
           <div className="space-y-2">
             <Label>
               Date de début{" "}
-              <span className="text-muted-foreground">(prorata)</span>
+              <span className="text-muted-foreground">(mois entamé)</span>
             </Label>
             <Input
               type="date"
@@ -392,7 +392,7 @@ export function EnrollDialog({
             />
             {proratedHint !== null && chosenPackage && !customPrice.trim() && (
               <p className="text-muted-foreground text-xs">
-                Prix au prorata :{" "}
+                Prix réduit (arrivé en cours de mois) :{" "}
                 <span className="text-foreground line-through">
                   {formatDH(chosenPackage.monthly_price_centimes)}
                 </span>{" "}

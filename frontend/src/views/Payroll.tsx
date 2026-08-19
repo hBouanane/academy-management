@@ -138,7 +138,7 @@ export function Payroll() {
     apiSend("DELETE", `/api/overpaid-charges/${chargeId}`)
       .then(() => {
         setError(null)
-        toast("L'académie ne prend plus ce trop-versé à sa charge")
+        toast("L'académie ne prend plus ce surplus à sa charge")
         reload()
       })
       .catch((err: Error) => setError(err.message))
@@ -252,7 +252,7 @@ export function Payroll() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Bénéficiaire</TableHead>
+                <TableHead>Pour qui</TableHead>
                 <TableHead className="text-right">Part du mois</TableHead>
                 <TableHead className="text-right">Sorti</TableHead>
                 <TableHead className="text-right">Reste à sortir</TableHead>
@@ -325,7 +325,7 @@ export function Payroll() {
                           className="text-destructive text-xs"
                           title="Une réduction ou un remboursement est passé après le versement"
                         >
-                          trop-versé {formatDH(line.overpaid_centimes)}
+                          payé en trop {formatDH(line.overpaid_centimes)}
                         </p>
                         {/* Deux issues, et c'est lui qui choisit : le déduire
                             plus tard, ou l'assumer et éteindre le rappel. */}
@@ -333,7 +333,7 @@ export function Payroll() {
                           size="sm"
                           variant="ghost"
                           className="h-6 px-2 text-xs"
-                          title="L'académie assume ce trop-versé"
+                          title="L'académie garde ce surplus à sa charge"
                           confirmLabel="L'académie prend à sa charge ?"
                           description={`${line.name} garde ${formatDH(
                             line.overpaid_centimes,
@@ -350,7 +350,7 @@ export function Payroll() {
                         size="sm"
                         variant="ghost"
                         className="text-muted-foreground h-6 px-2 text-xs"
-                        title="L'académie a assumé ce trop-versé — cliquez pour revenir en arrière"
+                        title="L'académie a pris ce surplus à sa charge — cliquez pour revenir en arrière"
                         confirmLabel="Ne plus le prendre à sa charge ?"
                         description={`Le rappel de déduire ${formatDH(
                           charge.amount_centimes,
@@ -463,7 +463,7 @@ export function Payroll() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Élève impayé</TableHead>
+                  <TableHead>Élève qui n'a pas payé</TableHead>
                   <TableHead className="text-right">Doit</TableHead>
                   <TableHead className="text-right">Part professeur</TableHead>
                   <TableHead>État</TableHead>
@@ -529,7 +529,7 @@ export function Payroll() {
                           <Button
                             size="sm"
                             variant="outline"
-                            title="Payer le professeur malgré l'impayé"
+                            title="Payer le professeur même si l'élève n'a pas payé"
                             onClick={() =>
                               setGuaranteeTarget({
                                 id: enrollment.id,
@@ -664,7 +664,7 @@ function PayButton({
           Tout verser
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setPartial(true)}>
-          Acompte
+          Une partie
         </Button>
       </span>
     )

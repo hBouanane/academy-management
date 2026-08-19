@@ -94,7 +94,7 @@ export function CollectionRing({
 
   return (
     <div className="flex items-center gap-4">
-      <svg width="104" height="104" viewBox="0 0 104 104" role="img" aria-label={`Taux d'encaissement ${Math.round(ratio * 100)}%`}>
+      <svg width="104" height="104" viewBox="0 0 104 104" role="img" aria-label={`Part déjà payée ${Math.round(ratio * 100)}%`}>
         <circle
           cx="52"
           cy="52"
@@ -126,7 +126,7 @@ export function CollectionRing({
         </text>
       </svg>
       <div className="text-sm">
-        <p className="font-medium">Taux d'encaissement</p>
+        <p className="font-medium">Part déjà payée</p>
         <p className="text-muted-foreground">
           {paid} payé(s) sur {total} inscrit(s)
         </p>

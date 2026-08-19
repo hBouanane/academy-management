@@ -457,7 +457,7 @@ function TotalsTable({ totals }: { totals: BeneficiaryTotal[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Bénéficiaire</TableHead>
+            <TableHead>Pour qui</TableHead>
             <TableHead>Rôle</TableHead>
             <TableHead className="text-right">Montant</TableHead>
           </TableRow>

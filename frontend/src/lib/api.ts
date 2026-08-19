@@ -403,6 +403,13 @@ export type Folders = {
   documents: { path: string | null; example: string | null }
 }
 
+export type MessageTemplate = {
+  id: number
+  label: string
+  body: string
+  position: number
+}
+
 export type StudentMessages = {
   student_name: string
   phones: { tag: string; number: string; whatsapp: string | null }[]
