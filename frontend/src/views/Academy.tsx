@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Copy, FolderOpen, Plus } from "lucide-react"
+import { Copy, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,8 +13,14 @@ import {
 import { Notice } from "@/components/Notice"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
-import type { Academy as AcademyType, LockState, Teacher } from "@/lib/api"
+import type {
+  Academy as AcademyType,
+  Folders,
+  LockState,
+  Teacher,
+} from "@/lib/api"
 import { useAlert } from "@/lib/alert"
+import { FolderSetting } from "@/components/FolderSetting"
 import { useToast } from "@/components/Toast"
 
 // Even prorata ladder: 3 tranches -> 100/67/33, 4 -> 100/75/50/25 — the
@@ -219,23 +225,12 @@ export function Academy() {
     lieu d'un « où voulez-vous l'enregistrer ? » à chaque document — et
     d'un dossier Téléchargements où plus rien ne se retrouve. */
 function BackupFolder({ onError }: { onError: (message: string) => void }) {
-  const [path, setPath] = useState<string | null>(null)
-  // Le nom exact du sous-dossier vient du serveur : l'interface ne le
-  // devine pas, sinon elle promettrait un chemin qui n'existe pas.
-  const [example, setExample] = useState<string | null>(null)
-  const [draft, setDraft] = useState("")
-  const toast = useToast()
+  const [folders, setFolders] = useState<Folders | null>(null)
 
   const load = useCallback(
     () =>
-      apiGet<{ path: string | null; example: string | null }>(
-        "/api/settings/backup-root",
-      )
-        .then((setting) => {
-          setPath(setting.path)
-          setExample(setting.example)
-          setDraft(setting.path ?? "")
-        })
+      apiGet<Folders>("/api/settings/folders")
+        .then(setFolders)
         .catch(() => {}),
     [],
   )
@@ -244,67 +239,28 @@ function BackupFolder({ onError }: { onError: (message: string) => void }) {
   }, [load])
 
   return (
-    <div className="surface-card space-y-3 p-6">
-      <div>
-        <Label htmlFor="backup-root">Dossier de sauvegarde</Label>
-        <p className="text-muted-foreground text-xs">
-          Fiches de paie, feuilles d'absence et exports s'y rangent tout
-          seuls : un dossier par mois, un tiroir par sorte de document.
-          Choisissez-le sur votre disque — une clé USB fait très bien
-          l'affaire.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-end gap-2">
-        <Input
-          id="backup-root"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="D:\academX"
-          className="w-80"
-        />
-        {/* Personne ne connait par coeur l'adresse de sa cle USB : on
-            ouvre le selecteur de Windows. Le champ reste la pour ceux
-            qui preferent coller un chemin. */}
-        <Button
-          onClick={() =>
-            apiSend<{ path: string | null; cancelled?: boolean }>(
-              "POST",
-              "/api/settings/backup-root/browse",
-            )
-              .then((chosen) => {
-                if (chosen.cancelled) return
-                toast(`Tout sera rangé dans ${chosen.path}`)
-                void load()
-              })
-              .catch((err: Error) => onError(err.message))
-          }
-        >
-          <FolderOpen className="size-4" />
-          Parcourir…
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!draft.trim() || draft.trim() === path}
-          onClick={() =>
-            apiSend<{ path: string }>("PUT", "/api/settings/backup-root", {
-              path: draft.trim(),
-            })
-              .then((saved) => {
-                toast(`Tout sera rangé dans ${saved.path}`)
-                void load()
-              })
-              .catch((err: Error) => onError(err.message))
-          }
-        >
-          Utiliser ce chemin
-        </Button>
-      </div>
-      {path && (
-        <p className="text-muted-foreground text-xs">
-          Rangement actuel :{" "}
-          <span className="font-mono">{example ?? path}</span>
-        </p>
-      )}
+    <div className="surface-card space-y-5 p-6">
+      {/* Deux dossiers, et surtout pas le même. Une fiche de paie se
+          tend au professeur ; la base contient toute l'académie. */}
+      <FolderSetting
+        kind="documents"
+        label="Dossier des documents"
+        explanation="Fiches de paie, feuilles d'absence et exports s'y rangent tout seuls : un sous-dossier par mois, un tiroir par sorte."
+        path={folders?.documents.path ?? null}
+        example={folders?.documents.example}
+        fallback="Aucun dossier : chaque document vous demandera où l'enregistrer."
+        onChanged={load}
+        onError={onError}
+      />
+      <FolderSetting
+        kind="database"
+        label="Copie de sécurité"
+        explanation="À chaque fermeture, une copie complète de l'académie. Choisissez un support qui survit à l'ordinateur — une clé USB, un disque externe. Ne le confondez pas avec le dossier des documents : ce fichier-là contient tout, et ne se prête pas."
+        path={folders?.database.path ?? null}
+        fallback="Aucun dossier : les copies restent sur cet ordinateur, dans un dossier caché — elles disparaîtront avec lui."
+        onChanged={load}
+        onError={onError}
+      />
     </div>
   )
 }

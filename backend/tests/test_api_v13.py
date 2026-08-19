@@ -58,6 +58,43 @@ class TestBackupFolder:
         assert refused.status_code == 422
 
 
+class TestTheTwoFolders:
+    """Les documents se donnent ; la base contient toute l'académie. Une
+    clé USB tendue à un professeur ne doit pas emporter le tout."""
+
+    def test_they_are_two_separate_settings(self, client, tmp_path):
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
+        client.put(
+            "/api/settings/folders/database", json={"path": str(tmp_path / "coffre")}
+        )
+        both = client.get("/api/settings/folders").json()
+        assert both["documents"]["path"] == str(tmp_path / "aX")
+        assert both["database"]["path"] == str(tmp_path / "coffre")
+
+    def test_choosing_documents_leaves_the_database_folder_alone(
+        self, client, tmp_path
+    ):
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
+        assert client.get("/api/settings/folders").json()["database"]["path"] is None
+
+    def test_a_folder_can_be_given_up(self, client, tmp_path):
+        client.put(
+            "/api/settings/folders/database", json={"path": str(tmp_path / "coffre")}
+        )
+        client.delete("/api/settings/folders/database")
+        assert client.get("/api/settings/folders").json()["database"]["path"] is None
+
+    def test_an_unknown_kind_is_refused(self, client, tmp_path):
+        refused = client.put(
+            "/api/settings/folders/photos", json={"path": str(tmp_path)}
+        )
+        assert refused.status_code == 422
+
+
 class TestFiling:
     def test_a_payslip_lands_in_its_month_and_its_drawer(self, client, tmp_path):
         level, class_id, teacher, package = setup_base(client)

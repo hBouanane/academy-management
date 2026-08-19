@@ -9,7 +9,6 @@ import {
   Archive,
   ArchiveRestore,
   Copy,
-  FileText,
   Trash2,
   UserRoundPen,
 } from "lucide-react"
@@ -284,28 +283,14 @@ export function Classes({ month, setMonth }: Props) {
                         </TableCell>
                         <TableCell>{row.enrolled_count ?? 0}</TableCell>
                         <TableCell className="space-x-1 text-right whitespace-nowrap">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            asChild
-                            title="Liste d'absence (Word)"
-                          >
-                            <a
-                              href={`/api/classes/${row.id}/absence.docx?month=${month}`}
-                              download
-                            >
-                              <FileText className="size-4" />
-                            </a>
-                          </Button>
                           <FileDocument
                             kind="absence"
                             month={month}
                             refId={row.id}
-                            ready
-                            className="h-8 border-0 px-2 shadow-none"
-                          >
-                            {""}
-                          </FileDocument>
+                            variant="ghost"
+                            downloadHref={`/api/classes/${row.id}/absence.docx?month=${month}`}
+                            title="Feuille d'absence du mois"
+                          />
                           <Button
                             size="sm"
                             variant="ghost"

@@ -72,20 +72,24 @@ def backup_database(db_path: Path, stamp: str | None = None) -> Path | None:
 
 
 def _also_in_his_own_folder(db_path: Path, snapshot: Path, stamp: str) -> None:
-    """Poser une copie dans le dossier que le propriétaire a choisi.
+    """Poser une copie dans le dossier prévu POUR ÇA.
 
     Celle de %APPDATA% est parfaite et invisible : le jour où le portable
-    meurt, elle meurt avec. Le dossier qu'il a désigné — une clé USB, un
-    disque externe — est celui qu'il ouvre et qu'il emporte.
+    meurt, elle meurt avec. Un dossier désigné — une clé USB, un disque
+    externe — est celui qu'il ouvre et qu'il emporte.
+
+    Ce dossier n'est PAS celui des documents. Une fiche de paie se donne
+    au professeur, s'imprime, se partage ; la base contient toute
+    l'académie. Les mélanger ferait voyager le tout dès qu'il tend sa
+    clé à quelqu'un.
 
     Rien ici ne doit empêcher l'application de se fermer : si la clé
     n'est plus branchée, on garde la copie interne et on se tait.
     """
-    root = _chosen_folder(db_path)
-    if root is None:
+    folder = _setting(db_path, "db_backup_root")
+    if folder is None:
         return
     try:
-        folder = root / "sauvegardes"
         folder.mkdir(parents=True, exist_ok=True)
         shutil.copy2(snapshot, folder / f"academie-{stamp}.db")
         _prune(folder, pattern="academie-*.db")
@@ -93,11 +97,11 @@ def _also_in_his_own_folder(db_path: Path, snapshot: Path, stamp: str) -> None:
         return
 
 
-def _chosen_folder(db_path: Path) -> Path | None:
+def _setting(db_path: Path, key: str) -> Path | None:
     conn = sqlite3.connect(db_path)
     try:
         row = conn.execute(
-            "SELECT value FROM app_setting WHERE key = 'backup_root'"
+            "SELECT value FROM app_setting WHERE key = ?", (key,)
         ).fetchone()
     except sqlite3.Error:  # base d'avant le reglage : rien a faire
         return None

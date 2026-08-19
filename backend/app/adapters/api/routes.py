@@ -1564,11 +1564,29 @@ _MONTHS_FR = (
 )
 
 
-def _backup_root(conn: sqlite3.Connection) -> str | None:
+# Deux dossiers, et surtout PAS le meme.
+#
+# Les documents se donnent : une fiche de paie s'imprime et se tend au
+# professeur, une feuille d'absence circule. La base, elle, contient
+# toute l'academie -- chaque eleve, chaque paiement. Les melanger ferait
+# voyager le tout des qu'il tend sa cle USB a quelqu'un.
+#
+# Les cles de stockage gardent leurs anciens noms : les renommer
+# effacerait le reglage des installations deja posees.
+FOLDERS = {"documents": "backup_root", "database": "db_backup_root"}
+FolderKind = Literal["documents", "database"]
+
+
+def _folder(conn: sqlite3.Connection, kind: str) -> str | None:
     row = conn.execute(
-        "SELECT value FROM app_setting WHERE key = 'backup_root'"
+        "SELECT value FROM app_setting WHERE key = ?", (FOLDERS[kind],)
     ).fetchone()
     return row["value"] if row else None
+
+
+def _backup_root(conn: sqlite3.Connection) -> str | None:
+    """Le dossier des documents — celui ou l'application les range."""
+    return _folder(conn, "documents")
 
 
 def _month_folder(month: str) -> str:
@@ -1591,17 +1609,27 @@ class BackupRootBody(BaseModel):
     path: str
 
 
+@router.get("/settings/folders")
+def folders(conn: Conn) -> dict:
+    """Les deux dossiers, et pour les documents un exemple de ce qu'ils
+    contiendront — l'interface ne devine pas le nom du sous-dossier,
+    elle le demande."""
+    documents = _folder(conn, "documents")
+    return {
+        "documents": {
+            "path": documents,
+            "example": None
+            if documents is None
+            else str(FsPathlib(documents) / _month_folder(clock.current_month())),
+        },
+        "database": {"path": _folder(conn, "database")},
+    }
+
+
 @router.get("/settings/backup-root")
 def backup_root(conn: Conn) -> dict:
-    """Le dossier, et un exemple de ce qu'il contiendra — l'interface ne
-    devine pas le nom du sous-dossier, elle le demande."""
-    root = _backup_root(conn)
-    return {
-        "path": root,
-        "example": None
-        if root is None
-        else str(FsPathlib(root) / _month_folder(clock.current_month())),
-    }
+    """Le dossier des documents, seul — garde l'ancienne adresse."""
+    return folders(conn)["documents"]
 
 
 @router.post("/settings/backup-root/browse")
@@ -1678,13 +1706,58 @@ def set_backup_root(body: BackupRootBody, conn: Conn) -> dict:
         raise HTTPException(
             status_code=422, detail=f"Dossier impossible a creer : {error}"
         ) from error
+    return _remember_folder(conn, "documents", root)
+
+
+def _remember_folder(conn: sqlite3.Connection, kind: str, root: FsPathlib) -> dict:
     conn.execute(
-        "INSERT INTO app_setting (key, value) VALUES ('backup_root', ?)"
+        "INSERT INTO app_setting (key, value) VALUES (?, ?)"
         " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (str(root),),
+        (FOLDERS[kind], str(root)),
     )
     conn.commit()
     return {"path": str(root)}
+
+
+def _usable_folder(path: str) -> FsPathlib:
+    """Un dossier ou l'on pourra vraiment ecrire. On le cree s'il manque —
+    designer un dossier qui n'existe pas encore est le cas normal."""
+    root = FsPathlib(path).expanduser()
+    if root.exists() and not root.is_dir():
+        raise HTTPException(
+            status_code=422, detail=f"« {root} » est un fichier, pas un dossier."
+        )
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise HTTPException(
+            status_code=422, detail=f"Dossier impossible a creer : {error}"
+        ) from error
+    return root
+
+
+@router.put("/settings/folders/{kind}")
+def set_folder(kind: FolderKind, body: BackupRootBody, conn: Conn) -> dict:
+    """Designer l'un des deux dossiers."""
+    return _remember_folder(conn, kind, _usable_folder(body.path))
+
+
+@router.post("/settings/folders/{kind}/browse")
+def browse_for_folder(kind: FolderKind, conn: Conn) -> dict:
+    """Ouvrir la fenetre de Windows pour designer l'un des deux."""
+    chosen = _ask_for_a_folder(_folder(conn, kind))
+    if chosen is None:
+        return {"path": None, "cancelled": True}
+    return _remember_folder(conn, kind, _usable_folder(chosen))
+
+
+@router.delete("/settings/folders/{kind}")
+def forget_folder(kind: FolderKind, conn: Conn) -> dict:
+    """Ne plus rien y deposer. Pour la base, les copies retournent dans
+    le dossier cache -- elles ne cessent jamais d'exister."""
+    conn.execute("DELETE FROM app_setting WHERE key = ?", (FOLDERS[kind],))
+    conn.commit()
+    return {"path": None}
 
 
 class FileDocumentBody(BaseModel):

@@ -40,7 +40,6 @@ type Props = { month: string; setMonth: (month: string) => void }
 
 // Same shape as SQLite's datetime('now'): "YYYY-MM-DD HH:MM:SS" in UTC —
 // lexicographic comparison against last_entry_at is then correct.
-const utcNow = () => new Date().toISOString().slice(0, 19).replace("T", " ")
 
 export function Reports({ month, setMonth }: Props) {
   const [report, setReport] = useState<MonthlyReport | null>(null)
@@ -54,12 +53,10 @@ export function Reports({ month, setMonth }: Props) {
   const [payTarget, setPayTarget] = useState<{ id: number; name: string } | null>(
     null,
   )
-  const [exportedAt, setExportedAt] = useState<string | null>(null)
   const [combined, setCombined] = useState(false)
 
   useEffect(() => {
     setError(null)
-    setExportedAt(localStorage.getItem(`excel-export-${month}`))
     apiGet<MonthlyReport>(`/api/reports/monthly?month=${month}`)
       .then(setReport)
       .catch((err: Error) => setError(err.message))
@@ -76,19 +73,6 @@ export function Reports({ month, setMonth }: Props) {
       .then(setTeachers)
       .catch(() => setTeachers([]))
   }, [month, refresh, setError])
-
-  const recordExport = () => {
-    const stamp = utcNow()
-    localStorage.setItem(`excel-export-${month}`, stamp)
-    setExportedAt(stamp)
-  }
-
-  // The exported file no longer matches the ledger (e.g. an arrears payment
-  // landed on this month after the export).
-  const staleExport =
-    exportedAt !== null &&
-    report?.last_entry_at != null &&
-    report.last_entry_at > exportedAt
 
   const settleRefund = (refund: Refund) =>
     apiSend("POST", `/api/refunds/${refund.id}/settle`)
@@ -147,18 +131,13 @@ export function Reports({ month, setMonth }: Props) {
         </div>
         <div className="flex items-center gap-2">
           <MonthNav month={month} setMonth={setMonth} />
-          <FileDocument kind="excel" month={month} ready>
-            Ranger l'export
+          <FileDocument
+            kind="excel"
+            month={month}
+            downloadHref={`/api/export/monthly.xlsx?month=${month}`}
+          >
+            Exporter Excel
           </FileDocument>
-          <Button asChild variant="outline">
-            <a
-              href={`/api/export/monthly.xlsx?month=${month}`}
-              download
-              onClick={recordExport}
-            >
-              Enregistrer sous…
-            </a>
-          </Button>
         </div>
       </header>
 
@@ -166,16 +145,6 @@ export function Reports({ month, setMonth }: Props) {
       {/* Ce qui a ete range et que les chiffres ont depasse depuis :
           nomme document par document, pas mois par mois. */}
       <StaleDocuments />
-      <Notice
-        tone="warning"
-        message={
-          staleExport
-            ? `Ce mois a changé depuis votre export Excel — ré-exportez ${monthLabel(
-                month,
-              )} pour ne pas garder un fichier décalé.`
-            : null
-        }
-      />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <StatCard

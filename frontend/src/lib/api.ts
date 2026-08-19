@@ -399,6 +399,11 @@ export type StaleDocument = {
   label: string
 }
 
+export type Folders = {
+  documents: { path: string | null; example: string | null }
+  database: { path: string | null }
+}
+
 export type LockState = {
   configured: boolean
   auto_lock_minutes: number

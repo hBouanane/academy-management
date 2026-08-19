@@ -2,7 +2,12 @@
 
 Et surtout : la sauvegarde doit atterrir LÀ OÙ LE CLIENT REGARDE. Une
 copie parfaite enfouie dans %APPDATA% ne sauve personne le jour où le
-portable meurt ; le dossier qu'il a choisi, lui, il l'ouvre.
+portable meurt ; un dossier qu'il a choisi, lui, il l'ouvre.
+
+Ce dossier-là n'est PAS celui des documents. Une fiche de paie se
+donne au professeur, s'imprime, se partage ; la base, elle, contient
+toute l'académie — chaque élève, chaque paiement. Les mélanger ferait
+voyager le tout dès qu'il tend sa clé USB à quelqu'un.
 """
 
 import sqlite3
@@ -65,42 +70,52 @@ def test_old_backups_are_pruned_to_the_newest_thirty(tmp_path):
     assert backups[-1].name == "data-20260734-000000.db"
 
 
-def with_backup_root(db, folder):
-    """La base garde le dossier choisi par le propriétaire."""
+def with_setting(db, key, value):
+    """Le reglage tel que la page Academie l'aurait enregistre."""
     conn = sqlite3.connect(db)
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        "CREATE TABLE IF NOT EXISTS app_setting"
+        " (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
     )
     conn.execute(
-        "INSERT OR REPLACE INTO app_setting (key, value) VALUES ('backup_root', ?)",
-        (str(folder),),
+        "INSERT OR REPLACE INTO app_setting (key, value) VALUES (?, ?)",
+        (key, str(value)),
     )
     conn.commit()
     conn.close()
 
 
-def test_the_backup_also_lands_in_the_chosen_folder(tmp_path):
+def test_the_backup_lands_in_the_folder_meant_for_it(tmp_path):
     db = make_db(tmp_path)
-    chosen = tmp_path / "academX"
-    with_backup_root(db, chosen)
+    safe = tmp_path / "coffre"
+    with_setting(db, "db_backup_root", safe)
     backup_database(db, stamp="20260729-120000")
-    copy = chosen / "sauvegardes" / "academie-20260729-120000.db"
+    copy = safe / "academie-20260729-120000.db"
     assert copy.exists()
     assert read_value(copy) == "ledger-row"
+
+
+def test_the_documents_folder_never_receives_the_database(tmp_path):
+    """Le coeur de la separation : une cle USB tendue a un professeur
+    ne doit pas emporter toute l'academie."""
+    db = make_db(tmp_path)
+    with_setting(db, "backup_root", tmp_path / "academX")
+    backup_database(db, stamp="20260729-120000")
+    assert not (tmp_path / "academX").exists()
 
 
 def test_without_a_chosen_folder_nothing_changes(tmp_path):
     db = make_db(tmp_path)
     target = backup_database(db, stamp="20260729-120000")
     assert target.exists()
-    assert not (tmp_path / "academX").exists()
+    assert not (tmp_path / "coffre").exists()
 
 
 def test_a_vanished_folder_does_not_lose_the_backup(tmp_path):
     """La clé USB n'est plus branchée : on garde la copie interne et on
     n'empêche surtout pas la fermeture de l'application."""
     db = make_db(tmp_path)
-    with_backup_root(db, tmp_path / "cle-usb" / "academX")
+    with_setting(db, "db_backup_root", tmp_path / "cle-usb" / "coffre")
     (tmp_path / "cle-usb").mkdir()
     (tmp_path / "cle-usb").chmod(0o555)
     try:
@@ -112,10 +127,10 @@ def test_a_vanished_folder_does_not_lose_the_backup(tmp_path):
 
 def test_the_chosen_folder_keeps_only_the_newest(tmp_path):
     db = make_db(tmp_path)
-    chosen = tmp_path / "academX"
-    with_backup_root(db, chosen)
+    safe = tmp_path / "coffre"
+    with_setting(db, "db_backup_root", safe)
     for day in range(1, 35):
         backup_database(db, stamp=f"202607{day:02d}-000000")
-    copies = sorted((chosen / "sauvegardes").glob("academie-*.db"))
+    copies = sorted(safe.glob("academie-*.db"))
     assert len(copies) == 30
     assert copies[-1].name == "academie-20260734-000000.db"

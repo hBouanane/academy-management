@@ -7,7 +7,7 @@
 // place et son air.
 
 import { useEffect, useState } from "react"
-import { ArrowLeft, FileText } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -111,18 +111,15 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
         </div>
         {profile && (
           <div className="flex flex-wrap items-center gap-2">
-            <FileDocument kind="payslip" month={month} refId={profile.id} ready>
-              Ranger la fiche
+            <FileDocument
+              kind="payslip"
+              month={month}
+              refId={profile.id}
+              downloadHref={`/api/teachers/${profile.id}/invoice.docx?month=${month}`}
+              title="Sa fiche de paie du mois, à imprimer et signer"
+            >
+              Fiche de paie
             </FileDocument>
-            <Button size="sm" variant="outline" asChild>
-              <a
-                href={`/api/teachers/${profile.id}/invoice.docx?month=${month}`}
-                download
-                title="Sa fiche de paie du mois, à imprimer et signer"
-              >
-                <FileText className="size-4" /> Enregistrer sous…
-              </a>
-            </Button>
           </div>
         )}
       </header>

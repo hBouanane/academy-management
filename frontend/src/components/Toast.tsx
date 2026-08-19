@@ -8,7 +8,14 @@ import { createContext, useCallback, useContext, useState } from "react"
 import { Check, Info, TriangleAlert, X } from "lucide-react"
 
 type Tone = "success" | "error" | "warning" | "info"
-type Toast = { id: number; message: string; tone: Tone }
+type Toast = {
+  id: number
+  message: string
+  tone: Tone
+  /** Le rattrapage : « Enregistrer ailleurs… » APRÈS coup, plutôt qu'un
+      second bouton qui reposerait la question avant chaque geste. */
+  action?: { label: string; run: () => void }
+}
 
 // Un echec reste plus longtemps qu'une confirmation : il y a quelque
 // chose a lire et souvent a corriger.
@@ -26,9 +33,9 @@ const TONES: Record<Tone, string> = {
   info: "border-border bg-muted/80 text-foreground",
 }
 
-const ToastContext = createContext<(message: string, tone?: Tone) => void>(
-  () => {},
-)
+type Push = (message: string, tone?: Tone, elsewhere?: () => void) => void
+
+const ToastContext = createContext<Push>(() => {})
 
 /** `toast("Encaissé : 300,00 DH")` — vert par défaut, rouge sur échec. */
 export const useToast = () => useContext(ToastContext)
@@ -36,9 +43,12 @@ export const useToast = () => useContext(ToastContext)
 export function ToastHost({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const push = useCallback((message: string, tone: Tone = "success") => {
+  const push = useCallback<Push>((message, tone = "success", elsewhere) => {
     const id = Date.now() + Math.random()
-    setToasts((current) => [...current, { id, message, tone }])
+    const action = elsewhere
+      ? { label: "Enregistrer ailleurs…", run: elsewhere }
+      : undefined
+    setToasts((current) => [...current, { id, message, tone, action }])
     window.setTimeout(
       () => setToasts((current) => current.filter((entry) => entry.id !== id)),
       LIVES[tone],
@@ -63,7 +73,26 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
             ) : (
               <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             )}
-            <span className="min-w-0 flex-1 break-words">{toast.message}</span>
+            <span className="min-w-0 flex-1 break-words">
+              {toast.message}
+              {toast.action && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 opacity-80 hover:opacity-100"
+                    onClick={() => {
+                      toast.action?.run()
+                      setToasts((current) =>
+                        current.filter((entry) => entry.id !== toast.id),
+                      )
+                    }}
+                  >
+                    {toast.action.label}
+                  </button>
+                </>
+              )}
+            </span>
             <button
               type="button"
               aria-label="Fermer"

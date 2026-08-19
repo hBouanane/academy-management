@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { FileText, Pencil, UserMinus, UserPlus } from "lucide-react"
+import { Pencil, UserMinus, UserPlus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -167,30 +167,14 @@ export function Teachers({ month, setMonth }: Props) {
                   </span>
                 </TableCell>
                 <TableCell className="space-x-1 text-right whitespace-nowrap">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    asChild
-                    title={`Fiche de paie de ${monthLabel(month)} — à imprimer et signer`}
-                  >
-                    <a
-                      href={`/api/teachers/${row.id}/invoice.docx?month=${month}`}
-                      download
-                    >
-                      <FileText className="size-4" />
-                    </a>
-                  </Button>
-                  {/* Ranger la fiche a sa place, plutot que de la
-                      retrouver en vrac dans Telechargements. */}
                   <FileDocument
                     kind="payslip"
                     month={month}
                     refId={row.id}
-                    ready
-                    className="h-8 border-0 px-2 shadow-none"
-                  >
-                    {""}
-                  </FileDocument>
+                    variant="ghost"
+                    downloadHref={`/api/teachers/${row.id}/invoice.docx?month=${month}`}
+                    title={`Fiche de paie de ${monthLabel(month)} — à imprimer et signer`}
+                  />
                   <Button
                     size="sm"
                     variant="ghost"
