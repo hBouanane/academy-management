@@ -34,6 +34,9 @@ class MonthlyReport:
     cash_in: Centimes
     totals: tuple[BeneficiaryTotal, ...]
     by_level: tuple[LevelBreakdown, ...]
+    # When the month's ledger last moved — lets the UI warn that an Excel
+    # exported before this moment is stale.
+    last_entry_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,7 +64,16 @@ def monthly_report(
         cash_in=_cash_in(conn, academy_id, month),
         totals=_academy_totals(conn, academy_id, month),
         by_level=_level_breakdowns(conn, academy_id, month),
+        last_entry_at=_last_entry_at(conn, academy_id, month),
     )
+
+
+def _last_entry_at(conn: sqlite3.Connection, academy_id: int, month: str) -> str | None:
+    row = conn.execute(
+        "SELECT MAX(created_at) FROM ledger_entry WHERE academy_id = ? AND month = ?",
+        (academy_id, month),
+    ).fetchone()
+    return row[0]
 
 
 def arrears(
@@ -75,12 +87,12 @@ def arrears(
 
 
 def _cash_in(conn: sqlite3.Connection, academy_id: int, month: str) -> Centimes:
-    # Cash lines have no beneficiary: payment_in plus its reversal mirrors,
-    # so a reversed month nets back to zero here too.
+    # Cash lines have no beneficiary: payment_in plus its reversal mirrors
+    # (a reversed month nets back to zero) plus refund cash-outs.
     row = conn.execute(
         "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
         " WHERE academy_id = ? AND month = ? AND beneficiary_kind IS NULL"
-        " AND entry_type IN ('payment_in', 'reversal')",
+        " AND entry_type IN ('payment_in', 'reversal', 'refund')",
         (academy_id, month),
     ).fetchone()
     return row[0]
@@ -192,6 +204,48 @@ def _student_arrears(
         items=items,
         total_owed=sum(item.owed for item in items),
     )
+
+
+def history(
+    conn: sqlite3.Connection, academy_id: int, up_to_month: str, months: int = 6
+) -> list[dict]:
+    """Cash-in and paid/unpaid counts for the last N months — feeds the charts."""
+    return [
+        _month_stats(conn, academy_id, month)
+        for month in _month_range(up_to_month, months)
+    ]
+
+
+def _month_range(up_to_month: str, months: int) -> list[str]:
+    year, month = int(up_to_month[:4]), int(up_to_month[5:7])
+    result = []
+    for offset in range(months - 1, -1, -1):
+        total = year * 12 + (month - 1) - offset
+        result.append(f"{total // 12:04d}-{total % 12 + 1:02d}")
+    return result
+
+
+def _month_stats(conn: sqlite3.Connection, academy_id: int, month: str) -> dict:
+    counts = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS enrolled,
+          SUM(CASE WHEN p.id IS NOT NULL THEN 1 ELSE 0 END) AS paid
+        FROM enrollment e
+        JOIN student s ON s.id = e.student_id
+        LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
+        WHERE s.academy_id = ? AND e.month = ?
+        """,
+        (academy_id, month),
+    ).fetchone()
+    paid = counts["paid"] or 0
+    return {
+        "month": month,
+        "cash_in": _cash_in(conn, academy_id, month),
+        "enrolled_count": counts["enrolled"],
+        "paid_count": paid,
+        "unpaid_count": counts["enrolled"] - paid,
+    }
 
 
 def _safe_owed(store: SqlitePaymentStore, row: sqlite3.Row) -> Centimes:

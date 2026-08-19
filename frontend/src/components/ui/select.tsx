@@ -55,11 +55,14 @@ function SelectTrigger({
   )
 }
 
+// Default to popper: the list opens BELOW the trigger like a real menu.
+// Radix's item-aligned mode overlays the trigger, which reads as "already
+// filled" when there is a single option.
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
-  align = "center",
+  position = "popper",
+  align = "start",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (

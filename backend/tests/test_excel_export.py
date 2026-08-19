@@ -21,7 +21,9 @@ def client(tmp_path):
 def build_month(client):
     levels = client.get("/api/levels").json()
     primaire = next(level["id"] for level in levels if level["name"] == "Primaire")
-    subject = client.post("/api/subjects", json={"name": "Math"}).json()["id"]
+    subject = client.post(
+        "/api/subjects", json={"name": "Math", "level_id": primaire}
+    ).json()["id"]
     teacher = client.post("/api/teachers", json={"name": "Ahmed"}).json()["id"]
     class_id = client.post(
         "/api/classes",
@@ -96,6 +98,21 @@ def test_summary_sheet_matches_the_ledger(client):
     assert values["Salle principale"] == 90
     assert values["Mon académie"] == -20
     assert sheet["B1"].value == 250  # cash-in in DH
+
+
+def test_summary_sheet_aggregates_the_owner_teacher(client):
+    # The owner also teaches math: one combined line shows their real income.
+    build_month(client)
+    (ahmed,) = [t for t in client.get("/api/teachers").json() if t["name"] == "Ahmed"]
+    client.patch(f"/api/teachers/{ahmed['id']}", json={"is_owner": True})
+    sheet = download(client)["Répartition"]
+    values = {
+        row[0]: row[2]
+        for row in sheet.iter_rows(min_row=2, values_only=True)
+        if row[0] is not None
+    }
+    # Ahmed wears both hats: 180 as teacher + (30 - 50) as owner = 160.
+    assert values["Ahmed (propriétaire + professeur)"] == 160
 
 
 def test_arrears_sheet_lists_who_owes(client):

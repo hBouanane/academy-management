@@ -70,9 +70,47 @@ def backup_database(db_path: Path, stamp: str | None = None) -> Path | None:
 
 
 def _prune(backups: Path, keep: int = BACKUPS_TO_KEEP) -> None:
+    """Une photographie par fermeture remplirait le disque en quelques
+    annees : on garde les plus recentes, soit environ un mois."""
     files = sorted(backups.glob("data-*.db"))
-    for old in files[:-keep]:
-        old.unlink()
+    for stale in files[:-keep]:
+        stale.unlink()
+
+
+def _schema(db_path: Path) -> int:
+    """La version du schéma, telle que SQLite la porte dans le fichier."""
+    conn = sqlite3.connect(db_path)
+    try:
+        return conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def database_complaint(db_path: Path) -> str | None:
+    """Ce qui empêche d'ouvrir cette base, dit en clair — ou rien.
+
+    Une sauvegarde ANCIENNE se rattrape toute seule : les migrations la
+    ramènent au présent au démarrage. C'est l'inverse qui est dangereux —
+    un fichier écrit par une version plus récente contient des colonnes
+    que cette version-ci ne connaît pas.
+
+    Sans ce garde-fou, le client lirait « le serveur interne n'a pas
+    démarré » et n'aurait aucune idée de la vraie raison.
+    """
+    if not db_path.exists():
+        return None
+    from app.adapters.sqlite.migrations import latest_version
+
+    found = _schema(db_path)
+    known = latest_version()
+    if found <= known:
+        return None
+    return (
+        "Cette sauvegarde vient d'une version plus récente de"
+        f" l'application (schéma {found}, celle-ci connaît {known}).\n\n"
+        "Installez la dernière version, ou restaurez une sauvegarde plus"
+        " ancienne."
+    )
 
 
 def pick_free_port() -> int:
@@ -124,6 +162,9 @@ def main() -> None:
     if another_instance_is_running():
         _fatal("L'application est déjà ouverte.")
     db_path = data_dir() / "data.db"
+    complaint = database_complaint(db_path)
+    if complaint:
+        _fatal(complaint)
     app = create_app(str(db_path), frontend_dist=frontend_dist())
     port = pick_free_port()
     threading.Thread(
@@ -133,6 +174,9 @@ def main() -> None:
     ).start()
     if not wait_until_ready(port):
         _fatal("Le serveur interne n'a pas démarré. Contactez le support.")
+    # pywebview blocks downloads unless told otherwise — without this, the
+    # Excel export button silently does nothing in the packaged app.
+    webview.settings["ALLOW_DOWNLOADS"] = True
     webview.create_window(
         "Academy Management",
         f"http://{HOST}:{port}",

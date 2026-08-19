@@ -20,3 +20,12 @@ frontend/dist/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Les cles de depannage de l'editeur.
+# La privee ne quitte JAMAIS ce poste ; la publique part dans la
+# version livree mais se regenere, donc ni l'une ni l'autre dans le depot.
+packaging/vendor_private.pem
+packaging/vendor_key.txt
+
+# Ce qui part chez le client : produit a la demande, jamais versionne.
+dist-installer/

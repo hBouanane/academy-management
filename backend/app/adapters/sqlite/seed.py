@@ -1,12 +1,19 @@
-"""Default state: one academy, one venue, the three Moroccan school levels.
+"""Default state: one academy, one venue, the Moroccan school levels.
 
 Mirrors the client's current Excel reality so the app works out of the box;
-everything seeded here is editable through the app later.
+everything seeded here is editable through the app later. Formation is the
+fourth niveau: vocational courses outside the school ladder.
 """
 
 import sqlite3
 
-DEFAULT_LEVELS = ("Primaire", "Collège", "Lycée")
+# (name, teaching_annees): 0 = one teaching block, N = split into N années.
+DEFAULT_LEVELS = (
+    ("Primaire", 0),
+    ("Collège", 3),
+    ("Lycée", 3),
+    ("Formation", 0),
+)
 
 
 def seed_default_academy(
@@ -44,6 +51,10 @@ def _insert_venue(connection: sqlite3.Connection, academy_id: int, name: str) ->
 
 def _insert_levels(connection: sqlite3.Connection, academy_id: int) -> None:
     connection.executemany(
-        "INSERT INTO school_level (academy_id, name, sort_order) VALUES (?, ?, ?)",
-        [(academy_id, level, order) for order, level in enumerate(DEFAULT_LEVELS)],
+        "INSERT INTO school_level (academy_id, name, sort_order, teaching_annees)"
+        " VALUES (?, ?, ?, ?)",
+        [
+            (academy_id, name, order, annees)
+            for order, (name, annees) in enumerate(DEFAULT_LEVELS)
+        ],
     )

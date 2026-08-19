@@ -19,7 +19,9 @@ def setup_class_and_student(client, subject="Math", teacher="Ahmed", student="Sa
     """Creates a class and a student at Primaire; returns (class_id, student_id)."""
     levels = client.get("/api/levels").json()
     primaire = next(level["id"] for level in levels if level["name"] == "Primaire")
-    subject_id = client.post("/api/subjects", json={"name": subject}).json()["id"]
+    subject_id = client.post(
+        "/api/subjects", json={"name": subject, "level_id": primaire}
+    ).json()["id"]
     teacher_id = client.post("/api/teachers", json={"name": teacher}).json()["id"]
     class_id = client.post(
         "/api/classes",
@@ -71,7 +73,7 @@ class TestStructure:
 
     def test_seeded_levels(self, client):
         names = [level["name"] for level in client.get("/api/levels").json()]
-        assert names == ["Primaire", "Collège", "Lycée"]
+        assert names == ["Primaire", "Collège", "Lycée", "Formation"]
 
     def test_crud_teacher_subject_class(self, client):
         class_id, _ = setup_class_and_student(client)
@@ -147,21 +149,16 @@ class TestEnrollmentsAndPayments:
         (row,) = client.get("/api/months/2026-09/overview").json()
         assert row["enrollment"]["net_centimes"] == 250 * DH
 
-    def test_copy_month_skips_already_enrolled_and_inactive(self, client):
+    def test_ensure_extends_and_is_idempotent(self, client):
         class_id, student_id = setup_class_and_student(client)
         enroll(client, student_id, [class_id], month="2026-09")
-        response = client.post(
-            "/api/months/copy", json={"from_month": "2026-09", "to_month": "2026-10"}
-        )
+        response = client.post("/api/months/2026-10/ensure")
         assert response.status_code == 200
-        assert response.json()["copied"] == 1
+        assert response.json()["extended"] == 1
         (row,) = client.get("/api/months/2026-10/overview").json()
         assert row["enrollment"]["net_centimes"] == 300 * DH
-        # Copying again copies nothing new.
-        again = client.post(
-            "/api/months/copy", json={"from_month": "2026-09", "to_month": "2026-10"}
-        )
-        assert again.json()["copied"] == 0
+        again = client.post("/api/months/2026-10/ensure")
+        assert again.json()["extended"] == 0
 
 
 class TestValidationHardening:
@@ -245,13 +242,7 @@ class TestValidationHardening:
             client.get("/api/reports/monthly", params={"month": "2026-13"}).status_code
             == 422
         )
-        assert (
-            client.post(
-                "/api/months/copy",
-                json={"from_month": "2026-9", "to_month": "2026-10"},
-            ).status_code
-            == 422
-        )
+        assert client.post("/api/months/2026-9/ensure").status_code == 422
 
     def test_patching_unknown_rows_is_404(self, client):
         assert client.patch("/api/academies/999", json={"name": "X"}).status_code == 404

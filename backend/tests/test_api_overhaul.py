@@ -18,7 +18,9 @@ def client(tmp_path):
 def setup_enrollment(client, price_dh=300, with_discount=0):
     levels = client.get("/api/levels").json()
     primaire = next(level["id"] for level in levels if level["name"] == "Primaire")
-    subject = client.post("/api/subjects", json={"name": "Math"}).json()["id"]
+    subject = client.post(
+        "/api/subjects", json={"name": "Math", "level_id": primaire}
+    ).json()["id"]
     teacher = client.post("/api/teachers", json={"name": "Ahmed"}).json()["id"]
     class_id = client.post(
         "/api/classes",
@@ -109,7 +111,7 @@ class TestPaymentPreview:
 
     def test_clearing_a_phone_actually_clears_it(self, client):
         teacher = client.post(
-            "/api/teachers", json={"name": "Ahmed", "phone": "0600"}
+            "/api/teachers", json={"name": "Ahmed", "phone": "0600112233"}
         ).json()["id"]
         client.patch(f"/api/teachers/{teacher}", json={"phone": ""})
         (row,) = client.get("/api/teachers").json()
@@ -120,8 +122,13 @@ class TestEntityLifecycle:
     @pytest.mark.parametrize(
         ("collection", "create_body", "patch_body"),
         [
-            ("subjects", {"name": "Math"}, {"name": "Mathématiques"}),
-            ("teachers", {"name": "Ahmed"}, {"name": "Ahmed B.", "phone": "0600"}),
+            # Matières left this list on purpose: they can no longer be
+            # archived — only renamed, or deleted while class-free (v9).
+            (
+                "teachers",
+                {"name": "Ahmed"},
+                {"name": "Ahmed B.", "phone": "0600112233"},
+            ),
             (
                 "packages",
                 {"subject_count": 1, "monthly_price_centimes": 100},

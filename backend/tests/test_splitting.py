@@ -38,6 +38,39 @@ def test_single_teacher_takes_whole_teacher_share():
     assert amounts_by_beneficiary(allocations)[Beneficiary("teacher", 4)] == 150 * DH
 
 
+def test_weighted_subject_splits_between_successive_teachers():
+    # Handover on the 21st of a 30-day month: the old teacher taught 20 days
+    # (2/3), the successor 10 (1/3) — the subject slice follows the days.
+    allocations = split_payment(
+        300 * DH,
+        seed_policy(),
+        venue_id=1,
+        owner_id=1,
+        subject_teachers=[7],
+        teacher_weights=(((7, 6667), (9, 3333)),),
+    )
+    amounts = amounts_by_beneficiary(allocations)
+    assert amounts[Beneficiary("teacher", 7)] == 12001  # 66.67% of 180 DH
+    assert amounts[Beneficiary("teacher", 9)] == 5999
+    assert sum(a.amount for a in allocations) == 300 * DH
+
+
+def test_weighted_co_teachers_share_equally_and_exactly():
+    allocations = split_payment(
+        300 * DH,
+        seed_policy(),
+        venue_id=1,
+        owner_id=1,
+        subject_teachers=[7, 8],
+        teacher_weights=(((7, 5000), (9, 5000)), ((8, 10000),)),
+    )
+    amounts = amounts_by_beneficiary(allocations)
+    assert amounts[Beneficiary("teacher", 7)] == 45 * DH
+    assert amounts[Beneficiary("teacher", 9)] == 45 * DH
+    assert amounts[Beneficiary("teacher", 8)] == 90 * DH
+    assert sum(a.amount for a in allocations) == 300 * DH
+
+
 @pytest.mark.parametrize("amount", [1, 99, 10_001, 33_333, 250 * DH + 1])
 def test_allocations_always_sum_to_exact_amount(amount):
     allocations = split_payment(

@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
@@ -24,7 +24,9 @@
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
+    --color-border-strong: var(--border-strong);
     --color-destructive: var(--destructive);
+    --color-success: var(--success);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -48,48 +50,90 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Linear design system (docs/DESIGN.md): near-black canvas, four-step
-   surface ladder, hairline borders, one lavender accent. Always dark. */
+/* ElevenLabs design system (docs/DESIGN.md): editorial off-white canvas,
+   warm near-black ink, pastel gradient orbs as the only color moments,
+   ink-pill CTAs. Dark mode is the same voice on canvas-deep. */
 :root {
-    --background: #010102;            /* canvas */
-    --foreground: #f7f8f8;            /* ink */
-    --card: #0f1011;                  /* surface-1 */
-    --card-foreground: #f7f8f8;
-    --popover: #141516;               /* surface-2 */
-    --popover-foreground: #f7f8f8;
-    --primary: #5e6ad2;               /* lavender */
+    --background: #f5f5f5;
+    --foreground: #292524;
+    --card: #fafafa;
+    --card-foreground: #292524;
+    --popover: #ffffff;
+    --popover-foreground: #292524;
+    --primary: #292524;
     --primary-foreground: #ffffff;
-    --secondary: #141516;             /* surface-2 */
-    --secondary-foreground: #f7f8f8;
-    --muted: #18191a;                 /* surface-3 */
-    --muted-foreground: #8a8f98;      /* ink-subtle */
-    --accent: #18191a;
-    --accent-foreground: #f7f8f8;
-    --destructive: #e5484d;
-    --success: #27a644;               /* semantic-success */
-    --border: #23252a;                /* hairline */
-    --border-strong: #34343a;         /* hairline-strong */
-    --input: #23252a;
-    --ring: #5e69d1;                  /* primary-focus */
-    --chart-1: #5e6ad2;
-    --chart-2: #27a644;
-    --chart-3: #8a8f98;
-    --chart-4: #d0d6e0;
-    --chart-5: #62666d;
-    --radius: 0.75rem;                /* cards 12px */
-    --sidebar: #010102;
-    --sidebar-foreground: #d0d6e0;    /* ink-muted */
-    --sidebar-primary: #5e6ad2;
+    --secondary: #eceae8;
+    --secondary-foreground: #292524;
+    --muted: #f0efed;
+    --muted-foreground: #78716c;
+    --accent: #f0efed;
+    --accent-foreground: #292524;
+    --destructive: #b91c1c;
+    --success: #15803d;
+    --border: #e7e5e4;
+    --border-strong: #d6d3d1;
+    --input: #e7e5e4;
+    --ring: #292524;
+    --chart-mark: #0e9f6e;          /* validated vs #f5f5f5 */
+    --chart-1: #0e9f6e;
+    --chart-2: #b45309;
+    --chart-3: #6d28d9;
+    --chart-4: #0369a1;
+    --chart-5: #78716c;
+    --radius: 0.75rem;
+    --sidebar: #f5f5f5;
+    --sidebar-foreground: #57534e;
+    --sidebar-primary: #292524;
     --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #0f1011;
-    --sidebar-accent-foreground: #f7f8f8;
-    --sidebar-border: #23252a;
-    --sidebar-ring: #5e69d1;
+    --sidebar-accent: #eceae8;
+    --sidebar-accent-foreground: #292524;
+    --sidebar-border: #e7e5e4;
+    --sidebar-ring: #292524;
+    --orb-mint: #a7e5d3;
+    --orb-peach: #f4c5a8;
+    --orb-lavender: #c8b8e0;
+    --orb-sky: #a8c8e8;
 }
 
-@theme inline {
-    --color-success: var(--success);
-    --color-border-strong: var(--border-strong);
+.dark {
+    --background: #0c0a09;
+    --foreground: #f5f5f4;
+    --card: #161311;
+    --card-foreground: #f5f5f4;
+    --popover: #1c1917;
+    --popover-foreground: #f5f5f4;
+    --primary: #f5f5f4;
+    --primary-foreground: #0c0a09;
+    --secondary: #292524;
+    --secondary-foreground: #f5f5f4;
+    --muted: #221f1d;
+    --muted-foreground: #a8a29e;
+    --accent: #292524;
+    --accent-foreground: #f5f5f4;
+    --destructive: #f87171;
+    --success: #4ade80;
+    --border: #292524;
+    --border-strong: #44403c;
+    --input: #292524;
+    --ring: #a8a29e;
+    --chart-mark: #0f9d70;          /* validated vs #0c0a09 */
+    --chart-1: #0f9d70;
+    --chart-2: #d97706;
+    --chart-3: #a78bfa;
+    --chart-4: #38bdf8;
+    --chart-5: #a8a29e;
+    --sidebar: #0c0a09;
+    --sidebar-foreground: #a8a29e;
+    --sidebar-primary: #f5f5f4;
+    --sidebar-primary-foreground: #0c0a09;
+    --sidebar-accent: #221f1d;
+    --sidebar-accent-foreground: #f5f5f4;
+    --sidebar-border: #292524;
+    --sidebar-ring: #a8a29e;
+    --orb-mint: #1d5c4a;
+    --orb-peach: #6e4630;
+    --orb-lavender: #4a3d63;
+    --orb-sky: #2e4a63;
 }
 
 @layer base {
@@ -104,24 +148,110 @@
     }
   h1, h2, h3 {
     letter-spacing: -0.02em;
+    font-weight: 500;
     }
   ::selection {
-    background: color-mix(in srgb, var(--primary) 35%, transparent);
+    background: color-mix(in srgb, var(--orb-mint) 55%, transparent);
     }
 }
 
 @layer components {
   .surface-card {
-    @apply bg-card border-border rounded-xl border transition-colors duration-200;
+    @apply bg-card border-border rounded-2xl border transition-all duration-200;
     }
   .surface-card:hover {
     border-color: var(--border-strong);
     }
+  /* The ElevenLabs signature: soft pastel orbs drifting behind content. */
+  .orb-backdrop {
+    background:
+      radial-gradient(38rem 22rem at 8% -10%, color-mix(in srgb, var(--orb-mint) 34%, transparent), transparent 60%),
+      radial-gradient(30rem 18rem at 90% 0%, color-mix(in srgb, var(--orb-lavender) 30%, transparent), transparent 65%),
+      radial-gradient(26rem 20rem at 55% 115%, color-mix(in srgb, var(--orb-peach) 22%, transparent), transparent 60%);
+    }
   .view-enter {
-    animation: view-fade 0.25s ease-out;
+    animation: view-fade 0.3s cubic-bezier(0.22, 1, 0.36, 1);
     }
   @keyframes view-fade {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
+    }
+  /* Row colors ARE information: unpaid = faint red, reduced = warm peach. */
+  .row-unpaid {
+    background: color-mix(in srgb, var(--destructive) 7%, transparent);
+    }
+  .row-reduced {
+    background: color-mix(in srgb, var(--orb-peach) 16%, transparent);
+    }
+  .row-unpaid.row-reduced {
+    background:
+      linear-gradient(90deg,
+        color-mix(in srgb, var(--orb-peach) 16%, transparent),
+        color-mix(in srgb, var(--destructive) 7%, transparent));
+    }
+  /* Rows cascade in — the page feels alive, not static. */
+  .stagger-row {
+    animation: view-fade 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  .table-wrap {
+    overflow-x: auto;
+    }
+}
+
+@layer components {
+  /* Les confirmations arrivent par la droite, sans bousculer la page. */
+  .toast-enter {
+    animation: toast-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(16px) scale(0.98); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+    }
+  /* Ce qu on vient d ajouter doit se trouver du regard : la pastille
+     neuve pulse une fois, le temps que l oeil la retrouve au milieu des
+     autres. Sans ca, on croit que rien n a ete ajoute. */
+  .chip-added {
+    animation: chip-pop 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  @keyframes chip-pop {
+    0%   { transform: scale(0.9); box-shadow: 0 0 0 0 var(--success); }
+    35%  { transform: scale(1.06); box-shadow: 0 0 0 4px color-mix(in oklab, var(--success) 45%, transparent); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+    }
+  @media (prefers-reduced-motion: reduce) {
+    .chip-added { animation: none; outline: 2px solid var(--success); }
+    }
+  /* Ce qu on vient de changer en lot doit se voir change : les lignes
+     touchees s eclairent une seconde. Sans ca, on clique et on doute. */
+  .row-applied {
+    animation: row-applied 1.1s ease-out both;
+    }
+  @keyframes row-applied {
+    0%   { background-color: color-mix(in oklab, var(--success) 22%, transparent); }
+    100% { background-color: transparent; }
+    }
+  @media (prefers-reduced-motion: reduce) {
+    .row-applied { animation: none; }
+    }
+  /* Un refus qui se repete doit se voir se repeter : le message
+     reapparait en sursautant, sinon un deuxieme echec identique au
+     premier passerait pour un succes. */
+  .notice-enter {
+    animation: notice-in 0.34s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+    }
+  @keyframes notice-in {
+    0%   { opacity: 0; transform: translateX(0); }
+    30%  { opacity: 1; transform: translateX(-5px); }
+    50%  { transform: translateX(4px); }
+    70%  { transform: translateX(-2px); }
+    100% { opacity: 1; transform: translateX(0); }
+    }
+  @media (prefers-reduced-motion: reduce) {
+    .notice-enter { animation: none; }
+    }
+  /* Ce qui attend de l'argent se signale sans crier : un liseré, pas un
+     aplat rouge de plus. */
+  .row-attention {
+    box-shadow: inset 3px 0 0 var(--destructive);
     }
 }

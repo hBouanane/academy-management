@@ -41,7 +41,7 @@ class FakeStore:
     def enrollment_context(self, enrollment_id):
         return self.ctx if enrollment_id == self.ctx.enrollment_id else None
 
-    def record(self, ctx, net_amount, lines, paid_on):
+    def record(self, ctx, net_amount, lines, paid_on, due=None):
         if self.recorded is not None:
             raise AlreadyPaidError(ctx.enrollment_id)
         self.recorded = (net_amount, lines, paid_on)
@@ -135,6 +135,25 @@ def test_unknown_enrollment_is_refused():
     store = FakeStore(context())
     with pytest.raises(UnknownEnrollmentError):
         post_payment(store, 404)
+
+
+def test_explicit_sponsor_share_may_overdraw_its_bearer():
+    # Client rule: a negative share is a WARNING in the UI, never a block —
+    # the ledger shows reality (owner receives 30, sponsors 50 -> -20).
+    discount = ConfiguredAdjustment(
+        adjustment_id=8,
+        spec=AdjustmentSpec(kind="amount", value=70 * DH, scope="package"),
+        bearers=(OWNER, Beneficiary("teacher", 7)),
+        shares_spec=((50 * DH, None), (20 * DH, None)),
+    )
+    store = FakeStore(context(adjustments=[discount]))
+    posted = post_payment(store, 11)
+    cuts = {
+        line.beneficiary: line.amount
+        for line in posted.lines
+        if line.entry_type == "adjustment"
+    }
+    assert cuts[OWNER] == -50 * DH
 
 
 def test_reductions_beyond_the_price_are_refused():

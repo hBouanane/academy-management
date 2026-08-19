@@ -30,6 +30,11 @@ class ConfiguredAdjustment:
     adjustment_id: int
     spec: AdjustmentSpec
     bearers: tuple[Beneficiary, ...]  # empty means the default bearer (owner)
+    # Per-sponsor parts aligned with bearers: (share_centimes, share_bp) each,
+    # (None, None) meaning "equal split". None entirely = legacy equal split.
+    shares_spec: tuple[tuple[int | None, int | None], ...] | None = None
+    # 'gift' changes the default bearers: EVERYONE forgoes proportionally.
+    category: str = "discount"
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,13 @@ class EnrollmentContext:
     owner_bp: int
     subject_teachers: tuple[int, ...]  # one teacher per subject, class order
     adjustments: tuple[ConfiguredAdjustment, ...]
+    # Per subject: the teachers who actually taught this month with their
+    # day weights (succession/co-teaching). None = subject_teachers as-is.
+    teacher_weights: tuple[tuple[tuple[int, int], ...], ...] | None = None
+    # (teacher_id, amount) already guaranteed to teachers for this unpaid
+    # month: when it is finally collected, the académie takes that much back
+    # out of the payment — never out of the professor.
+    guaranteed: tuple[tuple[int, Centimes], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,6 +85,19 @@ class PaymentStore(Protocol):
         net_amount: Centimes,
         lines: Sequence[LedgerLine],
         paid_on: str | None,
+        due: Centimes | None = None,
+    ) -> int: ...
+
+    def avance_state(self, payment_id: int) -> dict | None: ...
+
+    def record_completion(self, state: dict, lines: Sequence[LedgerLine]) -> None: ...
+
+    def record_guarantee(
+        self,
+        context: EnrollmentContext,
+        present_until: str | None,
+        amount: Centimes,
+        lines: Sequence[LedgerLine],
     ) -> int: ...
 
 

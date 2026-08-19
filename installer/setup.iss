@@ -1,9 +1,9 @@
-; Inno Setup 6 script - produces the client-facing Windows installer.
+﻿; Inno Setup 6 script - produces the client-facing Windows installer.
 ; Prerequisite: run packaging\build.ps1 first (creates backend\dist\AcademyManagement).
 ; Compile with:  iscc installer\setup.iss
 
 #define AppName "Academy Management"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define AppExe "AcademyManagement.exe"
 
 [Setup]

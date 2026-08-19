@@ -22,9 +22,10 @@ def test_seed_creates_one_academy_one_venue_three_levels(conn):
     ).fetchone()[0]
     assert venues == 1
     levels = [
-        r["name"]
+        (r["name"], r["teaching_annees"])
         for r in conn.execute(
-            "SELECT name FROM school_level WHERE academy_id = ? ORDER BY sort_order",
+            "SELECT name, teaching_annees FROM school_level"
+            " WHERE academy_id = ? ORDER BY sort_order",
             (academy_id,),
         )
     ]

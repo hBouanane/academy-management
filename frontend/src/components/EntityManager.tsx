@@ -3,6 +3,9 @@ import type { ReactNode } from "react"
 import { Archive, ArchiveRestore, Pencil } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ConfirmButton } from "@/components/Confirm"
+import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -29,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { apiGet, apiSend } from "@/lib/api"
+import { useAlert } from "@/lib/alert"
 
 export type FieldSpec = {
   key: string
@@ -37,6 +41,8 @@ export type FieldSpec = {
   options?: [string, string][]
   placeholder?: string
   optional?: boolean
+  /** Shown in the edit dialog only, never in the create form. */
+  editOnly?: boolean
 }
 
 type Row = Record<string, unknown> & { id: number; is_active: number }
@@ -51,6 +57,14 @@ type Props = {
   fromRow?: (row: Row) => Record<string, string>
   refreshKey?: number
   onChanged?: () => void
+  /** Extra query-string parameters, e.g. "&month=2026-09". */
+  query?: string
+  /** Rendered on the right of the header — e.g. a month navigator. */
+  headerExtra?: ReactNode
+  /** Extra per-row action buttons, rendered before the pencil. */
+  extraActions?: (row: Row) => ReactNode
+  /** Clicking anywhere on a row (except buttons) triggers this. */
+  onRowClick?: (row: Row) => void
 }
 
 const identityBody = (values: Record<string, string>) => values
@@ -65,6 +79,10 @@ export function EntityManager({
   fromRow,
   refreshKey = 0,
   onChanged,
+  query = "",
+  headerExtra,
+  extraActions,
+  onRowClick,
 }: Props) {
   const [rows, setRows] = useState<Row[]>([])
   const [showArchived, setShowArchived] = useState(false)
@@ -72,13 +90,13 @@ export function EntityManager({
   const [editing, setEditing] = useState<Row | null>(null)
   const [editValues, setEditValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useAlert()
 
   const reload = useCallback(() => {
-    apiGet<Row[]>(`${endpoint}?include_inactive=${showArchived}`)
+    apiGet<Row[]>(`${endpoint}?include_inactive=${showArchived}${query}`)
       .then(setRows)
       .catch((err: Error) => setError(err.message))
-  }, [endpoint, showArchived])
+  }, [endpoint, showArchived, query, setError])
 
   useEffect(reload, [reload, refreshKey])
 
@@ -95,7 +113,8 @@ export function EntityManager({
   }
 
   const createReady = fields.every(
-    (field) => field.optional || (createValues[field.key] ?? "") !== "",
+    (field) =>
+      field.editOnly || field.optional || (createValues[field.key] ?? "") !== "",
   )
 
   const create = () =>
@@ -124,25 +143,28 @@ export function EntityManager({
     )
   }
 
+  const paging = usePagination(rows)
+
   return (
     <div className="view-enter space-y-6">
-      <header>
-        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        <p className="text-muted-foreground text-sm">{description}</p>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+          <p className="text-muted-foreground text-sm">{description}</p>
+        </div>
+        {headerExtra}
       </header>
 
-      {error && (
-        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm">
-          {error}
-        </p>
-      )}
+      <Notice alert={error} />
 
       <div className="surface-card space-y-3 p-5">
         <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
           Ajouter
         </p>
         <div className="flex flex-wrap items-end gap-3">
-          {fields.map((field) => (
+          {fields
+            .filter((field) => !field.editOnly)
+            .map((field) => (
             <FieldInput
               key={field.key}
               field={field}
@@ -166,6 +188,7 @@ export function EntityManager({
           />
           Afficher les éléments archivés
         </label>
+        <div className="table-wrap">
         <Table>
           <TableHeader>
             <TableRow>
@@ -177,8 +200,17 @@ export function EntityManager({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.id} className="group">
+            {paging.visible.map((row, index) => (
+              <TableRow
+                key={row.id}
+                className={`group stagger-row ${onRowClick ? "cursor-pointer" : ""}`}
+                style={{ animationDelay: `${index * 40}ms` }}
+                onClick={(event) => {
+                  if (!onRowClick) return
+                  if ((event.target as HTMLElement).closest("button, a")) return
+                  onRowClick(row)
+                }}
+              >
                 {columns.map((column) => (
                   <TableCell key={column.key}>
                     {column.render ? column.render(row) : String(row[column.key] ?? "—")}
@@ -193,7 +225,8 @@ export function EntityManager({
                     <Badge variant="outline">Archivé</Badge>
                   )}
                 </TableCell>
-                <TableCell className="space-x-1 text-right">
+                <TableCell className="space-x-1 text-right whitespace-nowrap">
+                  {extraActions?.(row)}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -202,11 +235,13 @@ export function EntityManager({
                   >
                     <Pencil className="size-4" />
                   </Button>
-                  <Button
+                  <ConfirmButton
                     size="sm"
                     variant="ghost"
                     disabled={busy}
-                    onClick={() => setActive(row, !row.is_active)}
+                    onConfirm={() => setActive(row, !row.is_active)}
+                    confirmLabel={row.is_active ? "Archiver ?" : "Restaurer ?"}
+                    description="Réversible — l'élément quitte les listes, l'historique financier reste intact."
                     title={row.is_active ? "Archiver (réversible)" : "Restaurer"}
                   >
                     {row.is_active ? (
@@ -214,7 +249,7 @@ export function EntityManager({
                     ) : (
                       <ArchiveRestore className="size-4" />
                     )}
-                  </Button>
+                  </ConfirmButton>
                 </TableCell>
               </TableRow>
             ))}
@@ -230,6 +265,12 @@ export function EntityManager({
             )}
           </TableBody>
         </Table>
+        <Pagination
+          {...paging}
+          shown={paging.visible.length}
+          noun="lignes"
+        />
+        </div>
         <p className="text-muted-foreground mt-3 text-xs">
           Rien n'est jamais supprimé définitivement — archiver retire l'élément
           des listes, l'historique financier reste intact.

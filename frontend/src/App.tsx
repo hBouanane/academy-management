@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { ComponentType } from "react"
 import {
   BarChart3,
@@ -6,15 +6,27 @@ import {
   Building2,
   GraduationCap,
   LayoutDashboard,
+  Moon,
   Package,
   School,
+  Lock as LockIcon,
+  Sun,
+  Tags,
   Users,
+  Wallet,
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { LockScreen } from "@/components/LockScreen"
+import { useLock } from "@/lib/useLock"
+import { useTeacherRoute } from "@/lib/navigation"
+import { TeacherPage } from "@/components/TeacherPage"
 import { currentMonth } from "@/lib/money"
 import { Academy } from "@/views/Academy"
 import { Classes } from "@/views/Classes"
 import { Dashboard } from "@/views/Dashboard"
+import { Motifs } from "@/views/Motifs"
 import { Packages } from "@/views/Packages"
+import { Payroll } from "@/views/Payroll"
 import { Reports } from "@/views/Reports"
 import { Students } from "@/views/Students"
 import { Subjects } from "@/views/Subjects"
@@ -31,6 +43,7 @@ const SECTIONS: {
     items: [
       { key: "dashboard", label: "Tableau de bord", icon: LayoutDashboard },
       { key: "reports", label: "Rapports", icon: BarChart3 },
+      { key: "payroll", label: "Caisse", icon: Wallet },
     ],
   },
   {
@@ -41,6 +54,7 @@ const SECTIONS: {
       { key: "subjects", label: "Matières", icon: BookOpen },
       { key: "classes", label: "Classes", icon: School },
       { key: "packages", label: "Forfaits", icon: Package },
+      { key: "motifs", label: "Motifs", icon: Tags },
     ],
   },
   {
@@ -49,20 +63,47 @@ const SECTIONS: {
   },
 ]
 
+function useTheme() {
+  const [dark, setDark] = useState(
+    () => localStorage.getItem("theme") !== "light",
+  )
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark)
+    localStorage.setItem("theme", dark ? "dark" : "light")
+  }, [dark])
+  return { dark, toggle: () => setDark((current) => !current) }
+}
+
 function App() {
   const [view, setView] = useState("dashboard")
   const [month, setMonth] = useState(currentMonth())
+  const { dark, toggle } = useTheme()
+  const lock = useLock()
+  // Le profil d'un professeur est une page, pas une fenetre : il prend
+  // la place du contenu et laisse la barre de gauche en place.
+  const teacher = useTeacherRoute()
+
+  // Tant que le verrou n'a pas répondu, on n'affiche rien : montrer
+  // l'académie une demi-seconde avant de la cacher serait pire que tout.
+  if (lock.state === null) return null
+  if (!lock.open) return <LockScreen onOpened={lock.opened} />
 
   return (
     <div className="flex min-h-svh">
-      <aside className="border-sidebar-border bg-sidebar w-60 shrink-0 border-r px-3 py-5">
+      <aside className="border-sidebar-border bg-sidebar sticky top-0 flex h-svh w-60 shrink-0 flex-col self-start overflow-y-auto border-r px-3 py-5">
         <div className="mb-8 flex items-center gap-2 px-3">
-          <span className="bg-primary size-2.5 rounded-full" />
+          <span
+            className="size-2.5 rounded-full"
+            style={{
+              background:
+                "conic-gradient(var(--orb-mint), var(--orb-lavender), var(--orb-peach), var(--orb-mint))",
+            }}
+          />
           <h1 className="text-sm font-semibold tracking-tight">
             Academy Management
           </h1>
         </div>
-        <nav className="space-y-6">
+        <nav className="flex-1 space-y-6">
           {SECTIONS.map((section) => (
             <div key={section.label}>
               <p className="text-muted-foreground/70 mb-1.5 px-3 text-[11px] font-medium tracking-widest uppercase">
@@ -75,16 +116,17 @@ function App() {
                   return (
                     <button
                       key={item.key}
-                      onClick={() => setView(item.key)}
-                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                      onClick={() => {
+                        teacher.close()
+                        setView(item.key)
+                      }}
+                      className={`flex w-full items-center gap-2.5 rounded-full px-3 py-1.5 text-sm transition-colors duration-150 ${
                         active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                       }`}
                     >
-                      <Icon
-                        className={`size-4 ${active ? "text-primary" : "text-muted-foreground"}`}
-                      />
+                      <Icon className="size-4" />
                       {item.label}
                     </button>
                   )
@@ -93,16 +135,67 @@ function App() {
             </div>
           ))}
         </nav>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggle}
+          className="justify-start gap-2.5 rounded-full px-3"
+          title={dark ? "Passer en mode clair" : "Passer en mode sombre"}
+        >
+          {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          {dark ? "Mode clair" : "Mode sombre"}
+        </Button>
+        {/* Quitter le bureau une minute ne devrait pas demander
+            d'attendre la minuterie. */}
+        {lock.state.configured && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={lock.close}
+            className="justify-start gap-2.5 rounded-full px-3"
+            title="Verrouiller maintenant"
+          >
+            <LockIcon className="size-4" />
+            Verrouiller
+          </Button>
+        )}
       </aside>
-      <main className="min-w-0 flex-1 px-8 py-6" key={view}>
-        {view === "dashboard" && <Dashboard month={month} setMonth={setMonth} />}
-        {view === "reports" && <Reports month={month} setMonth={setMonth} />}
-        {view === "students" && <Students month={month} />}
-        {view === "teachers" && <Teachers />}
-        {view === "subjects" && <Subjects />}
-        {view === "classes" && <Classes />}
-        {view === "packages" && <Packages />}
-        {view === "academy" && <Academy />}
+      <main
+        className="min-w-0 flex-1 px-8 py-6"
+        key={teacher.teacherId === null ? view : `teacher-${teacher.teacherId}`}
+      >
+        {teacher.teacherId !== null && (
+          <TeacherPage
+            teacherId={teacher.teacherId}
+            month={month}
+            onClose={teacher.close}
+          />
+        )}
+        {teacher.teacherId === null && (
+          <>
+            {view === "dashboard" && (
+              <Dashboard month={month} setMonth={setMonth} />
+            )}
+            {view === "reports" && (
+              <Reports month={month} setMonth={setMonth} />
+            )}
+            {/* La caisse a son propre mois : le mois écoulé, pas celui en cours. */}
+            {view === "payroll" && <Payroll />}
+            {view === "students" && (
+              <Students month={month} setMonth={setMonth} />
+            )}
+            {view === "teachers" && (
+              <Teachers month={month} setMonth={setMonth} />
+            )}
+            {view === "subjects" && <Subjects />}
+            {view === "classes" && (
+              <Classes month={month} setMonth={setMonth} />
+            )}
+            {view === "packages" && <Packages />}
+            {view === "motifs" && <Motifs />}
+            {view === "academy" && <Academy />}
+          </>
+        )}
       </main>
     </div>
   )

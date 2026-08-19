@@ -1,0 +1,697 @@
+// La caisse du mois : l'argent réel.
+//
+// Un élève qui paie fait ENTRER l'argent dans la caisse — il n'atterrit dans
+// la poche de personne. Payer un professeur, la salle ou soi-même le fait
+// SORTIR : le propriétaire se paie comme il paie les autres.
+//
+// Le partage suit la règle du client : le professeur touche sur les élèves
+// INSCRITS (payés ou non), la salle uniquement sur l'argent réellement
+// encaissé, et l'académie prend ce qui reste — donc elle absorbe le manque.
+// Quand un impayé rentre plus tard, il retombe dans SON mois : la salle
+// prend son pourcentage, tout le reste va à l'académie qui avait avancé.
+
+import { useCallback, useEffect, useState } from "react"
+import { FileText } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { ConfirmButton } from "@/components/Confirm"
+import { GuaranteeDialog } from "@/components/GuaranteeDialog"
+import { MonthNav, monthLabel } from "@/components/MonthNav"
+import { Notice } from "@/components/Notice"
+import { PayDialog } from "@/components/PayDialog"
+import { StudentProfile } from "@/components/StudentProfile"
+import { useToast } from "@/components/Toast"
+import { apiGet, apiSend } from "@/lib/api"
+import type { Caisse, CaisseLine, OverviewRow } from "@/lib/api"
+import { useCountUp } from "@/lib/anim"
+import {
+  currentMonth,
+  dhToCentimes,
+  formatDH,
+  previousMonth,
+} from "@/lib/money"
+import { useAlert } from "@/lib/alert"
+import { openTeacher } from "@/lib/navigation"
+import type { Folders } from "@/lib/api"
+
+const KIND_LABEL: Record<CaisseLine["kind"], string> = {
+  venue: "Salle",
+  owner: "Académie",
+  teacher: "Professeur",
+}
+
+export function Payroll() {
+  // La caisse se solde sur le mois ÉCOULÉ : le mois en cours n'est pas fini,
+  // alors que les étudiants, eux, paient au début du leur. Cette page a donc
+  // son propre mois, indépendant du reste de l'application.
+  const [month, setMonth] = useState(() => previousMonth(currentMonth()))
+  const [caisse, setCaisse] = useState<Caisse | null>(null)
+  const [overview, setOverview] = useState<OverviewRow[]>([])
+  const [error, setError] = useAlert()
+  // Encaisser un impayé, solder un professeur, ouvrir un profil — sans
+  // quitter la page.
+  const [payTarget, setPayTarget] = useState<{
+    id: number
+    name: string
+  } | null>(null)
+  const [guaranteeTarget, setGuaranteeTarget] = useState<{
+    id: number
+    name: string
+  } | null>(null)
+  const [studentProfile, setStudentProfile] = useState<number | null>(null)
+  const toast = useToast()
+  // Null tant qu'on ne sait pas : le reçu se telecharge alors, faute de
+  // savoir ou le ranger.
+  const [documentsFolder, setDocumentsFolder] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiGet<Folders>("/api/settings/folders")
+      .then((settings) => setDocumentsFolder(settings.documents.path))
+      .catch(() => setDocumentsFolder(null))
+  }, [])
+
+  const reload = useCallback(() => {
+    setError(null)
+    apiGet<Caisse>(`/api/caisse?month=${month}`)
+      .then(setCaisse)
+      .catch((err: Error) => setError(err.message))
+    apiGet<OverviewRow[]>(`/api/months/${month}/overview`)
+      .then(setOverview)
+      .catch(() => setOverview([]))
+  }, [month, setError])
+  useEffect(reload, [reload])
+
+  const payOut = (line: CaisseLine, amount?: number) =>
+    apiSend<{ id: number; amount_centimes: number }>("POST", "/api/payouts", {
+      kind: line.kind,
+      ref_id: line.ref_id,
+      month,
+      ...(amount === undefined ? {} : { amount_centimes: amount }),
+    })
+      .then((done) => {
+        setError(null)
+        // Le papier qu'on fait signer se propose ICI : c'est maintenant
+        // que le professeur est devant vous, l'argent à la main.
+        toast(
+          `Versé ${formatDH(done.amount_centimes)} — ${line.name}`,
+          "success",
+          line.kind === "teacher"
+            ? () => receipt(line.ref_id, done.id)
+            : undefined,
+          "Fiche de paie à signer",
+        )
+        reload()
+      })
+      .catch((err: Error) => {
+        setError(err.message)
+        toast(err.message, "error")
+      })
+
+  const takeCharge = (line: CaisseLine) =>
+    apiSend<{ amount_centimes: number }>("POST", "/api/overpaid-charges", {
+      kind: line.kind,
+      ref_id: line.ref_id,
+      month,
+    })
+      .then((done) => {
+        setError(null)
+        toast(
+          `${formatDH(done.amount_centimes)} pris en charge par l'académie —` +
+            ` ${line.name} garde la différence`,
+        )
+        reload()
+      })
+      .catch((err: Error) => {
+        setError(err.message)
+        toast(err.message, "error")
+      })
+
+  const cancelCharge = (chargeId: number) =>
+    apiSend("DELETE", `/api/overpaid-charges/${chargeId}`)
+      .then(() => {
+        setError(null)
+        toast("L'académie ne prend plus ce trop-versé à sa charge")
+        reload()
+      })
+      .catch((err: Error) => setError(err.message))
+
+  /** Le reçu d'un versement : rangé si un dossier est désigné, sinon
+      enregistré comme n'importe quel téléchargement. */
+  const receipt = (teacherId: number, payoutId: number) => {
+    const href =
+      `/api/teachers/${teacherId}/invoice.docx?month=${month}&payout=${payoutId}`
+    if (documentsFolder === null) {
+      const link = document.createElement("a")
+      link.href = href
+      link.download = ""
+      link.click()
+      return
+    }
+    apiSend<{ path: string }>("POST", "/api/documents/file", {
+      kind: "payslip",
+      month,
+      ref_id: teacherId,
+      payout_id: payoutId,
+    })
+      .then((filed) => toast(`Reçu rangé : ${filed.path.split(/[\\/]/).pop()}`))
+      .catch((err: Error) => toast(err.message, "error"))
+  }
+
+  const cancelPayout = (payoutId: number) =>
+    apiSend("DELETE", `/api/payouts/${payoutId}`)
+      .then(() => {
+        setError(null)
+        toast("Versement annulé — l'argent revient en caisse")
+        reload()
+      })
+      .catch((err: Error) => setError(err.message))
+
+  const lines = caisse?.lines ?? []
+  const stillOwed = lines.reduce(
+    (sum, line) => sum + line.remaining_centimes,
+    0,
+  )
+  const unpaid = overview.filter(
+    (row) => row.enrollment !== null && !row.enrollment.paid,
+  )
+
+  return (
+    <div className="view-enter space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-medium tracking-tight">Caisse</h2>
+          <p className="text-muted-foreground text-sm">
+            L'argent du mois : ce qui est entré, ce qui en est sorti, et la part
+            qui revient encore à chacun
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {month !== currentMonth() && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setMonth(currentMonth())}
+            >
+              Mois en cours
+            </Button>
+          )}
+          <MonthNav month={month} setMonth={setMonth} />
+        </div>
+      </header>
+
+      {month === previousMonth(currentMonth()) && (
+        <p className="text-muted-foreground text-xs">
+          Mois écoulé par défaut : on solde un mois terminé, alors que les
+          étudiants paient au début du leur.
+        </p>
+      )}
+
+      <Notice alert={error} />
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        <StatCard
+          label={`Encaissé — ${monthLabel(month)}`}
+          value={caisse?.collected_centimes ?? 0}
+          hint="l'argent entré dans la caisse"
+        />
+        <StatCard
+          label="Sorti de la caisse"
+          value={caisse?.paid_out_centimes ?? 0}
+          tone="success"
+          hint="versé aux professeurs, à la salle, à vous"
+        />
+        <StatCard
+          label="Reste en caisse"
+          value={caisse?.balance_centimes ?? 0}
+          tone={(caisse?.balance_centimes ?? 0) < 0 ? "alert" : undefined}
+          hint={
+            (caisse?.balance_centimes ?? 0) < 0
+              ? "vous avez avancé de votre poche"
+              : `dont ${formatDH(stillOwed)} déjà promis`
+          }
+        />
+      </section>
+
+      <div className="surface-card p-5">
+        <h3 className="font-medium">La part de chacun</h3>
+        <p className="text-muted-foreground mb-3 text-sm">
+          Le professeur touche sur les élèves inscrits, payés ou non. La salle
+          ne touche que sur l'argent réellement encaissé. L'académie prend ce
+          qui reste — c'est elle qui absorbe les impayés. Rien n'appartient à
+          personne tant que ce n'est pas sorti de la caisse.
+        </p>
+        <div className="table-wrap">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Bénéficiaire</TableHead>
+                <TableHead className="text-right">Part du mois</TableHead>
+                <TableHead className="text-right">Sorti</TableHead>
+                <TableHead className="text-right">Reste à sortir</TableHead>
+                <TableHead>Versements</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lines.map((line, index) => (
+                <TableRow
+                  key={`${line.kind}-${line.ref_id}`}
+                  className={`stagger-row ${
+                    line.overpaid_centimes > 0 ||
+                    line.previous_overpaid_centimes > 0
+                      ? "row-attention"
+                      : ""
+                  } ${line.kind === "teacher" ? "cursor-pointer" : ""}`}
+                  style={{ animationDelay: `${index * 40}ms` }}
+                  title={
+                    line.kind === "teacher"
+                      ? "Ouvrir le profil du professeur"
+                      : undefined
+                  }
+                  onClick={(event) => {
+                    if (line.kind !== "teacher") return
+                    const target = event.target as HTMLElement
+                    if (!event.currentTarget.contains(target)) return
+                    if (target.closest("button, a, input")) return
+                    openTeacher(line.ref_id)
+                  }}
+                >
+                  <TableCell className="font-medium">
+                    {line.name}
+                    <span className="text-muted-foreground text-xs">
+                      {" "}
+                      · {KIND_LABEL[line.kind]}
+                      {line.is_owner === 1 ? " (vous)" : ""}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span
+                      className={
+                        line.due_centimes < 0 ? "text-destructive" : ""
+                      }
+                    >
+                      {formatDH(line.due_centimes)}
+                    </span>
+                    {line.due_centimes < 0 && (
+                      <p className="text-muted-foreground text-xs">
+                        avancé de sa poche
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatDH(line.paid_centimes)}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    <span
+                      className={
+                        line.remaining_centimes > 0 ? "text-destructive" : ""
+                      }
+                    >
+                      {formatDH(line.remaining_centimes)}
+                    </span>
+                    {/* Il a reçu plus que son dû : on le dit pour pouvoir
+                        le déduire — on ne reprend jamais tout seul. */}
+                    {line.overpaid_centimes > 0 && (
+                      <div className="flex flex-col items-end gap-0.5">
+                        <p
+                          className="text-destructive text-xs"
+                          title="Une réduction ou un remboursement est passé après le versement"
+                        >
+                          trop-versé {formatDH(line.overpaid_centimes)}
+                        </p>
+                        {/* Deux issues, et c'est lui qui choisit : le déduire
+                            plus tard, ou l'assumer et éteindre le rappel. */}
+                        <ConfirmButton
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs"
+                          title="L'académie assume ce trop-versé"
+                          confirmLabel="L'académie prend à sa charge ?"
+                          description={`${line.name} garde ${formatDH(
+                            line.overpaid_centimes,
+                          )} et plus rien ne sera déduit. La trace reste dans la caisse.`}
+                          onConfirm={() => takeCharge(line)}
+                        >
+                          prendre à ma charge
+                        </ConfirmButton>
+                      </div>
+                    )}
+                    {line.charges.map((charge) => (
+                      <ConfirmButton
+                        key={charge.id}
+                        size="sm"
+                        variant="ghost"
+                        className="text-muted-foreground h-6 px-2 text-xs"
+                        title="L'académie a assumé ce trop-versé — cliquez pour revenir en arrière"
+                        confirmLabel="Ne plus le prendre à sa charge ?"
+                        description={`Le rappel de déduire ${formatDH(
+                          charge.amount_centimes,
+                        )} reviendra sur cette ligne.`}
+                        onConfirm={() => cancelCharge(charge.id)}
+                      >
+                        pris en charge {formatDH(charge.amount_centimes)}
+                      </ConfirmButton>
+                    ))}
+                    {line.previous_overpaid_centimes > 0 && (
+                      <p
+                        className="text-muted-foreground text-xs"
+                        title="Trop-versé des mois précédents — pensez à le déduire"
+                      >
+                        à déduire {formatDH(line.previous_overpaid_centimes)}
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {line.payouts.map((payout) => (
+                        <span key={payout.id} className="inline-flex items-center">
+                          {line.kind === "teacher" && (
+                            <button
+                              type="button"
+                              title="Reçu de ce versement, à faire signer"
+                              className="text-muted-foreground hover:text-foreground mr-1"
+                              onClick={() => receipt(line.ref_id, payout.id)}
+                            >
+                              <FileText className="size-3.5" />
+                            </button>
+                          )}
+                        <ConfirmButton
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs"
+                          title="Annuler ce versement (erreur de saisie)"
+                          confirmLabel="Annuler ce versement ?"
+                          description="L'argent revient dans la caisse et le reste à sortir remonte d'autant."
+                          onConfirm={() => cancelPayout(payout.id)}
+                        >
+                          {formatDH(payout.amount_centimes)} · {payout.paid_on}
+                        </ConfirmButton>
+                        </span>
+                      ))}
+                      {line.payouts.length === 0 && (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {line.remaining_centimes > 0 ? (
+                      <PayButton
+                        remaining={line.remaining_centimes}
+                        onPay={(amount) => payOut(line, amount)}
+                      />
+                    ) : line.due_centimes > 0 ? (
+                      <span className="text-success text-xs">Soldé ✓</span>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {lines.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="text-muted-foreground text-center"
+                  >
+                    Rien à répartir ce mois-ci
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <div className="surface-card p-5">
+        <h3 className="font-medium">Ce qui n'est pas encore rentré</h3>
+        <p className="text-muted-foreground mb-4 text-sm">
+          Les professeurs sont payés quoi qu'il arrive : c'est l'académie qui
+          avance. Quand ces élèves régleront, la salle prendra son pourcentage
+          et tout le reste reviendra à l'académie.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Tile
+            label={`Impayé — ${monthLabel(month)}`}
+            value={caisse?.unpaid_centimes ?? 0}
+            hint={`${unpaid.length} élève(s)`}
+            tone="alert"
+          />
+          <Tile
+            label="Reviendra à la salle"
+            value={caisse?.projection.venue_centimes ?? 0}
+            hint="son pourcentage, une fois encaissé"
+            tone="muted"
+          />
+          <Tile
+            label="Reviendra à l'académie"
+            value={caisse?.projection.owner_centimes ?? 0}
+            hint="elle a déjà payé les professeurs"
+            tone="muted"
+          />
+        </div>
+
+        {unpaid.length > 0 && (
+          <div className="table-wrap mt-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Élève impayé</TableHead>
+                  <TableHead className="text-right">Doit</TableHead>
+                  <TableHead className="text-right">Part professeur</TableHead>
+                  <TableHead>État</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {unpaid.map((row, index) => {
+                  const enrollment = row.enrollment!
+                  const teacherPart = enrollment.split
+                    .filter((chip) => chip.kind === "teacher")
+                    .reduce((sum, chip) => sum + chip.final_centimes, 0)
+                  return (
+                    <TableRow
+                      key={row.student_id}
+                      className="stagger-row row-unpaid cursor-pointer"
+                      style={{ animationDelay: `${index * 40}ms` }}
+                      title="Ouvrir le profil"
+                      onClick={(event) => {
+                        const target = event.target as HTMLElement
+                        if (!event.currentTarget.contains(target)) return
+                        if (target.closest("button, a")) return
+                        setStudentProfile(row.student_id)
+                      }}
+                    >
+                      <TableCell className="font-medium">
+                        {row.student_name}
+                        <span className="text-muted-foreground text-xs">
+                          {" "}
+                          · {row.level_name}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatDH(enrollment.net_centimes)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatDH(teacherPart)}
+                      </TableCell>
+                      <TableCell>
+                        {enrollment.guaranteed_centimes > 0 ? (
+                          <span className="text-success text-xs">
+                            prof payé {formatDH(enrollment.guaranteed_centimes)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">
+                            prof non soldé
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="space-x-1 text-right whitespace-nowrap">
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            setPayTarget({
+                              id: enrollment.id,
+                              name: row.student_name,
+                            })
+                          }
+                        >
+                          Encaisser
+                        </Button>
+                        {enrollment.guaranteed_centimes === 0 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Payer le professeur malgré l'impayé"
+                            onClick={() =>
+                              setGuaranteeTarget({
+                                id: enrollment.id,
+                                name: row.student_name,
+                              })
+                            }
+                          >
+                            Solder le prof
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
+      {payTarget && (
+        <PayDialog
+          enrollmentId={payTarget.id}
+          studentName={payTarget.name}
+          open
+          onOpenChange={(next) => {
+            if (!next) setPayTarget(null)
+          }}
+          onDone={() => {
+            setPayTarget(null)
+            reload()
+          }}
+        />
+      )}
+
+      {guaranteeTarget && (
+        <GuaranteeDialog
+          enrollmentId={guaranteeTarget.id}
+          studentName={guaranteeTarget.name}
+          month={month}
+          onClose={() => setGuaranteeTarget(null)}
+          onDone={() => {
+            setGuaranteeTarget(null)
+            reload()
+          }}
+        />
+      )}
+
+      <StudentProfile
+        studentId={studentProfile}
+        onClose={() => setStudentProfile(null)}
+        onChanged={reload}
+      />
+    </div>
+  )
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+  hint,
+}: {
+  label: string
+  value: number
+  tone?: "success" | "alert"
+  hint?: string
+}) {
+  const ref = useCountUp(value, (n) => formatDH(Math.round(n)))
+  const color =
+    tone === "alert" && value !== 0
+      ? "text-destructive"
+      : tone === "success" && value > 0
+        ? "text-success"
+        : ""
+  return (
+    <div className="surface-card orb-backdrop p-5">
+      <p className="text-muted-foreground text-sm capitalize">{label}</p>
+      <p className={`mt-1 text-3xl font-semibold ${color}`}>
+        <span ref={ref} />
+      </p>
+      {hint && <p className="text-muted-foreground mt-1 text-xs">{hint}</p>}
+    </div>
+  )
+}
+
+function Tile({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string
+  value: number
+  hint: string
+  tone?: "muted" | "alert"
+}) {
+  return (
+    <div className="border-border rounded-xl border p-4">
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <p
+        className={`text-xl font-semibold ${
+          tone === "alert" && value > 0
+            ? "text-destructive"
+            : tone === "muted"
+              ? "text-muted-foreground"
+              : ""
+        }`}
+      >
+        {formatDH(value)}
+      </p>
+      <p className="text-muted-foreground text-xs">{hint}</p>
+    </div>
+  )
+}
+
+/** Tout sortir en un clic, ou saisir un acompte. */
+function PayButton({
+  remaining,
+  onPay,
+}: {
+  remaining: number
+  onPay: (amount?: number) => void
+}) {
+  const [partial, setPartial] = useState(false)
+  const [amount, setAmount] = useState("")
+
+  if (!partial)
+    return (
+      <span className="flex justify-end gap-1">
+        <Button size="sm" onClick={() => onPay()}>
+          Tout verser
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setPartial(true)}>
+          Acompte
+        </Button>
+      </span>
+    )
+  return (
+    <span className="flex items-center justify-end gap-1">
+      <Input
+        autoFocus
+        value={amount}
+        onChange={(event) => setAmount(event.target.value)}
+        placeholder={`≤ ${remaining / 100}`}
+        inputMode="decimal"
+        className="h-8 w-24 text-right"
+      />
+      <Button
+        size="sm"
+        disabled={!amount.trim()}
+        onClick={() => {
+          onPay(dhToCentimes(amount))
+          setPartial(false)
+          setAmount("")
+        }}
+      >
+        Verser
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setPartial(false)}>
+        ×
+      </Button>
+    </span>
+  )
+}

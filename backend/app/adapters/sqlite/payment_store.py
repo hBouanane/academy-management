@@ -1,6 +1,7 @@
 """SQLite implementation of the PaymentStore port."""
 
 import sqlite3
+from calendar import monthrange
 from collections.abc import Sequence
 
 from app.domain.adjustments import AdjustmentSpec
@@ -47,6 +48,103 @@ class SqlitePaymentStore:
             owner_bp=row["owner_bp"],
             subject_teachers=tuple(teacher_id for _, teacher_id in classes),
             adjustments=self._adjustments(enrollment_id, class_ids),
+            teacher_weights=tuple(
+                self._month_teacher_weights(class_id, teacher_id, row["month"])
+                for class_id, teacher_id in classes
+            ),
+            guaranteed=self.guaranteed_shares(enrollment_id),
+        )
+
+    def guaranteed_shares(self, enrollment_id: int) -> tuple[tuple[int, int], ...]:
+        """What professors were already paid for this month out of the
+        académie's pocket. Recovery lines carry a payment_id instead of an
+        enrollment_id, so reversing a payment re-opens the guarantee."""
+        rows = self._conn.execute(
+            "SELECT beneficiary_id, SUM(amount_centimes) AS total"
+            " FROM ledger_entry WHERE enrollment_id = ?"
+            " AND entry_type = 'guarantee' AND beneficiary_kind = 'teacher'"
+            " GROUP BY beneficiary_id",
+            (enrollment_id,),
+        ).fetchall()
+        return tuple(
+            (row["beneficiary_id"], row["total"]) for row in rows if row["total"] > 0
+        )
+
+    def record_guarantee(
+        self,
+        context: EnrollmentContext,
+        present_until: str | None,
+        amount: Centimes,
+        lines: Sequence[LedgerLine],
+    ) -> int:
+        try:
+            guarantee_id = self._conn.execute(
+                "INSERT INTO guarantee (academy_id, enrollment_id, month,"
+                " present_until, amount_centimes) VALUES (?, ?, ?, ?, ?)",
+                (
+                    context.academy_id,
+                    context.enrollment_id,
+                    context.month,
+                    present_until,
+                    amount,
+                ),
+            ).lastrowid
+            self._insert_lines(
+                context.academy_id,
+                context.month,
+                None,
+                lines,
+                enrollment_id=context.enrollment_id,
+            )
+        except Exception:
+            self._conn.rollback()
+            raise
+        self._conn.commit()
+        return guarantee_id
+
+    # Each day of the month belongs to whoever was assigned that day (split
+    # equally among co-teachers); 2520 units/day divides evenly for up to
+    # nine concurrent teachers. Money then follows these weights exactly.
+    _DAY_UNITS = 2520
+
+    def _month_teacher_weights(
+        self, class_id: int, current_teacher: int | None, month: str
+    ) -> tuple[tuple[int | None, int], ...]:
+        # Le propriétaire a tranché lui-même pour ce mois : sa décision passe
+        # avant le calcul aux jours.
+        manual = self._conn.execute(
+            "SELECT teacher_id, share_bp FROM class_month_share"
+            " WHERE class_id = ? AND month = ? AND share_bp > 0"
+            " ORDER BY teacher_id",
+            (class_id, month),
+        ).fetchall()
+        if manual:
+            return tuple((row["teacher_id"], row["share_bp"]) for row in manual)
+        assignments = self._conn.execute(
+            "SELECT teacher_id, from_date, to_date FROM class_teacher"
+            " WHERE class_id = ?",
+            (class_id,),
+        ).fetchall()
+        days = monthrange(int(month[:4]), int(month[5:7]))[1]
+        shares: dict[int | None, int] = {}
+        for day in range(1, days + 1):
+            date = f"{month}-{day:02d}"
+            active: list[int | None] = sorted(
+                row["teacher_id"]
+                for row in assignments
+                if (row["from_date"] is None or row["from_date"] <= date)
+                and (row["to_date"] is None or date <= row["to_date"])
+            )
+            if not active:
+                # Nobody assigned: a vacant day (« sans professeur ») weighs
+                # on the None key — the domain escrows it to the académie.
+                active = [current_teacher]
+            per_teacher, extra = divmod(self._DAY_UNITS, len(active))
+            for index, teacher_id in enumerate(active):
+                bonus = 1 if index < extra else 0
+                shares[teacher_id] = shares.get(teacher_id, 0) + per_teacher + bonus
+        return tuple(
+            sorted(shares.items(), key=lambda item: (item[0] is None, item[0] or 0))
         )
 
     def record(
@@ -55,10 +153,11 @@ class SqlitePaymentStore:
         net_amount: Centimes,
         lines: Sequence[LedgerLine],
         paid_on: str | None,
+        due: Centimes | None = None,
     ) -> int:
         try:
             payment_id = self._insert_payment(
-                context.enrollment_id, net_amount, paid_on
+                context.enrollment_id, net_amount, paid_on, due
             )
             self._insert_lines(context.academy_id, context.month, payment_id, lines)
         except sqlite3.IntegrityError as error:
@@ -171,8 +270,8 @@ class SqlitePaymentStore:
         self, enrollment_id: int, class_ids: list[int]
     ) -> tuple[ConfiguredAdjustment, ...]:
         rows = self._conn.execute(
-            "SELECT id, scope, class_id, kind, value FROM adjustment"
-            " WHERE enrollment_id = ?",
+            "SELECT id, scope, class_id, kind, value, category FROM adjustment"
+            " WHERE enrollment_id = ? AND is_active = 1",
             (enrollment_id,),
         ).fetchall()
         return tuple(self._configured(row, class_ids) for row in rows)
@@ -189,39 +288,105 @@ class SqlitePaymentStore:
             scope=row["scope"],
             subject_index=subject_index,
         )
+        bearers, shares_spec = self._bearers(row["id"])
         return ConfiguredAdjustment(
-            adjustment_id=row["id"], spec=spec, bearers=self._bearers(row["id"])
+            adjustment_id=row["id"],
+            spec=spec,
+            bearers=bearers,
+            shares_spec=shares_spec,
+            category=row["category"],
         )
 
-    def _bearers(self, adjustment_id: int) -> tuple[Beneficiary, ...]:
+    def _bearers(
+        self, adjustment_id: int
+    ) -> tuple[
+        tuple[Beneficiary, ...], tuple[tuple[int | None, int | None], ...] | None
+    ]:
         rows = self._conn.execute(
-            "SELECT bearer_kind, bearer_id FROM adjustment_bearer"
-            " WHERE adjustment_id = ?",
+            "SELECT bearer_kind, bearer_id, share_centimes, share_bp"
+            " FROM adjustment_bearer WHERE adjustment_id = ?",
             (adjustment_id,),
+        ).fetchall()
+        bearers = tuple(
+            Beneficiary(row["bearer_kind"], row["bearer_id"]) for row in rows
         )
-        return tuple(Beneficiary(row["bearer_kind"], row["bearer_id"]) for row in rows)
+        spec = tuple((row["share_centimes"], row["share_bp"]) for row in rows)
+        if all(centimes is None and bp is None for centimes, bp in spec):
+            return bearers, None
+        return bearers, spec
 
     def _insert_payment(
-        self, enrollment_id: int, amount: Centimes, paid_on: str | None
+        self,
+        enrollment_id: int,
+        amount: Centimes,
+        paid_on: str | None,
+        due: Centimes | None,
     ) -> int:
         return self._conn.execute(
-            "INSERT INTO payment (enrollment_id, amount_centimes, paid_on)"
-            " VALUES (?, ?, COALESCE(?, date('now')))",
-            (enrollment_id, amount, paid_on),
+            "INSERT INTO payment (enrollment_id, amount_centimes, paid_on,"
+            " due_centimes) VALUES (?, ?, COALESCE(?, date('now')), ?)",
+            (enrollment_id, amount, paid_on, due),
         ).lastrowid
+
+    def avance_state(self, payment_id: int) -> dict | None:
+        """Where an avance stands: what was due, the cash received so far
+        (initial payment_in plus every completion), and who fronts."""
+        row = self._conn.execute(
+            """
+            SELECT p.id, p.reversed_at, p.amount_centimes, p.due_centimes,
+                   e.month, s.academy_id
+            FROM payment p
+            JOIN enrollment e ON e.id = p.enrollment_id
+            JOIN student s ON s.id = e.student_id
+            WHERE p.id = ?
+            """,
+            (payment_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        cash = self._conn.execute(
+            "SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry"
+            " WHERE payment_id = ? AND entry_type = 'payment_in'",
+            (payment_id,),
+        ).fetchone()[0]
+        return {
+            "payment_id": row["id"],
+            "academy_id": row["academy_id"],
+            "owner_id": row["academy_id"],
+            "month": row["month"],
+            "reversed": row["reversed_at"] is not None,
+            "due": (
+                row["due_centimes"]
+                if row["due_centimes"] is not None
+                else row["amount_centimes"]  # legacy rows were paid in full
+            ),
+            "cash": cash,
+        }
+
+    def record_completion(self, state: dict, lines: Sequence[LedgerLine]) -> None:
+        try:
+            self._insert_lines(
+                state["academy_id"], state["month"], state["payment_id"], lines
+            )
+        except Exception:
+            self._conn.rollback()
+            raise
+        self._conn.commit()
 
     def _insert_lines(
         self,
         academy_id: int,
         month: str,
-        payment_id: int,
+        payment_id: int | None,
         lines: Sequence[LedgerLine],
         note: str | None = None,
+        enrollment_id: int | None = None,
     ) -> None:
         self._conn.executemany(
             "INSERT INTO ledger_entry (academy_id, month, entry_type,"
             " beneficiary_kind, beneficiary_id, amount_centimes, payment_id,"
-            " adjustment_id, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " enrollment_id, adjustment_id, note)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     academy_id,
@@ -231,6 +396,7 @@ class SqlitePaymentStore:
                     line.beneficiary.ref_id if line.beneficiary else None,
                     line.amount,
                     payment_id,
+                    enrollment_id,
                     line.adjustment_id,
                     note,
                 )

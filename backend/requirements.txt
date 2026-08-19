@@ -1,4 +1,6 @@
 fastapi
 uvicorn[standard]
 openpyxl
+python-docx
 pywebview
+cryptography
