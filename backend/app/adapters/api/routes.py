@@ -1028,6 +1028,21 @@ def _touched(conn: sqlite3.Connection, enrollment_id: int) -> None:
         return
     documents.touch(conn, month, documents.scopes_of_enrollment(conn, enrollment_id))
     conn.commit()
+    _refile_quietly(conn)
+
+
+def _refile_quietly(conn: sqlite3.Connection) -> None:
+    """Refaire ce qui vient de vieillir, sans le dire.
+
+    Un impaye d'aout qui rentre en novembre perime l'export d'aout : on
+    le refait tout de suite plutot que de reclamer un clic. Et si ca
+    echoue -- dossier deplace, disque plein -- le geste de l'utilisateur
+    aboutit quand meme : c'est son paiement qui compte, pas notre
+    classement."""
+    try:
+        reconcile_documents(conn)
+    except Exception:  # noqa: BLE001, S110 - un rangement ne casse pas un paiement
+        pass
 
 
 @router.post("/enrollments", status_code=201)
@@ -2212,6 +2227,89 @@ def _render_document(
     from app.adapters.excel.monthly_workbook import monthly_workbook
 
     return monthly_workbook(conn, default_academy_id(conn), month), "paiements.xlsx"
+
+
+@router.post("/documents/reconcile")
+def reconcile_documents(conn: Conn) -> dict:
+    """Ranger ce qui manque, refaire ce qui a vieilli — sans un clic.
+
+    L'export d'un mois clos et sa feuille d'absence n'ont rien d'un
+    choix : ils doivent exister. Demander un clic pour un document que
+    l'application sait produire, c'est demander au client de se
+    souvenir a notre place -- et il oubliera.
+
+    Le mois EN COURS est laisse tranquille : son export changerait tous
+    les jours. La fiche de paie non plus n'est jamais produite ici :
+    c'est un recu, il se fait au moment ou l'on paie.
+
+    Rien ici ne doit faire echouer l'appel qui l'a declenche : si le
+    dossier a disparu, on se tait et on reessaiera plus tard.
+    """
+    if _backup_root(conn) is None:
+        return {"filed": 0}
+    academy_id = default_academy_id(conn)
+    running = clock.current_month()
+    filed = 0
+    for month in _months_with_something(conn):
+        if month >= running:
+            continue
+        wanted: list[tuple[str, int]] = [("excel", 0)]
+        wanted += [
+            ("absence", row["id"]) for row in _classes_of_month(conn, academy_id, month)
+        ]
+        for kind, ref_id in wanted:
+            if _already_fresh(conn, kind, month, ref_id):
+                continue
+            try:
+                file_document(
+                    FileDocumentBody(kind=kind, month=month, ref_id=ref_id), conn
+                )
+                filed += 1
+            except (HTTPException, LookupError, OSError):
+                continue
+    return {"filed": filed}
+
+
+def _months_with_something(conn: sqlite3.Connection) -> list[str]:
+    return [
+        row["month"]
+        for row in crud.rows(
+            conn, "SELECT DISTINCT month FROM enrollment ORDER BY month"
+        )
+    ]
+
+
+def _classes_of_month(
+    conn: sqlite3.Connection, academy_id: int, month: str
+) -> list[dict]:
+    """Les classes qui ont eu au moins un inscrit ce mois-la : les
+    autres n'ont pas de feuille d'absence a produire."""
+    return crud.rows(
+        conn,
+        "SELECT DISTINCT c.id FROM class_group c"
+        " JOIN enrollment_class ec ON ec.class_id = c.id"
+        " JOIN enrollment e ON e.id = ec.enrollment_id"
+        " WHERE e.month = ? ORDER BY c.id",
+        (month,),
+    )
+
+
+def _already_fresh(
+    conn: sqlite3.Connection, kind: str, month: str, ref_id: int
+) -> bool:
+    """Deja range, et rien n'a bouge depuis. Reecrire pour rien userait
+    la cle USB et brouillerait les dates."""
+    row = conn.execute(
+        "SELECT d.generated_at, ("
+        "  SELECT t.touched_at FROM document_touch t"
+        "  WHERE t.month = d.month AND t.scope = d.scope AND t.ref_id = d.ref_id"
+        ") AS touched_at FROM exported_document d"
+        " WHERE d.kind = ? AND d.month = ? AND d.ref_id = ?",
+        (kind, month, ref_id),
+    ).fetchone()
+    if row is None:
+        return False
+    return row["touched_at"] is None or row["touched_at"] <= row["generated_at"]
 
 
 @router.get("/documents/stale")

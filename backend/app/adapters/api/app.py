@@ -42,6 +42,7 @@ def create_app(db_path: str, frontend_dist: Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         _prepare_database(db_path)
+        _file_what_is_missing(db_path)
         yield
 
     app = FastAPI(title="Academy Management API", lifespan=lifespan)
@@ -99,6 +100,26 @@ async def _gate(request: Request, call_next):
             status_code=401, content={"detail": "L'application est verrouillée."}
         )
     return await call_next(request)
+
+
+def _file_what_is_missing(db_path: str) -> None:
+    """Au demarrage, ranger les documents des mois clos qui manquent.
+
+    Un mois vient de se terminer : son export existe sans qu'on ait rien
+    demande. Et si l'application n'a pas tourne pendant deux mois, elle
+    rattrape le retard en s'ouvrant.
+
+    Jamais au prix du demarrage : si quoi que ce soit resiste, on ouvre
+    quand meme."""
+    from .routes import reconcile_documents
+
+    connection = connect(db_path)
+    try:
+        reconcile_documents(connection)
+    except Exception:  # noqa: BLE001, S110 - ouvrir prime sur ranger
+        pass
+    finally:
+        connection.close()
 
 
 def _prepare_database(db_path: str) -> None:
