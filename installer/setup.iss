@@ -3,7 +3,7 @@
 ; Compile with:  iscc installer\setup.iss
 
 #define AppName "Academy Management"
-#define AppVersion "1.4.0"
+#define AppVersion "1.4.1"
 #define AppExe "AcademyManagement.exe"
 
 [Setup]
@@ -25,15 +25,19 @@ SetupIconFile=..\packaging\academy.ico
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
 
-[Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+; Pas de case a cocher pour le raccourci du bureau.
+;
+; Elle etait cochee par defaut, donc le raccourci existait -- mais une
+; case de plus, c est une occasion de plus de la decocher sans y penser,
+; et de chercher ensuite l application qu on vient d installer. Le
+; bureau est le seul endroit ou notre client ira la chercher.
 
 [Files]
 Source: "..\backend\dist\AcademyManagement\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"
 
 [Run]
 ; WebView2 is preinstalled on Windows 10/11. For stripped machines, put
