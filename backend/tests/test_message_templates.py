@@ -1,6 +1,7 @@
 """Round 20 : les messages, tous modifiables.
 
-Trois modèles sont posés à l'installation — confirmation, reçu, rappel.
+Des modèles sont posés à l'installation — confirmation, reçu, rappel,
+relance de plusieurs mois.
 Ce ne sont pas des messages du logiciel : ce sont les SIENS dès le
 premier jour. Il les reprend à son goût, les traduit en darija, les
 jette, en ajoute d'autres.
@@ -48,17 +49,23 @@ def offered(client, student_id, month="2026-09"):
 
 
 class TestWhatComesInTheBox:
-    def test_a_fresh_install_already_has_three(self, client):
+    def test_a_fresh_install_already_has_a_few(self, client):
         kept = client.get("/api/message-templates").json()
         assert [entry["label"] for entry in kept] == [
             "Confirmation d'inscription",
             "Reçu de paiement",
             "Rappel de paiement",
+            "Rappel de plusieurs mois",
         ]
 
     def test_they_say_when_they_serve(self, client):
         kept = client.get("/api/message-templates").json()
-        assert [entry["shown_when"] for entry in kept] == ["always", "paid", "unpaid"]
+        assert [entry["shown_when"] for entry in kept] == [
+            "always",
+            "paid",
+            "unpaid",
+            "arrears",
+        ]
 
     def test_they_are_written_with_markers_he_can_move(self, client):
         confirmation = client.get("/api/message-templates").json()[0]
@@ -77,9 +84,11 @@ class TestWhatComesInTheBox:
         )
 
     def test_he_can_throw_one_of_ours_away(self, client):
-        first = client.get("/api/message-templates").json()[0]
-        client.delete(f"/api/message-templates/{first['id']}")
-        assert len(client.get("/api/message-templates").json()) == 2
+        # Compté par rapport à ce qu'il y avait : ajouter un modèle
+        # d'usine ne doit pas faire échouer un test sur la suppression.
+        before = client.get("/api/message-templates").json()
+        client.delete(f"/api/message-templates/{before[0]['id']}")
+        assert len(client.get("/api/message-templates").json()) == len(before) - 1
 
 
 class TestAddingHisOwn:

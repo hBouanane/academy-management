@@ -17,6 +17,8 @@ const MARKERS = [
   ["{montant}", "ce qu'il reste à payer"],
   ["{classes}", "ses matières"],
   ["{academie}", "le nom de votre académie"],
+  ["{impayes}", "tout ce que la famille doit, tous mois confondus"],
+  ["{mois_impayes}", "la liste des mois en retard"],
 ]
 
 /** À qui ce message doit être proposé.
@@ -43,6 +45,11 @@ const WHEN: {
     value: "paid",
     label: "Ceux qui ont tout payé",
     hint: "proposé seulement une fois le mois réglé",
+  },
+  {
+    value: "arrears",
+    label: "Ceux en retard de plusieurs mois",
+    hint: "proposé à partir de deux mois dus — pour un seul, le rappel ordinaire suffit",
   },
 ]
 
@@ -99,8 +106,8 @@ export function MessageTemplates({
       <div>
         <Label>Mes messages</Label>
         <p className="text-muted-foreground text-xs">
-          Trois sont là pour commencer — reprenez-les à votre goût,
-          traduisez-les, jetez-les, ajoutez les vôtres. Ils apparaîtront
+          Quelques-uns sont là pour commencer — reprenez-les à votre
+          goût, traduisez-les, jetez-les, ajoutez les vôtres. Ils apparaîtront
           sur chaque élève, avec les valeurs remplies.
         </p>
       </div>

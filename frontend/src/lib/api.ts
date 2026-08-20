@@ -427,9 +427,9 @@ export type MessageTemplate = {
   id: number
   label: string
   body: string
-  /** Quand ce message a un sens : toujours, une fois payé, ou tant
-      qu'il reste à payer. */
-  shown_when: "always" | "paid" | "unpaid"
+  /** Quand ce message a un sens : toujours, une fois payé, tant qu'il
+      reste à payer, ou lorsque plusieurs mois traînent. */
+  shown_when: "always" | "paid" | "unpaid" | "arrears"
   position: number
 }
 

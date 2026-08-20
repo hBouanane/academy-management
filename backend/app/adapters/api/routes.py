@@ -2059,7 +2059,7 @@ def open_whatsapp(body: WhatsAppBody) -> dict:
 
 # Quand un modele a un sens. « Vous n avez pas paye » propose a une
 # famille qui vient de regler, et l application se fait desinstaller.
-ShownWhen = Literal["always", "paid", "unpaid"]
+ShownWhen = Literal["always", "paid", "unpaid", "arrears"]
 
 
 class TemplateBody(BaseModel):
@@ -2192,6 +2192,7 @@ def _messages_for(
         return []
     left = enrollment["remaining_centimes"]
     settled = bool(enrollment["paid"]) and left == 0
+    debt = _whole_debt(conn, row["student_id"], month)
     filling = {
         "eleve": name,
         "mois": month_label(month).lower(),
@@ -2202,17 +2203,42 @@ def _messages_for(
         ),
         "classes": ", ".join(entry["subject_name"] for entry in enrollment["classes"]),
         "academie": academy,
+        "impayes": _dh(debt["total"]),
+        "mois_impayes": ", ".join(debt["months"]),
     }
-    return _templates(conn, settled, filling)
+    return _templates(conn, settled, filling, behind=len(debt["months"]) > 1)
 
 
-def _templates(conn, settled: bool, filling: dict) -> list[dict]:
+def _whole_debt(conn: sqlite3.Connection, student_id: int, month: str) -> dict:
+    """Tout ce que cette famille doit, tous mois confondus.
+
+    Le rappel ordinaire parle d un mois ; celui-ci parle de la dette.
+    Reclamer 300 DH a qui en doit 900 fait perdre les 600 autres."""
+    from app.adapters.docx.labels import month_label
+    from app.adapters.sqlite.reports import arrears
+
+    owed = arrears(conn, default_academy_id(conn), month)
+    mine = next((entry for entry in owed if entry.student_id == student_id), None)
+    if mine is None:
+        return {"total": 0, "months": []}
+    return {
+        "total": mine.total_owed,
+        "months": [month_label(item.month).lower() for item in mine.items],
+    }
+
+
+def _templates(conn, settled: bool, filling: dict, behind: bool = False) -> list[dict]:
     """Les modeles qui conviennent a ce mois-ci, les reperes remplis.
 
     Un repere inconnu reste visible tel quel : mieux vaut qu il voie
     « {{truc}} » dans l apercu que de le laisser croire qu on a compris
     ce qu il voulait dire."""
-    allowed = ("always", "paid" if settled else "unpaid")
+    # « arrears » ne sort que s il y a VRAIMENT plusieurs mois en
+    # retard : pour un seul, le rappel du mois suffit, et deux
+    # messages sur la meme dette se contrediraient.
+    allowed = ("always", "paid" if settled else "unpaid") + (
+        ("arrears",) if behind else ()
+    )
     offers = []
     for template in crud.rows(
         conn,
