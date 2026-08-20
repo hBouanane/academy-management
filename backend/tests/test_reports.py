@@ -162,13 +162,13 @@ class TestArrears:
         owing = arrears(scenario.conn, scenario.academy_id, "2026-09")
         assert [(e.student_name, e.total_owed) for e in owing] == [("Sami", 300 * DH)]
 
-    def test_gifted_month_owes_nothing(self, scenario):
+    def test_a_gifted_month_leaves_the_list_entirely(self, scenario):
+        """Il figurait avec un dû de zéro. Or on ne réclame rien à qui ne
+        doit rien : une ligne à 0 dans la liste des impayés fait courir
+        après une famille en règle."""
         math = scenario.add_class("Math", "Ahmed", "Primaire")
         sami = scenario.add_student("Sami", "Primaire")
         enrollment = scenario.enroll(sami, "2026-08", [math], 300)
         scenario.add_discount(enrollment, 300)  # full gift
 
-        owing = arrears(scenario.conn, scenario.academy_id, "2026-09")
-
-        (entry,) = owing
-        assert entry.total_owed == 0
+        assert arrears(scenario.conn, scenario.academy_id, "2026-09") == ()

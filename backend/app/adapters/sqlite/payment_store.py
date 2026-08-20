@@ -21,6 +21,12 @@ class SqlitePaymentStore:
     def __init__(self, connection: sqlite3.Connection):
         self._conn = connection
 
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """Pour les calculs qui vivent deja ailleurs : mieux vaut leur
+        preter la connexion que recopier leur formule."""
+        return self._conn
+
     def enrollment_context(self, enrollment_id: int) -> EnrollmentContext | None:
         row = self._conn.execute(
             """
