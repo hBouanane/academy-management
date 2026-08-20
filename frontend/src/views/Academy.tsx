@@ -21,6 +21,7 @@ import type {
 } from "@/lib/api"
 import { useAlert } from "@/lib/alert"
 import { Backups } from "@/components/Backups"
+import { SplitRules } from "@/components/SplitRules"
 import { FolderSetting } from "@/components/FolderSetting"
 import { useToast } from "@/components/Toast"
 
@@ -215,6 +216,7 @@ export function Academy() {
         </div>
       </div>
 
+      <SplitRules onError={setError} />
       <OwnerTeacher onError={setError} />
       <BackupFolder onError={setError} />
       <Backups onError={setError} />

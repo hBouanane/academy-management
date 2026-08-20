@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table"
 import { Field, FieldGrid } from "@/components/Field"
 import { monthLabel } from "@/components/MonthNav"
+import { ClassSplit } from "@/components/ClassSplit"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassProfile as Profile, ClassShare } from "@/lib/api"
@@ -107,6 +108,10 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
                 )}
               </div>
             </div>
+
+            {/* Combien va a la salle, a l academie, au professeur --
+                et d ou vient ce chiffre. */}
+            <ClassSplit classId={profile.id} />
 
             <ShareSection classId={profile.id} month={month} />
 

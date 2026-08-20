@@ -403,6 +403,26 @@ export type Folders = {
   documents: { path: string | null; example: string | null }
 }
 
+export type SplitRule = {
+  id: number
+  name: string
+  venue_bp: number
+  owner_bp: number
+  applies_to: {
+    scope: "class" | "teacher" | "filiere" | "level"
+    ref_id: number | null
+    ref_text: string | null
+  }[]
+}
+
+/** Quelle répartition suit une classe, et d'où elle la tient. */
+export type ClassSplit = {
+  venue_bp: number
+  owner_bp: number
+  from: "class" | "teacher" | "filiere" | "level" | "academy"
+  rule_name: string | null
+}
+
 export type MessageTemplate = {
   id: number
   label: string
