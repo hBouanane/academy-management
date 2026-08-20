@@ -1,12 +1,13 @@
-"""Round 20 : ses messages à lui.
+"""Round 20 : les messages, tous modifiables.
 
-Nos trois modèles sont en français poli. Lui écrit à ses familles comme
-il leur parle : en darija, court et direct. Un logiciel qui impose sa
-façon de dire les choses finit inutilisé — il recopiera à la main, et se
-trompera de montant.
+Trois modèles sont posés à l'installation — confirmation, reçu, rappel.
+Ce ne sont pas des messages du logiciel : ce sont les SIENS dès le
+premier jour. Il les reprend à son goût, les traduit en darija, les
+jette, en ajoute d'autres.
 
-Il écrit donc les siens, une fois, et les retrouve sur n'importe quel
-élève. Les {repères} sont remplis au moment d'ouvrir WhatsApp.
+Chacun dit quand il sert. Proposer « vous n'avez pas payé » à une
+famille qui vient de régler serait le meilleur moyen de faire
+désinstaller l'application.
 """
 
 import pytest
@@ -25,51 +26,83 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def enrolled(client):
+def enrolled(client, paid=False):
     level, class_id, _teacher, package = setup_base(client)
-    student, _ = enroll(client, level, package, class_id)
+    student, enrollment = enroll(client, level, package, class_id)
     client.patch(
         f"/api/students/{student}",
         json={"phones": [{"tag": "Père", "number": "0661234567"}]},
     )
+    if paid:
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
     return student
 
 
-def messages(client, student_id, month="2026-09"):
-    return client.get(f"/api/students/{student_id}/messages?month={month}").json()
+def offered(client, student_id, month="2026-09"):
+    return client.get(f"/api/students/{student_id}/messages?month={month}").json()[
+        "messages"
+    ]
 
 
-class TestKeepingHisOwn:
-    def test_a_fresh_install_has_none(self, client):
-        assert client.get("/api/message-templates").json() == []
-
-    def test_he_writes_one_and_finds_it_again(self, client):
-        created = client.post(
-            "/api/message-templates",
-            json={"label": "Rappel darija", "body": "salam khouya {eleve}"},
-        )
-        assert created.status_code == 201, created.text
+class TestWhatComesInTheBox:
+    def test_a_fresh_install_already_has_three(self, client):
         kept = client.get("/api/message-templates").json()
-        assert [(t["label"], t["body"]) for t in kept] == [
-            ("Rappel darija", "salam khouya {eleve}")
+        assert [entry["label"] for entry in kept] == [
+            "Confirmation d'inscription",
+            "Reçu de paiement",
+            "Rappel de paiement",
         ]
 
-    def test_he_can_correct_it(self, client):
-        one = client.post(
-            "/api/message-templates", json={"label": "Rappel", "body": "salam"}
-        ).json()
+    def test_they_say_when_they_serve(self, client):
+        kept = client.get("/api/message-templates").json()
+        assert [entry["shown_when"] for entry in kept] == ["always", "paid", "unpaid"]
+
+    def test_they_are_written_with_markers_he_can_move(self, client):
+        confirmation = client.get("/api/message-templates").json()[0]
+        assert "{eleve}" in confirmation["body"]
+        assert "{montant}" in confirmation["body"]
+
+    def test_he_can_rewrite_one_of_ours(self, client):
+        rappel = client.get("/api/message-templates").json()[2]
         client.patch(
-            f"/api/message-templates/{one['id']}",
+            f"/api/message-templates/{rappel['id']}",
             json={"body": "salam khouya {eleve}, had chhar makhallastich"},
         )
-        assert "makhallastich" in client.get("/api/message-templates").json()[0]["body"]
+        assert (
+            client.get("/api/message-templates").json()[2]["body"]
+            == "salam khouya {eleve}, had chhar makhallastich"
+        )
 
-    def test_he_can_throw_it_away(self, client):
-        one = client.post(
-            "/api/message-templates", json={"label": "Essai", "body": "x"}
-        ).json()
-        client.delete(f"/api/message-templates/{one['id']}")
-        assert client.get("/api/message-templates").json() == []
+    def test_he_can_throw_one_of_ours_away(self, client):
+        first = client.get("/api/message-templates").json()[0]
+        client.delete(f"/api/message-templates/{first['id']}")
+        assert len(client.get("/api/message-templates").json()) == 2
+
+
+class TestAddingHisOwn:
+    def test_his_join_the_list_at_the_end(self, client):
+        client.post(
+            "/api/message-templates",
+            json={"label": "Rappel darija", "body": "salam {eleve}"},
+        )
+        assert [
+            entry["label"] for entry in client.get("/api/message-templates").json()
+        ][-1] == "Rappel darija"
+
+    def test_he_says_when_his_own_serves(self, client):
+        client.post(
+            "/api/message-templates",
+            json={
+                "label": "Rappel darija",
+                "body": "makhallastich",
+                "shown_when": "unpaid",
+            },
+        )
+        mine = client.get("/api/message-templates").json()[-1]
+        assert mine["shown_when"] == "unpaid"
 
     def test_an_empty_message_is_refused(self, client):
         refused = client.post(
@@ -77,29 +110,44 @@ class TestKeepingHisOwn:
         )
         assert refused.status_code == 422
 
-    def test_they_keep_the_order_he_gave_them(self, client):
-        for label in ("Premier", "Deuxieme", "Troisieme"):
-            client.post("/api/message-templates", json={"label": label, "body": "x"})
-        kept = client.get("/api/message-templates").json()
-        assert [t["label"] for t in kept] == ["Premier", "Deuxieme", "Troisieme"]
+
+class TestChoosingWhatToShow:
+    def test_an_unpaid_month_gets_the_reminder_not_the_receipt(self, client):
+        student = enrolled(client)
+        labels = [entry["label"] for entry in offered(client, student)]
+        assert "Rappel de paiement" in labels
+        assert "Reçu de paiement" not in labels
+
+    def test_a_paid_month_gets_the_receipt_not_the_reminder(self, client):
+        student = enrolled(client, paid=True)
+        labels = [entry["label"] for entry in offered(client, student)]
+        assert "Reçu de paiement" in labels
+        assert "Rappel de paiement" not in labels
+
+    def test_his_darija_reminder_follows_the_same_rule(self, client):
+        """Le sien doit se taire aussi quand la famille a payé."""
+        client.post(
+            "/api/message-templates",
+            json={
+                "label": "Rappel darija",
+                "body": "salam {eleve}, makhallastich",
+                "shown_when": "unpaid",
+            },
+        )
+        assert "Rappel darija" in [
+            entry["label"] for entry in offered(client, enrolled(client))
+        ]
+
+    def test_without_an_enrollment_nothing_is_offered(self, client):
+        level, *_ = setup_base(client)
+        student = client.post(
+            "/api/students", json={"name": "Nouveau", "level_id": level}
+        ).json()["id"]
+        assert offered(client, student) == []
 
 
 class TestFillingThemIn:
-    def test_the_student_name_lands_in_the_message(self, client):
-        student = enrolled(client)
-        client.post(
-            "/api/message-templates",
-            json={"label": "Rappel", "body": "salam khouya {eleve}"},
-        )
-        mine = [
-            entry
-            for entry in messages(client, student)["messages"]
-            if entry["kind"].startswith("custom")
-        ]
-        assert mine[0]["text"] == "salam khouya Sami"
-
     def test_every_marker_is_filled(self, client):
-        student = enrolled(client)
         client.post(
             "/api/message-templates",
             json={
@@ -109,8 +157,8 @@ class TestFillingThemIn:
         )
         text = next(
             entry["text"]
-            for entry in messages(client, student)["messages"]
-            if entry["kind"].startswith("custom")
+            for entry in offered(client, enrolled(client))
+            if entry["label"] == "Complet"
         )
         assert "Sami" in text
         assert "septembre" in text.lower()
@@ -121,29 +169,21 @@ class TestFillingThemIn:
     def test_an_unknown_marker_is_left_visible(self, client):
         """Mieux vaut qu'il voie « {truc} » dans l'aperçu que de le
         laisser croire qu'on a compris ce qu'il voulait dire."""
-        student = enrolled(client)
         client.post(
             "/api/message-templates", json={"label": "Bizarre", "body": "{truc}"}
         )
         text = next(
             entry["text"]
-            for entry in messages(client, student)["messages"]
-            if entry["kind"].startswith("custom")
+            for entry in offered(client, enrolled(client))
+            if entry["label"] == "Bizarre"
         )
         assert text == "{truc}"
 
-    def test_his_templates_come_after_ours(self, client):
-        student = enrolled(client)
-        client.post("/api/message-templates", json={"label": "Sien", "body": "x"})
-        kinds = [entry["kind"] for entry in messages(client, student)["messages"]]
-        assert kinds.index("enrolled") < kinds.index("custom-1")
-
-    def test_without_an_enrollment_his_templates_stay_hidden(self, client):
-        """Rien à annoncer : ni les nôtres, ni les siens — le montant
-        n'existerait pas."""
-        level, *_ = setup_base(client)
-        student = client.post(
-            "/api/students", json={"name": "Nouveau", "level_id": level}
-        ).json()["id"]
-        client.post("/api/message-templates", json={"label": "Sien", "body": "x"})
-        assert messages(client, student)["messages"] == []
+    def test_the_default_reminder_carries_the_real_amount(self, client):
+        text = next(
+            entry["text"]
+            for entry in offered(client, enrolled(client))
+            if entry["label"] == "Rappel de paiement"
+        )
+        assert "300,00 DH" in text
+        assert "Sami" in text

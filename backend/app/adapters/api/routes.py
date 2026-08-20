@@ -1867,14 +1867,21 @@ def open_whatsapp(body: WhatsAppBody) -> dict:
     return {"url": url}
 
 
+# Quand un modele a un sens. « Vous n avez pas paye » propose a une
+# famille qui vient de regler, et l application se fait desinstaller.
+ShownWhen = Literal["always", "paid", "unpaid"]
+
+
 class TemplateBody(BaseModel):
     label: str
     body: str
+    shown_when: ShownWhen = "always"
 
 
 class TemplatePatch(BaseModel):
     label: str | None = None
     body: str | None = None
+    shown_when: ShownWhen | None = None
 
 
 def _clean_template(label: str | None, body: str | None) -> None:
@@ -1891,7 +1898,8 @@ def message_templates(conn: Conn) -> list[dict]:
     """Ses modèles à lui, dans l'ordre qu'il leur a donné."""
     return crud.rows(
         conn,
-        "SELECT id, label, body, position FROM message_template ORDER BY position, id",
+        "SELECT id, label, body, shown_when, position FROM message_template"
+        " ORDER BY position, id",
     )
 
 
@@ -1903,8 +1911,9 @@ def add_message_template(body: TemplateBody, conn: Conn) -> dict:
     ).fetchone()[0]
     template_id = crud.insert(
         conn,
-        "INSERT INTO message_template (label, body, position) VALUES (?, ?, ?)",
-        (body.label.strip(), body.body.strip(), position),
+        "INSERT INTO message_template (label, body, shown_when, position)"
+        " VALUES (?, ?, ?, ?)",
+        (body.label.strip(), body.body.strip(), body.shown_when, position),
     )
     return {"id": template_id}
 
@@ -1912,7 +1921,11 @@ def add_message_template(body: TemplateBody, conn: Conn) -> dict:
 @router.patch("/message-templates/{template_id}")
 def edit_message_template(template_id: int, body: TemplatePatch, conn: Conn) -> dict:
     _clean_template(body.label, body.body)
-    for column, value in (("label", body.label), ("body", body.body)):
+    for column, value in (
+        ("label", body.label),
+        ("body", body.body),
+        ("shown_when", body.shown_when),
+    ):
         if value is not None:
             conn.execute(
                 f"UPDATE message_template SET {column} = ? WHERE id = ?",
@@ -1978,77 +1991,55 @@ def _messages_for(
 ) -> list[dict]:
     """Les messages qui ont un sens ce mois-ci — jamais plus.
 
-    Proposer « rappel de paiement » à une famille qui vient de régler
-    serait le meilleur moyen de faire désinstaller l'application."""
+    Tous viennent de la meme liste, y compris les trois poses au
+    depart : le proprietaire peut les reprendre a son gout, les traduire
+    ou les jeter. Chacun dit a quel moment il sert, et on n en propose
+    aucun qui tomberait a cote."""
     from app.adapters.docx.labels import month_label
 
     enrollment = (row or {}).get("enrollment")
     if not enrollment:
         return []
-    when = month_label(month).lower()
-    classes = ", ".join(entry["subject_name"] for entry in enrollment["classes"])
-    due = enrollment["net_centimes"]
     left = enrollment["remaining_centimes"]
-    signature = f"\n\n{academy}"
-
-    offers = [
-        {
-            "kind": "enrolled",
-            "label": "Confirmation d'inscription",
-            "text": f"Bonjour,\n\n{name} est bien inscrit(e) pour {when}"
-            f" en {classes}.\nMontant du mois : {_dh(due)}." + signature,
-        }
-    ]
-    if enrollment["paid"] and left == 0:
-        offers.append(
-            {
-                "kind": "paid",
-                "label": "Reçu de paiement",
-                "text": f"Bonjour,\n\nNous avons bien reçu le règlement de"
-                f" {_dh(due)} pour {when} ({name}).\nMerci." + signature,
-            }
-        )
-    else:
-        offers.append(
-            {
-                "kind": "unpaid",
-                "label": "Rappel de paiement",
-                "text": f"Bonjour,\n\nLe mois de {when} reste à régler pour"
-                f" {name} : {_dh(left or due)}.\nMerci de votre compréhension."
-                + signature,
-            }
-        )
-    return offers + _his_own(
-        conn,
-        {
-            "eleve": name,
-            "mois": when,
-            "montant": _dh(left or due),
-            "classes": classes,
-            "academie": academy,
-        },
-    )
-
-
-def _his_own(conn, filling: dict) -> list[dict]:
-    """Ses modèles, les repères remplis.
-
-    Un repère inconnu reste visible tel quel : mieux vaut qu'il voie
-    « {{truc}} » dans l'aperçu que de le laisser croire qu'on a compris
-    ce qu'il voulait dire."""
-    offers = []
-    for index, template in enumerate(
-        crud.rows(
-            conn,
-            "SELECT label, body FROM message_template ORDER BY position, id",
+    settled = bool(enrollment["paid"]) and left == 0
+    filling = {
+        "eleve": name,
+        "mois": month_label(month).lower(),
+        "montant": _dh(
+            enrollment["net_centimes"]
+            if settled
+            else (left or enrollment["net_centimes"])
         ),
-        start=1,
+        "classes": ", ".join(entry["subject_name"] for entry in enrollment["classes"]),
+        "academie": academy,
+    }
+    return _templates(conn, settled, filling)
+
+
+def _templates(conn, settled: bool, filling: dict) -> list[dict]:
+    """Les modeles qui conviennent a ce mois-ci, les reperes remplis.
+
+    Un repere inconnu reste visible tel quel : mieux vaut qu il voie
+    « {{truc}} » dans l apercu que de le laisser croire qu on a compris
+    ce qu il voulait dire."""
+    allowed = ("always", "paid" if settled else "unpaid")
+    offers = []
+    for template in crud.rows(
+        conn,
+        "SELECT id, label, body, shown_when FROM message_template"
+        " ORDER BY position, id",
     ):
+        if template["shown_when"] not in allowed:
+            continue
         text = template["body"]
         for marker, value in filling.items():
             text = text.replace("{" + marker + "}", value)
         offers.append(
-            {"kind": f"custom-{index}", "label": template["label"], "text": text}
+            {
+                "kind": f"template-{template['id']}",
+                "label": template["label"],
+                "text": text,
+            }
         )
     return offers
 

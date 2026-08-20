@@ -69,9 +69,11 @@ class TestWhatThereIsToSay:
         student, _ = enroll(client, level, package, class_id)
         with_phones(client, student, [{"tag": "Père", "number": "0661234567"}])
         offer = messages(client, student)
-        kinds = [entry["kind"] for entry in offer["messages"]]
-        assert "enrolled" in kinds
-        confirmation = next(e for e in offer["messages"] if e["kind"] == "enrolled")
+        confirmation = next(
+            entry
+            for entry in offer["messages"]
+            if entry["label"] == "Confirmation d'inscription"
+        )
         assert "Sami" in confirmation["text"]
         assert "septembre" in confirmation["text"].lower()
 
@@ -80,7 +82,9 @@ class TestWhatThereIsToSay:
         student, _ = enroll(client, level, package, class_id)
         with_phones(client, student, [{"tag": "Père", "number": "0661234567"}])
         reminder = next(
-            e for e in messages(client, student)["messages"] if e["kind"] == "unpaid"
+            entry
+            for entry in messages(client, student)["messages"]
+            if entry["label"] == "Rappel de paiement"
         )
         assert "300,00 DH" in reminder["text"]
 
@@ -92,9 +96,9 @@ class TestWhatThereIsToSay:
             json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
         )
         with_phones(client, student, [{"tag": "Père", "number": "0661234567"}])
-        kinds = [e["kind"] for e in messages(client, student)["messages"]]
-        assert "paid" in kinds
-        assert "unpaid" not in kinds
+        labels = [entry["label"] for entry in messages(client, student)["messages"]]
+        assert "Reçu de paiement" in labels
+        assert "Rappel de paiement" not in labels
 
     def test_a_student_with_no_month_has_nothing_to_announce(self, client):
         level, *_ = setup_base(client)

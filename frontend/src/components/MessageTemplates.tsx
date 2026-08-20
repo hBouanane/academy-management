@@ -19,13 +19,23 @@ const MARKERS = [
   ["{academie}", "le nom de votre académie"],
 ]
 
+/** Quand un message a un sens. Proposer « vous n'avez pas payé » à une
+    famille qui vient de régler ferait désinstaller l'application. */
+const WHEN: { value: MessageTemplate["shown_when"]; label: string }[] = [
+  { value: "always", label: "Toujours" },
+  { value: "unpaid", label: "S'il reste à payer" },
+  { value: "paid", label: "Une fois payé" },
+]
+
 /**
  * Ses messages à lui.
  *
- * Nos trois modèles sont en français poli. Lui écrit à ses familles
- * comme il leur parle — « salam khouya {eleve}, had chhar
- * makhallastich ». Un logiciel qui impose sa façon de dire les choses
- * finit contourné : il recopiera à la main, et se trompera de montant.
+ * Les trois posés à l'installation ne sont pas « les messages du
+ * logiciel » : ce sont déjà les siens. Il les reprend à son goût, les
+ * traduit — « salam khouya {eleve}, had chhar makhallastich » — les
+ * jette, en ajoute d'autres. Un logiciel qui impose sa façon de dire
+ * les choses finit contourné : il recopiera à la main, et se trompera
+ * de montant.
  */
 export function MessageTemplates({
   onError,
@@ -35,6 +45,7 @@ export function MessageTemplates({
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
   const [label, setLabel] = useState("")
   const [body, setBody] = useState("")
+  const [when, setWhen] = useState<MessageTemplate["shown_when"]>("always")
   const toast = useToast()
 
   const load = useCallback(
@@ -49,10 +60,11 @@ export function MessageTemplates({
   }, [load])
 
   const add = () =>
-    apiSend("POST", "/api/message-templates", { label, body })
+    apiSend("POST", "/api/message-templates", { label, body, shown_when: when })
       .then(() => {
         setLabel("")
         setBody("")
+        setWhen("always")
         toast(`Modèle « ${label} » ajouté`)
         void load()
       })
@@ -68,8 +80,9 @@ export function MessageTemplates({
       <div>
         <Label>Mes messages</Label>
         <p className="text-muted-foreground text-xs">
-          Écrivez-les une fois, comme vous parlez à vos familles. Ils
-          apparaîtront sur chaque élève, à côté des messages tout faits.
+          Trois sont là pour commencer — reprenez-les à votre goût,
+          traduisez-les, jetez-les, ajoutez les vôtres. Ils apparaîtront
+          sur chaque élève, avec les valeurs remplies.
         </p>
       </div>
 
@@ -102,6 +115,10 @@ export function MessageTemplates({
               className="h-8 w-56 text-sm font-medium"
             />
             <span className="flex-1" />
+            <WhenPicker
+              value={template.shown_when}
+              onChange={(next) => save(template, { shown_when: next })}
+            />
             <ConfirmButton
               size="sm"
               variant="ghost"
@@ -149,6 +166,7 @@ export function MessageTemplates({
           rows={3}
           className="border-input bg-background focus-visible:ring-ring w-full resize-y rounded-md border px-3 py-2 text-sm focus-visible:ring-1 focus-visible:outline-none"
         />
+        <WhenPicker value={when} onChange={setWhen} />
         <Button
           size="sm"
           disabled={!label.trim() || !body.trim()}
@@ -159,5 +177,34 @@ export function MessageTemplates({
         </Button>
       </div>
     </div>
+  )
+}
+
+/** Trois pastilles valent mieux qu'une liste déroulante : on voit les
+    trois choix sans cliquer. */
+function WhenPicker({
+  value,
+  onChange,
+}: {
+  value: MessageTemplate["shown_when"]
+  onChange: (next: MessageTemplate["shown_when"]) => void
+}) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {WHEN.map((entry) => (
+        <button
+          key={entry.value}
+          type="button"
+          onClick={() => onChange(entry.value)}
+          className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
+            value === entry.value
+              ? "border-transparent bg-primary text-primary-foreground font-medium"
+              : "border-border text-muted-foreground hover:border-foreground/40"
+          }`}
+        >
+          {entry.label}
+        </button>
+      ))}
+    </span>
   )
 }
