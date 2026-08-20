@@ -149,22 +149,30 @@ class TestStaleness:
         client.post("/api/documents/file", json={"kind": "excel", "month": "2026-09"})
         assert stale(client) == []
 
-    def test_money_moving_ages_the_month_export(self, client, tmp_path):
+    def test_money_moving_redoes_the_month_export(self, client, tmp_path):
+        """L'export suit l'argent, tout seul.
+
+        Il restait perime jusqu'a ce qu'on clique -- pour un mois EN
+        COURS, le bandeau reclamait alors un geste que le rangement
+        automatique s'etait interdit de faire, et rien ne l'eteignait.
+        Ce qu'il a demande une fois, on le tient a jour.
+        """
         level, class_id, _teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         client.put(
             "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
         )
         client.post("/api/documents/file", json={"kind": "excel", "month": "2026-09"})
+        depose = tmp_path / "aX" / "2026-09 Septembre" / "rapports" / "paiements.xlsx"
+        avant = depose.read_bytes()
+
         client.post(
             "/api/payments",
             json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
         )
-        aged = stale(client)
-        assert [item["kind"] for item in aged] == ["excel"]
-        assert (
-            "excel" in aged[0]["label"].lower() or "export" in aged[0]["label"].lower()
-        )
+
+        assert stale(client) == []
+        assert depose.read_bytes() != avant  # le fichier porte le paiement
 
     def test_a_receipt_is_never_aged_by_anything(self, client, tmp_path):
         """Le professeur l'a signee : la regenerer produirait un second
@@ -199,7 +207,10 @@ class TestStaleness:
             item["kind"] for item in stale(client) if item["kind"] == "payslip"
         ] == []
 
-    def test_an_absence_sheet_ages_when_a_student_joins(self, client, tmp_path):
+    def test_an_absence_sheet_takes_in_the_new_student_by_itself(
+        self, client, tmp_path
+    ):
+        """Un eleve de plus, et la feuille le porte -- sans un clic."""
         level, class_id, _teacher, package = setup_base(client)
         client.put(
             "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
@@ -208,11 +219,14 @@ class TestStaleness:
             "/api/documents/file",
             json={"kind": "absence", "month": "2026-09", "ref_id": class_id},
         )
+        tiroir = tmp_path / "aX" / "2026-09 Septembre" / "absences"
+        feuille = next(iter(tiroir.iterdir()))
+        avant = feuille.read_bytes()
+
         enroll(client, level, package, class_id)
-        aged = stale(client)
-        assert [(item["kind"], item["ref_id"]) for item in aged] == [
-            ("absence", class_id)
-        ]
+
+        assert stale(client) == []
+        assert feuille.read_bytes() != avant
 
     def test_a_document_never_filed_is_never_stale(self, client, tmp_path):
         level, class_id, _teacher, package = setup_base(client)
@@ -224,7 +238,12 @@ class TestStaleness:
         # Rien n'a ete sorti : il n'y a rien a regenerer.
         assert stale(client) == []
 
-    def test_refiling_settles_the_warning(self, client, tmp_path):
+    def test_without_a_folder_the_warning_stands_and_the_button_settles_it(
+        self, client, tmp_path
+    ):
+        """Le seul cas ou l'avertissement demeure : plus de dossier ou
+        deposer. L'application ne peut plus rien refaire toute seule --
+        elle le dit, et le bouton reste la pour cela."""
         level, class_id, _teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
         client.put(
@@ -232,11 +251,17 @@ class TestStaleness:
         )
         body = {"kind": "excel", "month": "2026-09"}
         client.post("/api/documents/file", json=body)
+        client.delete("/api/settings/folders/documents")
+
         client.post(
             "/api/payments",
             json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
         )
         assert len(stale(client)) == 1
+
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
         client.post("/api/documents/file", json=body)
         assert stale(client) == []
 

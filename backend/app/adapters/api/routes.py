@@ -2466,9 +2466,15 @@ def reconcile_documents(conn: Conn) -> dict:
     l'application sait produire, c'est demander au client de se
     souvenir a notre place -- et il oubliera.
 
-    Le mois EN COURS est laisse tranquille : son export changerait tous
-    les jours. La fiche de paie non plus n'est jamais produite ici :
-    c'est un recu, il se fait au moment ou l'on paie.
+    Le mois EN COURS ne voit rien NAITRE ici : son export changerait
+    tous les jours, et son dossier se remplirait de fichiers qu'il n'a
+    pas demandes. Mais ce qu'il a demande une fois, on le tient a jour
+    -- meme pendant le mois en cours. Sinon le bandeau reclamerait
+    pendant tout aout un geste que l'application s'etait interdit de
+    faire, et rien ne l'eteindrait jamais.
+
+    La fiche de paie non plus n'est jamais produite ici : c'est un recu,
+    il se fait au moment ou l'on paie.
 
     Rien ici ne doit faire echouer l'appel qui l'a declenche : si le
     dossier a disparu, on se tait et on reessaiera plus tard.
@@ -2479,14 +2485,14 @@ def reconcile_documents(conn: Conn) -> dict:
     running = clock.current_month()
     filed = 0
     for month in _months_with_something(conn):
-        if month >= running:
-            continue
         wanted: list[tuple[str, int]] = [("excel", 0)]
         wanted += [
             ("absence", row["id"]) for row in _classes_of_month(conn, academy_id, month)
         ]
         for kind, ref_id in wanted:
             if _already_fresh(conn, kind, month, ref_id):
+                continue
+            if month >= running and not _was_filed(conn, kind, month, ref_id):
                 continue
             try:
                 file_document(
@@ -2519,6 +2525,21 @@ def _classes_of_month(
         " JOIN enrollment e ON e.id = ec.enrollment_id"
         " WHERE e.month = ? ORDER BY c.id",
         (month,),
+    )
+
+
+def _was_filed(conn: sqlite3.Connection, kind: str, month: str, ref_id: int) -> bool:
+    """Ce document a deja ete range une fois -- donc il l'a voulu.
+
+    C'est ce qui separe « tenir a jour » de « creer sans qu'on demande ».
+    """
+    return (
+        conn.execute(
+            "SELECT 1 FROM exported_document WHERE kind = ? AND month = ?"
+            " AND ref_id = ?",
+            (kind, month, ref_id),
+        ).fetchone()
+        is not None
     )
 
 
@@ -2636,3 +2657,53 @@ def report_school_year(year_id: int, conn: Conn) -> dict:
     from app.services.school_years import season_report
 
     return season_report(conn, year_id)
+
+# --- Le logo de l'academie --------------------------------------------
+#
+# « Academy Management » en haut de la barre, c'est le nom de l'OUTIL.
+# Lui ouvre l'application pour voir SON academie -- et quand un parent
+# regarde par-dessus son epaule, c'est son enseigne qui doit etre la.
+#
+# Il vit dans la base, pas dans un dossier : il part ainsi avec les
+# sauvegardes. Un fichier pose sur le bureau puis efface laisserait un
+# carre vide au prochain demarrage.
+
+# Assez pour une belle enseigne, trop peu pour une photo de vacances :
+# le logo entre dans CHAQUE sauvegarde, et les alourdirait toutes.
+_LOGO_MAX = 2 * 1024 * 1024
+_LOGO_PREFIX = "data:image/"
+
+
+class LogoBody(BaseModel):
+    logo: str | None = None
+
+
+@router.get("/settings/logo")
+def academy_logo(conn: Conn) -> dict:
+    return {"logo": _setting_value(conn, "logo")}
+
+
+@router.put("/settings/logo")
+def set_academy_logo(body: LogoBody, conn: Conn) -> dict:
+    """Poser son enseigne, ou la retirer (logo: null).
+
+    On verifie que c'est bien une image : un fichier quelconque glisse
+    ici s'afficherait comme un carre casse, et il chercherait longtemps
+    pourquoi.
+    """
+    if body.logo is not None:
+        if not body.logo.startswith(_LOGO_PREFIX):
+            raise ValueError(
+                "Ce fichier n'est pas une image. Choisissez un PNG ou un JPEG."
+            )
+        if len(body.logo) > _LOGO_MAX:
+            raise ValueError(
+                "Cette image est trop lourde. Elle entrerait dans chacune de"
+                " vos sauvegardes -- prenez-en une plus legere."
+            )
+    if body.logo is None:
+        conn.execute("DELETE FROM app_setting WHERE key = 'logo'")
+        conn.commit()
+    else:
+        _remember(conn, "logo", body.logo)
+    return {"logo": body.logo}
