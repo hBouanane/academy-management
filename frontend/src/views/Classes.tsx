@@ -45,6 +45,7 @@ import { StudentProfile } from "@/components/StudentProfile"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { FileDocument } from "@/components/FileDocument"
+import { SplitAtCreation } from "@/components/SplitAtCreation"
 import { subjectsOfLevel } from "@/components/ProgramTree"
 import { useAlert } from "@/lib/alert"
 import { openTeacher } from "@/lib/navigation"
@@ -496,6 +497,9 @@ function NewClassDialog({
   // La matière créée à l'instant : elle pulse le temps qu'on la repère.
   const [justAdded, setJustAdded] = useState<number | null>(null)
   const subjectInput = useRef<HTMLInputElement>(null)
+  // La repartition particuliere choisie pour cette classe, s'il y en
+  // a une. Posee APRES la creation : la classe doit exister.
+  const [splitOverride, setSplitOverride] = useState<number | null>(null)
   const toast = useToast()
   const [teacherId, setTeacherId] = useState<number | null>(null)
   const [teacherDraft, setTeacherDraft] = useState("")
@@ -640,7 +644,7 @@ function NewClassDialog({
       // One class per selected filière — « la même classe pour les autres
       // filières » in a single click. Empty selection = one classe commune.
       for (const filiere of selectedFilieres) {
-        await apiSend("POST", "/api/classes", {
+        const made = await apiSend<{ id: number }>("POST", "/api/classes", {
           level_id: levelId,
           subject_id: subjectId,
           teacher_id: chosen,
@@ -648,6 +652,12 @@ function NewClassDialog({
           parcours: slotParcours,
           filiere,
         })
+        if (splitOverride !== null) {
+          await apiSend("POST", `/api/split-rules/${splitOverride}/applies-to`, {
+            scope: "class",
+            ref_id: made.id,
+          })
+        }
       }
       onOpenChange(false)
       onDone()
@@ -889,6 +899,18 @@ function NewClassDialog({
                 ; sa compétence s'enregistre toute seule.
               </p>
             </Step>
+          )}
+
+          {/* On montre la consequence sans poser la question : la
+              classe suit la regle generale, sauf vraie exception. */}
+          {teacherId !== null && (
+            <SplitAtCreation
+              teacherId={teacherId}
+              levelId={levelId}
+              filiere={selectedFilieres[0] ?? null}
+              override={splitOverride}
+              onOverride={setSplitOverride}
+            />
           )}
 
           <Notice alert={note} />

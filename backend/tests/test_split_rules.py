@@ -209,3 +209,40 @@ class TestItReachesTheMoney:
         # 300 DH partagés en deux matières : la salle prend tout sur
         # l'une, rien sur l'autre.
         assert venue["due_centimes"] == 150 * DH
+
+
+class TestSeeingItBeforeTheClassExists:
+    """Le formulaire de création montre ce qui s'appliquera — sans poser
+    la question, et sans redire l'ordre de priorité de son côté."""
+
+    def test_it_shows_the_teacher_rule_already(self, client):
+        _level, _class_id, teacher, _package = setup_base(client)
+        applies(client, rule(client, "Senior", 3000, 1000), "teacher", teacher)
+        found = client.get(f"/api/split-preview?teacher_id={teacher}").json()
+        assert (found["venue_bp"], found["owner_bp"]) == (3000, 1000)
+        assert found["from"] == "teacher"
+
+    def test_the_level_rule_when_the_teacher_has_none(self, client):
+        level, _class_id, teacher, _package = setup_base(client)
+        applies(client, rule(client, "Primaire", 2000, 500), "level", level)
+        found = client.get(
+            f"/api/split-preview?teacher_id={teacher}&level_id={level}"
+        ).json()
+        assert found["from"] == "level"
+
+    def test_nothing_chosen_yet_shows_the_academy_split(self, client):
+        found = client.get("/api/split-preview").json()
+        academy = client.get("/api/academies").json()[0]
+        assert found["venue_bp"] == academy["venue_bp"]
+        assert found["from"] == "academy"
+
+    def test_it_agrees_with_the_class_once_created(self, client):
+        """L'aperçu et la réalité doivent dire la même chose, sinon le
+        formulaire ment."""
+        level, class_id, teacher, _package = setup_base(client)
+        applies(client, rule(client, "Senior", 3000, 1000), "teacher", teacher)
+        preview = client.get(
+            f"/api/split-preview?teacher_id={teacher}&level_id={level}"
+        ).json()
+        real = client.get(f"/api/classes/{class_id}/split").json()
+        assert preview == real

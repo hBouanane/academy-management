@@ -38,14 +38,36 @@ def split_for_class(
     ).fetchone()
     if row is None:
         return _academy_split(conn, academy_id)
-    keys = {
-        "class": row["id"],
-        "teacher": row["teacher_id"],
-        "level": row["level_id"],
-    }
+    return resolve(
+        conn,
+        academy_id,
+        class_id=row["id"],
+        teacher_id=row["teacher_id"],
+        level_id=row["level_id"],
+        filiere=row["filiere"],
+    )
+
+
+def resolve(
+    conn: sqlite3.Connection,
+    academy_id: int,
+    *,
+    class_id: int | None = None,
+    teacher_id: int | None = None,
+    level_id: int | None = None,
+    filiere: str | None = None,
+) -> ResolvedSplit:
+    """La règle qui gagne, pour une classe existante OU en train de se
+    créer.
+
+    Le formulaire de création peut ainsi montrer ce qui s'appliquera
+    avant que la classe existe — sans dupliquer l'ordre de priorité
+    dans l'interface, où il finirait par diverger de celui-ci.
+    """
+    keys = {"class": class_id, "teacher": teacher_id, "level": level_id}
     for scope in PRECEDENCE:
         found = (
-            _by_text(conn, "filiere", row["filiere"])
+            _by_text(conn, "filiere", filiere)
             if scope == "filiere"
             else _by_id(conn, scope, keys.get(scope))
         )

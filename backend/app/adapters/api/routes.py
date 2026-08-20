@@ -1962,6 +1962,35 @@ def rule_no_longer_applies(scope: str, ref: str, conn: Conn) -> dict:
     return {"scope": scope, "ref": ref}
 
 
+@router.get("/split-preview")
+def split_preview(
+    conn: Conn,
+    teacher_id: Annotated[int | None, Query()] = None,
+    level_id: Annotated[int | None, Query()] = None,
+    filiere: Annotated[str | None, Query()] = None,
+) -> dict:
+    """Ce qui s appliquera a une classe qu on est en train de creer.
+
+    Le formulaire montre ainsi la consequence au moment ou l on y
+    pense, sans avoir a poser la question -- et sans redire l ordre de
+    priorite dans l interface, ou il finirait par diverger."""
+    from app.services.splits import resolve
+
+    found = resolve(
+        conn,
+        default_academy_id(conn),
+        teacher_id=teacher_id,
+        level_id=level_id,
+        filiere=filiere,
+    )
+    return {
+        "venue_bp": found.venue_bp,
+        "owner_bp": found.owner_bp,
+        "from": found.origin,
+        "rule_name": found.rule_name,
+    }
+
+
 @router.get("/classes/{class_id}/split")
 def class_split(class_id: int, conn: Conn) -> dict:
     """Quelle repartition cette classe suit, et d ou elle la tient --
