@@ -499,6 +499,7 @@ function StudentRow({
           <Button
             size="sm"
             variant="ghost"
+            className="text-success hover:text-success hover:bg-success/10"
             title="Prévenir la famille par WhatsApp"
             onClick={() => onWhatsApp(row.student_id, row.student_name)}
           >

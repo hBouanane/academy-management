@@ -80,6 +80,7 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
               <Button
                 size="sm"
                 variant="outline"
+                className="text-success hover:text-success border-success/40"
                 onClick={() => setWriting(true)}
                 title="Prévenir la famille par WhatsApp"
               >
