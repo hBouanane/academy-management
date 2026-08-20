@@ -21,6 +21,7 @@ import type {
 } from "@/lib/api"
 import { useAlert } from "@/lib/alert"
 import { Backups } from "@/components/Backups"
+import { SchoolYears } from "@/components/SchoolYears"
 import { SplitRules } from "@/components/SplitRules"
 import { FolderSetting } from "@/components/FolderSetting"
 import { useToast } from "@/components/Toast"
@@ -215,6 +216,8 @@ export function Academy() {
           {saved && <span className="text-success text-sm">Enregistré ✓</span>}
         </div>
       </div>
+
+      <SchoolYears onError={setError} />
 
       <SplitRules onError={setError} />
       <OwnerTeacher onError={setError} />

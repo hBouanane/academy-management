@@ -2570,3 +2570,69 @@ def report_arrears(up_to_month: MonthQuery, conn: Conn) -> list[dict]:
         }
         for entry in arrears(conn, default_academy_id(conn), up_to_month)
     ]
+
+
+# --- Années scolaires -------------------------------------------------
+#
+# Une académie vit en rentrées, pas en mois. Le mois où la saison
+# s'arrête ne se devine pas : ici on ferme en juin, ailleurs en juillet.
+
+
+class SchoolYearBody(BaseModel):
+    name: str
+    start_month: Annotated[str, Field(pattern=MONTH_PATTERN)]
+    end_month: Annotated[str, Field(pattern=MONTH_PATTERN)]
+
+
+class SchoolYearPatch(BaseModel):
+    name: str | None = None
+    start_month: Annotated[str | None, Field(pattern=MONTH_PATTERN)] = None
+    end_month: Annotated[str | None, Field(pattern=MONTH_PATTERN)] = None
+
+
+@router.get("/school-years")
+def school_years(conn: Conn) -> list[dict]:
+    from app.services.school_years import list_years
+
+    return list_years(conn, default_academy_id(conn))
+
+
+@router.post("/school-years", status_code=201)
+def create_school_year(body: SchoolYearBody, conn: Conn) -> dict:
+    from app.services.school_years import create_year
+
+    return create_year(
+        conn,
+        default_academy_id(conn),
+        name=body.name,
+        start_month=body.start_month,
+        end_month=body.end_month,
+    )
+
+
+@router.patch("/school-years/{year_id}")
+def patch_school_year(year_id: int, patch: SchoolYearPatch, conn: Conn) -> dict:
+    from app.services.school_years import update_year
+
+    return update_year(conn, year_id, **patch.model_dump(exclude_none=True))
+
+
+@router.post("/school-years/{year_id}/close")
+def close_school_year(year_id: int, conn: Conn) -> dict:
+    """Range la saison et archive les eleves.
+
+    On ne presume pas qu'ils reviendront : celui qui revient est
+    reinscrit comme d'habitude et retrouve son histoire. Ce qu'une
+    famille doit, en revanche, la suit -- l'argent du ne s'efface pas
+    parce que le calendrier a tourne.
+    """
+    from app.services.school_years import close_year
+
+    return close_year(conn, year_id)
+
+
+@router.get("/reports/school-year/{year_id}")
+def report_school_year(year_id: int, conn: Conn) -> dict:
+    from app.services.school_years import season_report
+
+    return season_report(conn, year_id)

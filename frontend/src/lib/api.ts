@@ -403,6 +403,26 @@ export type Folders = {
   documents: { path: string | null; example: string | null }
 }
 
+/** Une saison : d'un mois a un autre, et le jour ou on l'a rangee. */
+export type SchoolYear = {
+  id: number
+  name: string
+  start_month: string
+  end_month: string
+  closed_at: string | null
+}
+
+export type SeasonReport = {
+  school_year_id: number
+  name: string
+  start_month: string
+  end_month: string
+  months: number
+  cash_in: number
+  totals: { kind: string; ref_id: number; name: string; total: number }[]
+  teachers: { teacher_id: number; name: string; earned: number }[]
+}
+
 export type SplitRule = {
   id: number
   name: string
