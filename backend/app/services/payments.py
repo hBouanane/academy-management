@@ -420,6 +420,12 @@ def _base_split(context: EnrollmentContext) -> tuple[Allocation, ...]:
         owner_id=context.owner_id,
         subject_teachers=list(context.subject_teachers),
         teacher_weights=context.teacher_weights,
+        # Chaque matiere suit la repartition de sa classe. Toutes
+        # identiques : le calcul d avant, au centime pres.
+        subject_policies=tuple(
+            SplitPolicy(venue_bp=venue, owner_bp=owner)
+            for venue, owner in context.subject_splits
+        ),
     )
 
 

@@ -1831,6 +1831,152 @@ def forget_folder(kind: FolderKind, conn: Conn) -> dict:
     return {"path": None}
 
 
+# --- les repartitions nommees ---------------------------------------------
+
+
+class SplitRuleBody(BaseModel):
+    name: str
+    venue_bp: Annotated[int, Field(ge=0, le=10_000)]
+    owner_bp: Annotated[int, Field(ge=0, le=10_000)]
+
+
+class AppliesToBody(BaseModel):
+    scope: Literal["class", "teacher", "filiere", "level"]
+    ref_id: int | None = None
+    ref_text: str | None = None
+
+
+@router.get("/split-rules")
+def split_rules(conn: Conn) -> list[dict]:
+    """Ses repartitions, et a qui chacune s applique."""
+    rules = crud.rows(
+        conn,
+        "SELECT id, name, venue_bp, owner_bp FROM split_rule"
+        " WHERE academy_id = ? ORDER BY id",
+        (default_academy_id(conn),),
+    )
+    for rule in rules:
+        rule["applies_to"] = crud.rows(
+            conn,
+            "SELECT scope, ref_id, ref_text FROM split_assignment"
+            " WHERE rule_id = ? ORDER BY id",
+            (rule["id"],),
+        )
+    return rules
+
+
+@router.post("/split-rules", status_code=201)
+def add_split_rule(body: SplitRuleBody, conn: Conn) -> dict:
+    if not body.name.strip():
+        raise HTTPException(status_code=422, detail="Donnez un nom a la repartition.")
+    if body.venue_bp + body.owner_bp > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail="La salle et l academie ne peuvent pas prendre plus de 100 %"
+            " a elles deux -- il ne resterait rien au professeur.",
+        )
+    return {
+        "id": crud.insert(
+            conn,
+            "INSERT INTO split_rule (academy_id, name, venue_bp, owner_bp)"
+            " VALUES (?, ?, ?, ?)",
+            (
+                default_academy_id(conn),
+                body.name.strip(),
+                body.venue_bp,
+                body.owner_bp,
+            ),
+        )
+    }
+
+
+@router.patch("/split-rules/{rule_id}")
+def edit_split_rule(rule_id: int, body: SplitRuleBody, conn: Conn) -> dict:
+    if body.venue_bp + body.owner_bp > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail="La salle et l academie ne peuvent pas prendre plus de 100 %"
+            " a elles deux.",
+        )
+    conn.execute(
+        "UPDATE split_rule SET name = ?, venue_bp = ?, owner_bp = ? WHERE id = ?",
+        (body.name.strip(), body.venue_bp, body.owner_bp, rule_id),
+    )
+    conn.commit()
+    return {"id": rule_id}
+
+
+@router.delete("/split-rules/{rule_id}")
+def delete_split_rule(rule_id: int, conn: Conn) -> dict:
+    """Les classes qui la suivaient remontent la chaine : professeur,
+    filiere, niveau, puis la repartition de l academie. Rien ne se perd
+    -- ce qui est deja encaisse garde son partage."""
+    conn.execute("DELETE FROM split_assignment WHERE rule_id = ?", (rule_id,))
+    conn.execute("DELETE FROM split_rule WHERE id = ?", (rule_id,))
+    conn.commit()
+    return {"deleted": rule_id}
+
+
+@router.post("/split-rules/{rule_id}/applies-to")
+def rule_applies_to(rule_id: int, body: AppliesToBody, conn: Conn) -> dict:
+    """Dire a qui cette repartition s applique.
+
+    Une meme cible ne suit qu une regle : la reposer remplace la
+    precedente, sinon il faudrait deviner laquelle gagne."""
+    if body.scope == "filiere":
+        if not body.ref_text:
+            raise HTTPException(status_code=422, detail="Quelle filiere ?")
+        conn.execute(
+            "DELETE FROM split_assignment WHERE scope = 'filiere' AND ref_text = ?",
+            (body.ref_text,),
+        )
+        conn.execute(
+            "INSERT INTO split_assignment (rule_id, scope, ref_text)"
+            " VALUES (?, 'filiere', ?)",
+            (rule_id, body.ref_text),
+        )
+    else:
+        if body.ref_id is None:
+            raise HTTPException(status_code=422, detail="Sur quoi l appliquer ?")
+        conn.execute(
+            "DELETE FROM split_assignment WHERE scope = ? AND ref_id = ?",
+            (body.scope, body.ref_id),
+        )
+        conn.execute(
+            "INSERT INTO split_assignment (rule_id, scope, ref_id) VALUES (?, ?, ?)",
+            (rule_id, body.scope, body.ref_id),
+        )
+    conn.commit()
+    return {"rule_id": rule_id, "scope": body.scope}
+
+
+@router.delete("/split-rules/applies-to/{scope}/{ref}")
+def rule_no_longer_applies(scope: str, ref: str, conn: Conn) -> dict:
+    """Retirer une regle d une cible : elle remonte la chaine."""
+    column = "ref_text" if scope == "filiere" else "ref_id"
+    conn.execute(
+        f"DELETE FROM split_assignment WHERE scope = ? AND {column} = ?",
+        (scope, ref),
+    )
+    conn.commit()
+    return {"scope": scope, "ref": ref}
+
+
+@router.get("/classes/{class_id}/split")
+def class_split(class_id: int, conn: Conn) -> dict:
+    """Quelle repartition cette classe suit, et d ou elle la tient --
+    parce que « pourquoi ce chiffre ? » doit avoir une reponse."""
+    from app.services.splits import split_for_class
+
+    found = split_for_class(conn, class_id, default_academy_id(conn))
+    return {
+        "venue_bp": found.venue_bp,
+        "owner_bp": found.owner_bp,
+        "from": found.origin,
+        "rule_name": found.rule_name,
+    }
+
+
 # --- prevenir la famille ---------------------------------------------------
 #
 # L application PREPARE le message et ouvre WhatsApp dessus. Elle n envoie

@@ -49,6 +49,7 @@ def split_payment(
     owner_id: int,
     subject_teachers: list[int | None],
     teacher_weights: TeacherWeights | None = None,
+    subject_policies: tuple[SplitPolicy, ...] = (),
 ) -> tuple[Allocation, ...]:
     """subject_teachers holds one teacher id per subject; a teacher covering
     several of the student's subjects appears once per subject and earns
@@ -57,6 +58,17 @@ def split_payment(
     taught that month; vacant portions (None) land on the owner."""
     if not subject_teachers:
         raise ValueError("a payment must cover at least one subject")
+    if subject_policies and len(set(subject_policies)) > 1:
+        return _split_per_subject(
+            amount,
+            subject_policies,
+            venue_id=venue_id,
+            owner_id=owner_id,
+            subject_teachers=subject_teachers,
+            teacher_weights=teacher_weights,
+        )
+    # Une seule repartition pour tout : le calcul d avant, au centime.
+    policy = subject_policies[0] if subject_policies else policy
     venue_amount = percent_of(amount, policy.venue_bp)
     owner_amount = percent_of(amount, policy.owner_bp)
     teachers_total = amount - venue_amount - owner_amount
@@ -65,6 +77,44 @@ def split_payment(
     return (
         Allocation(Beneficiary("venue", venue_id), venue_amount),
         Allocation(Beneficiary("owner", owner_id), owner_amount + escrow),
+        *(
+            Allocation(Beneficiary("teacher", teacher_id), total)
+            for teacher_id, total in totals.items()
+        ),
+    )
+
+
+def _split_per_subject(
+    amount: Centimes,
+    policies: tuple[SplitPolicy, ...],
+    *,
+    venue_id: int,
+    owner_id: int,
+    subject_teachers: list[int | None],
+    teacher_weights: TeacherWeights | None,
+) -> tuple[Allocation, ...]:
+    """Les matieres ne se partagent pas pareil : on decoupe d abord le
+    prix entre elles, puis chaque part suit sa propre regle."""
+    slices = split_equally(amount, len(subject_teachers))
+    venue_total = 0
+    owner_total = 0
+    totals: dict[int | None, Centimes] = {}
+    for index, subject_slice in enumerate(slices):
+        policy = policies[index]
+        venue_part = percent_of(subject_slice, policy.venue_bp)
+        owner_part = percent_of(subject_slice, policy.owner_bp)
+        venue_total += venue_part
+        owner_total += owner_part
+        for teacher_id, part in _teacher_totals(
+            [subject_teachers[index]],
+            subject_slice - venue_part - owner_part,
+            (teacher_weights[index],) if teacher_weights else None,
+        ).items():
+            totals[teacher_id] = totals.get(teacher_id, 0) + part
+    escrow = totals.pop(None, 0)
+    return (
+        Allocation(Beneficiary("venue", venue_id), venue_total),
+        Allocation(Beneficiary("owner", owner_id), owner_total + escrow),
         *(
             Allocation(Beneficiary("teacher", teacher_id), total)
             for teacher_id, total in totals.items()

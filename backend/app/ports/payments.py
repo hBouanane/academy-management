@@ -52,6 +52,9 @@ class EnrollmentContext:
     # Per subject: the teachers who actually taught this month with their
     # day weights (succession/co-teaching). None = subject_teachers as-is.
     teacher_weights: tuple[tuple[tuple[int, int], ...], ...] | None = None
+    # La repartition de CHAQUE classe, dans l ordre des matieres.
+    # Vide : tout suit celle de l academie, comme avant.
+    subject_splits: tuple[tuple[int, int], ...] = ()
     # (teacher_id, amount) already guaranteed to teachers for this unpaid
     # month: when it is finally collected, the académie takes that much back
     # out of the payment — never out of the professor.
