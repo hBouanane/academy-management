@@ -114,6 +114,37 @@ def test_a_backup_from_a_newer_release_is_named_in_the_refusal(tmp_path):
     assert "plus récente" in complaint
 
 
+def test_the_refusal_never_tells_him_to_go_back(tmp_path):
+    """Ce controle s'exerce au demarrage, sur la base VIVANTE -- il n'y a
+    pas de restauration dans l'application. Lui conseiller « restaurez une
+    sauvegarde plus ancienne » revient a lui dire d'ecraser ses ecritures
+    d'aujourd'hui par celles d'avant. On installe la version recente."""
+    from desktop import database_complaint
+
+    future = tmp_path / "futur.db"
+    conn = sqlite3.connect(future)
+    conn.execute("PRAGMA user_version = 99")
+    conn.commit()
+    conn.close()
+    complaint = database_complaint(future).lower()
+    assert "restaurez" not in complaint  # jamais en conseil
+    assert "n'écrasez pas" in complaint  # dit au contraire de ne pas le faire
+    assert "installez" in complaint
+
+
+def test_the_refusal_speaks_of_his_data_not_of_a_file(tmp_path):
+    """« Cette sauvegarde » ne lui dit rien : il n'a restaure aucun
+    fichier, il a juste ouvert l'application."""
+    from desktop import database_complaint
+
+    future = tmp_path / "futur.db"
+    conn = sqlite3.connect(future)
+    conn.execute("PRAGMA user_version = 99")
+    conn.commit()
+    conn.close()
+    assert "données" in database_complaint(future)
+
+
 def test_a_healthy_database_raises_no_complaint(tmp_path):
     from desktop import database_complaint
 

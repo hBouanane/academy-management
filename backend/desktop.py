@@ -133,6 +133,12 @@ def database_complaint(db_path: Path) -> str | None:
 
     Sans ce garde-fou, le client lirait « le serveur interne n'a pas
     démarré » et n'aurait aucune idée de la vraie raison.
+
+    Ce contrôle s'exerce au démarrage, sur la base VIVANTE : il n'y a
+    pas de restauration dans l'application. Lui conseiller de revenir à
+    une sauvegarde plus ancienne reviendrait à lui dire d'écraser les
+    écritures d'aujourd'hui par celles d'avant. La seule sortie qui ne
+    perd rien, c'est d'installer la version récente.
     """
     if not db_path.exists():
         return None
@@ -143,10 +149,12 @@ def database_complaint(db_path: Path) -> str | None:
     if found <= known:
         return None
     return (
-        "Cette sauvegarde vient d'une version plus récente de"
-        f" l'application (schéma {found}, celle-ci connaît {known}).\n\n"
-        "Installez la dernière version, ou restaurez une sauvegarde plus"
-        " ancienne."
+        "Vos données ont été enregistrées par une version plus récente"
+        f" de l'application (schéma {found}, celle-ci connaît {known})."
+        "\n\nInstallez la version la plus récente : elle les ouvrira"
+        " sans rien perdre."
+        "\n\nN'écrasez pas ce fichier par une sauvegarde plus ancienne"
+        " — vous perdriez tout ce qui a été saisi depuis."
     )
 
 
