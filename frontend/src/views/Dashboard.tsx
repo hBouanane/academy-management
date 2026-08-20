@@ -517,6 +517,7 @@ function StudentRow({
             month={month}
             onDone={onDone}
             onEnrolled={onEnrolled}
+            onNotify={() => onWhatsApp(row.student_id, row.student_name)}
           />
         )}
         {enrollment && unpaid && (
@@ -525,6 +526,7 @@ function StudentRow({
               enrollmentId={enrollment.id}
               studentName={row.student_name}
               onDone={onDone}
+              onNotify={() => onWhatsApp(row.student_id, row.student_name)}
             />
             {enrollment.guaranteed_centimes === 0 && (
               <Button

@@ -25,6 +25,8 @@ type Props = {
   enrollmentId: number
   studentName: string
   onDone: () => void
+  /** Proposer d annoncer la nouvelle a la famille, juste apres. */
+  onNotify?: () => void
   /** Controlled mode: when provided, no trigger button renders (used to
       chain straight from a fresh enrollment). */
   open?: boolean
@@ -41,6 +43,7 @@ export function PayDialog({
   enrollmentId,
   studentName,
   onDone,
+  onNotify,
   open: controlledOpen,
   onOpenChange,
 }: Props) {
@@ -146,6 +149,9 @@ export function PayDialog({
             nothingToPay
               ? `Mois offert validé — ${studentName}`
               : `Encaissé ${formatDH(centimes)} — ${studentName}`,
+            "success",
+            onNotify,
+            "Prévenir la famille",
           )
           return posted
         }),

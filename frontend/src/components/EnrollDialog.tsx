@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { monthLabel, nextMonth } from "@/components/MonthNav"
+import { useToast } from "@/components/Toast"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Level, Package } from "@/lib/api"
@@ -37,6 +38,8 @@ type Props = {
   onDone: () => void
   /** Called with the new enrollment id — used to chain into the pay dialog. */
   onEnrolled?: (enrollmentId: number) => void
+  /** Proposer d'annoncer la nouvelle a la famille, juste apres. */
+  onNotify?: () => void
   /** Controlled mode: when provided, the dialog renders without a trigger
       button (used right after creating a student). */
   open?: boolean
@@ -64,6 +67,7 @@ export function EnrollDialog({
   month,
   onDone,
   onEnrolled,
+  onNotify,
   open: controlledOpen,
   onOpenChange,
 }: Props) {
@@ -85,6 +89,7 @@ export function EnrollDialog({
   const [showAllClasses, setShowAllClasses] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useAlert()
+  const toast = useToast()
   const [error, setError] = useAlert()
 
   useEffect(() => {
@@ -216,6 +221,14 @@ export function EnrollDialog({
       .then((created) => {
         setOpen(false)
         reset()
+        // Le moment d'annoncer l'inscription, c'est maintenant : la
+        // famille attend de savoir que c'est fait.
+        toast(
+          `${studentName} inscrit(e) pour ${monthLabel(selectedMonth)}`,
+          "success",
+          onNotify,
+          "Prévenir la famille",
+        )
         onDone()
         onEnrolled?.(created.id)
       })
