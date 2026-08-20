@@ -1327,15 +1327,24 @@ def _teacher_class_earnings(
     conn: sqlite3.Connection, teacher_id: int, month: str, class_ids: list[int]
 ) -> dict[int, int]:
     """Attribute the teacher's ledger lines to his classes: each payment's
-    line is split across the classes he taught within that enrollment."""
+    line is split across the classes he taught within that enrollment.
+
+    Une avance versee au prof avant que la famille paie n'a pas de
+    paiement -- il n'existe pas encore -- mais elle porte l'inscription.
+    Exiger le paiement faisait disparaitre l'avance du detail tout en y
+    laissant son annulation : la colonne « Gagne » annoncait alors moins
+    que le total du mois ecrit juste au-dessus.
+    """
     earnings = dict.fromkeys(class_ids, 0)
     lines = conn.execute(
         """
-        SELECT le.amount_centimes, p.enrollment_id
+        SELECT le.amount_centimes,
+               COALESCE(p.enrollment_id, le.enrollment_id) AS enrollment_id
         FROM ledger_entry le
-        JOIN payment p ON p.id = le.payment_id
+        LEFT JOIN payment p ON p.id = le.payment_id
         WHERE le.beneficiary_kind = 'teacher' AND le.beneficiary_id = ?
           AND le.month = ?
+          AND COALESCE(p.enrollment_id, le.enrollment_id) IS NOT NULL
         """,
         (teacher_id, month),
     ).fetchall()
