@@ -21,7 +21,6 @@ import type {
 } from "@/lib/api"
 import { useAlert } from "@/lib/alert"
 import { Backups } from "@/components/Backups"
-import { MessageTemplates } from "@/components/MessageTemplates"
 import { FolderSetting } from "@/components/FolderSetting"
 import { useToast } from "@/components/Toast"
 
@@ -218,7 +217,6 @@ export function Academy() {
 
       <OwnerTeacher onError={setError} />
       <BackupFolder onError={setError} />
-      <MessageTemplates onError={setError} />
       <Backups onError={setError} />
       <Security onError={setError} />
     </div>

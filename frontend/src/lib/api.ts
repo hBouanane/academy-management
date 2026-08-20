@@ -425,7 +425,10 @@ export type BackupState = {
   destination: string | null
   last_copied_at: string | null
   days_since: number | null
-  /** Trop longtemps qu'elles n'ont pas quitté cet ordinateur. */
+  /** Combien n'ont jamais quitté cet ordinateur. */
+  uncopied: number
+  remind_after: number
+  /** Assez pour qu'il y ait vraiment de quoi perdre. */
   stale: boolean
 }
 

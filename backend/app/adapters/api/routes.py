@@ -2067,7 +2067,12 @@ def _dh(centimes: int) -> str:
 
 # Au-dela, on le lui rappelle. Une semaine : assez pour ne pas harceler,
 # assez peu pour qu'un mois de travail ne parte jamais en fumee.
-_STALE_AFTER_DAYS = 7
+# Un avertissement permanent finit par faire partie du decor. Celui-ci
+# attend d avoir trente sauvegardes jamais sorties de l ordinateur --
+# et comme on ne photographie que si la base a bouge, trente veut dire
+# trente vraies journees de travail. A ce compte-la, il y a de quoi
+# perdre.
+_REMIND_AFTER = 30
 
 # Sur la cle, tout se range dans un dossier a nous : une cle sert a
 # vingt choses, la notre ne doit pas s'y perdre.
@@ -2103,16 +2108,35 @@ def backups_state(request: Request, conn: Conn) -> dict:
             days = (datetime.now(UTC) - datetime.fromisoformat(last)).days
         except ValueError:
             days = None
+    uncopied = _uncopied(conn, request, copies)
     return {
         "count": len(copies),
         "newest": copies[-1].name if copies else None,
         "destination": _setting_value(conn, "backups_destination"),
         "last_copied_at": last,
         "days_since": days,
-        # Jamais copiees compte comme trop vieux : c'est le cas le plus
-        # dangereux, et le plus courant.
-        "stale": bool(copies) and (days is None or days >= _STALE_AFTER_DAYS),
+        "uncopied": uncopied,
+        "remind_after": _REMIND_AFTER,
+        "stale": uncopied >= _REMIND_AFTER,
     }
+
+
+def _uncopied(conn: sqlite3.Connection, request: Request, copies: list) -> int:
+    """Combien de sauvegardes n ont jamais quitte cet ordinateur.
+
+    On compte ce qui manque a destination plutot que les jours ecoules :
+    quinze jours de vacances ne mettent rien en peril, quinze journees
+    de travail non sauvegardees, si.
+    """
+    destination = _setting_value(conn, "backups_destination")
+    if destination is None:
+        return len(copies)
+    there = FsPathlib(destination) / _ON_THE_STICK
+    if not there.is_dir():
+        # La cle n est pas branchee : on ne sait pas, on ne crie pas.
+        return len(copies) - int(_setting_value(conn, "backups_copied_count") or 0)
+    saved = {item.name for item in there.glob("data-*.db")}
+    return sum(1 for item in copies if item.name not in saved)
 
 
 @router.post("/backups/copy")
@@ -2140,6 +2164,9 @@ def copy_backups(body: CopyBackupsBody, request: Request, conn: Conn) -> dict:
         shutil.copy2(snapshot, target)
         copied += 1
     _remember(conn, "backups_destination", chosen)
+    # Ce qui est a l abri, pour savoir compter quand la cle sera
+    # debranchee.
+    _remember(conn, "backups_copied_count", str(len(_snapshots(request))))
     _remember(
         conn, "backups_copied_at", datetime.now(UTC).isoformat(timespec="seconds")
     )

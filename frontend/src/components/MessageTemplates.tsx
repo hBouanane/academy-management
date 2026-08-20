@@ -19,12 +19,31 @@ const MARKERS = [
   ["{academie}", "le nom de votre académie"],
 ]
 
-/** Quand un message a un sens. Proposer « vous n'avez pas payé » à une
-    famille qui vient de régler ferait désinstaller l'application. */
-const WHEN: { value: MessageTemplate["shown_when"]; label: string }[] = [
-  { value: "always", label: "Toujours" },
-  { value: "unpaid", label: "S'il reste à payer" },
-  { value: "paid", label: "Une fois payé" },
+/** À qui ce message doit être proposé.
+ *
+ * « Toujours » ne disait rien : toujours quoi ? On nomme donc l'élève
+ * concerné, pas le moment. Proposer « vous n'avez pas payé » à une
+ * famille qui vient de régler ferait désinstaller l'application. */
+const WHEN: {
+  value: MessageTemplate["shown_when"]
+  label: string
+  hint: string
+}[] = [
+  {
+    value: "always",
+    label: "Tous les élèves",
+    hint: "proposé pour n'importe quel élève inscrit au mois",
+  },
+  {
+    value: "unpaid",
+    label: "Ceux qui doivent encore",
+    hint: "proposé seulement s'il reste quelque chose à payer",
+  },
+  {
+    value: "paid",
+    label: "Ceux qui ont tout payé",
+    hint: "proposé seulement une fois le mois réglé",
+  },
 ]
 
 /**
@@ -86,12 +105,22 @@ export function MessageTemplates({
         </p>
       </div>
 
+      <p className="text-muted-foreground text-xs">
+        Les mots entre accolades sont remplacés par les vraies valeurs au
+        moment d'écrire :
+      </p>
       <p className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs">
         {MARKERS.map(([marker, what]) => (
           <span key={marker}>
             <code className="bg-muted rounded px-1 py-0.5">{marker}</code> {what}
           </span>
         ))}
+      </p>
+
+      <p className="text-muted-foreground border-border border-t pt-3 text-xs">
+        À droite de chaque message : <strong>à qui le proposer</strong>.
+        Un rappel de paiement n'a rien à faire chez une famille qui vient
+        de régler.
       </p>
 
       {templates.map((template) => (
@@ -195,6 +224,7 @@ function WhenPicker({
         <button
           key={entry.value}
           type="button"
+          title={entry.hint}
           onClick={() => onChange(entry.value)}
           className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
             value === entry.value

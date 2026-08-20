@@ -60,6 +60,12 @@ def test_missing_database_backs_up_nothing(tmp_path):
 def test_old_backups_are_pruned_to_the_newest_thirty(tmp_path):
     db = make_db(tmp_path)
     for day in range(1, 35):
+        # Une journée de travail entre deux fermetures : sans changement,
+        # l'application ne photographie plus rien (et elle a raison).
+        conn = sqlite3.connect(db)
+        conn.execute("INSERT INTO t VALUES (?)", (f"jour {day}",))
+        conn.commit()
+        conn.close()
         backup_database(db, stamp=f"202607{day:02d}-000000")
     backups = sorted((tmp_path / "backups").glob("data-*.db"))
     assert len(backups) == 30

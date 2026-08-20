@@ -65,8 +65,45 @@ def backup_database(db_path: Path, stamp: str | None = None) -> Path | None:
             destination.close()
     finally:
         source.close()
+    if _same_as_last(target, backups):
+        # Rien n a bouge depuis la derniere fois : ouvrir l application
+        # pour consulter un chiffre ne merite pas une photographie.
+        # Trente copies identiques chasseraient les vraies.
+        target.unlink()
+        return None
     _prune(backups)
     return target
+
+
+def _same_as_last(fresh: Path, backups: Path) -> bool:
+    """Cette photographie dit-elle exactement la meme chose que la
+    precedente ?
+
+    On compare le contenu, pas la date : deux fermetures dans la meme
+    seconde ont la meme heure, et une base qui n a pas bouge a la meme
+    taille. Seul le contenu tranche.
+    """
+    others = sorted(
+        item for item in backups.glob("data-*.db") if item.name != fresh.name
+    )
+    if not others:
+        return False
+    try:
+        return _fingerprint(fresh) == _fingerprint(others[-1])
+    except OSError:
+        # Dans le doute on garde : une copie de trop ne coute rien, une
+        # copie manquante coute tout.
+        return False
+
+
+def _fingerprint(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _prune(backups: Path, keep: int = BACKUPS_TO_KEEP) -> None:

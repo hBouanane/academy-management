@@ -6,6 +6,7 @@ import {
   Building2,
   GraduationCap,
   LayoutDashboard,
+  MessageCircle,
   Moon,
   Package,
   School,
@@ -22,6 +23,7 @@ import { useTeacherRoute } from "@/lib/navigation"
 import { TeacherPage } from "@/components/TeacherPage"
 import { currentMonth } from "@/lib/money"
 import { Academy } from "@/views/Academy"
+import { Messages } from "@/views/Messages"
 import { Classes } from "@/views/Classes"
 import { Dashboard } from "@/views/Dashboard"
 import { Motifs } from "@/views/Motifs"
@@ -59,7 +61,10 @@ const SECTIONS: {
   },
   {
     label: "Configuration",
-    items: [{ key: "academy", label: "Académie", icon: Building2 }],
+    items: [
+      { key: "messages", label: "Messages", icon: MessageCircle },
+      { key: "academy", label: "Académie", icon: Building2 },
+    ],
   },
 ]
 
@@ -193,7 +198,8 @@ function App() {
             )}
             {view === "packages" && <Packages />}
             {view === "motifs" && <Motifs />}
-            {view === "academy" && <Academy />}
+            {view === "messages" && <Messages />}
+        {view === "academy" && <Academy />}
           </>
         )}
       </main>
