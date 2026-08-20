@@ -21,6 +21,7 @@ import type {
 } from "@/lib/api"
 import { useAlert } from "@/lib/alert"
 import { Backups } from "@/components/Backups"
+import { LogoSetting } from "@/components/LogoSetting"
 import { SchoolYears } from "@/components/SchoolYears"
 import { SplitRules } from "@/components/SplitRules"
 import { FolderSetting } from "@/components/FolderSetting"
@@ -101,8 +102,8 @@ export function Academy() {
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">Académie</h2>
         <p className="text-muted-foreground text-sm">
-          La répartition par défaut de chaque paiement — modifiable à tout
-          moment, sans jamais toucher aux mois déjà encaissés
+          Votre enseigne, vos règles de partage et vos sauvegardes — rien
+          ici ne touche aux mois déjà encaissés
         </p>
       </header>
 
@@ -111,44 +112,11 @@ export function Academy() {
       <div className="surface-card space-y-5 p-6">
         <div className="space-y-2">
           <Label>Nom de l'académie</Label>
-          <Input value={name} onChange={(event) => setName(event.target.value)} />
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </div>
-        <div className="flex gap-4">
-          <div className="flex-1 space-y-2">
-            <Label>Part salle (%)</Label>
-            <Input
-              type="number"
-              min="0"
-              max="100"
-              value={venuePct}
-              onChange={(event) => setVenuePct(event.target.value)}
-            />
-          </div>
-          <div className="flex-1 space-y-2">
-            <Label>Part propriétaire (%)</Label>
-            <Input
-              type="number"
-              min="0"
-              max="100"
-              value={ownerPct}
-              onChange={(event) => setOwnerPct(event.target.value)}
-            />
-          </div>
-          <div className="flex-1 space-y-2">
-            <Label className="text-muted-foreground">Part professeurs</Label>
-            <div className="border-border text-muted-foreground flex h-9 items-center rounded-lg border border-dashed px-3 text-sm">
-              {splitValid ? `${teacherPct}% (partagé par matière)` : "—"}
-            </div>
-          </div>
-        </div>
-        <Notice
-          message={
-            splitValid
-              ? null
-              : "Les pourcentages doivent être positifs et leur somme au plus 100."
-          }
-        />
-
         <div className="border-border space-y-3 border-t pt-5">
           <div>
             <Label>Prorata d'arrivée en cours de mois</Label>
@@ -206,6 +174,51 @@ export function Academy() {
           />
         </div>
 
+        <div className="border-border space-y-3 border-t pt-5">
+          <div>
+            <Label>Répartition par défaut</Label>
+            <p className="text-muted-foreground text-xs">
+              Elle s'applique à toutes les classes — sauf à celles qui suivent
+              une répartition particulière, juste en dessous.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <div className="flex-1 space-y-2">
+              <Label>Part salle (%)</Label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                value={venuePct}
+                onChange={(event) => setVenuePct(event.target.value)}
+              />
+            </div>
+            <div className="flex-1 space-y-2">
+              <Label>Part académie (%)</Label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                value={ownerPct}
+                onChange={(event) => setOwnerPct(event.target.value)}
+              />
+            </div>
+            <div className="flex-1 space-y-2">
+              <Label className="text-muted-foreground">Part professeurs</Label>
+              <div className="border-border text-muted-foreground flex h-9 items-center rounded-lg border border-dashed px-3 text-sm">
+                {splitValid ? `${teacherPct}% (partagé par matière)` : "—"}
+              </div>
+            </div>
+          </div>
+          <Notice
+            message={
+              splitValid
+                ? null
+                : "Les pourcentages doivent être positifs et leur somme au plus 100."
+            }
+          />
+        </div>
+
         <div className="flex items-center gap-3">
           <Button
             onClick={save}
@@ -217,9 +230,12 @@ export function Academy() {
         </div>
       </div>
 
+      <SplitRules onError={setError} />
+
+      <LogoSetting onError={setError} />
+
       <SchoolYears onError={setError} />
 
-      <SplitRules onError={setError} />
       <OwnerTeacher onError={setError} />
       <BackupFolder onError={setError} />
       <Backups onError={setError} />
@@ -283,9 +299,9 @@ function PoseCode({
         <div>
           <Label>Notez cette phrase, sur papier</Label>
           <p className="text-muted-foreground text-xs">
-            C'est la seule façon de rouvrir l'application si vous oubliez
-            votre code. Elle ne sera plus jamais affichée, et personne ne
-            peut la retrouver à votre place.
+            C'est la seule façon de rouvrir l'application si vous oubliez votre
+            code. Elle ne sera plus jamais affichée, et personne ne peut la
+            retrouver à votre place.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -301,7 +317,9 @@ function PoseCode({
             onClick={() => {
               void navigator.clipboard
                 .writeText(phrase)
-                .then(() => toast("Phrase copiée — collez-la quelque part de sûr"))
+                .then(() =>
+                  toast("Phrase copiée — collez-la quelque part de sûr"),
+                )
                 .catch(() =>
                   onError(
                     "Copie impossible — sélectionnez la phrase et copiez-la à la main.",
@@ -332,9 +350,9 @@ function PoseCode({
       <div>
         <Label>Verrouillage</Label>
         <p className="text-muted-foreground text-xs">
-          Aucun code n'est posé : l'application s'ouvre sans rien demander,
-          et n'importe qui passant derrière le comptoir peut changer les
-          chiffres. Posez un code et il sera demandé à chaque ouverture.
+          Aucun code n'est posé : l'application s'ouvre sans rien demander, et
+          n'importe qui passant derrière le comptoir peut changer les chiffres.
+          Posez un code et il sera demandé à chaque ouverture.
         </p>
       </div>
       <div className="flex flex-wrap items-end gap-3">
@@ -406,9 +424,9 @@ function Security({ onError }: { onError: (message: string) => void }) {
       <div>
         <Label>Verrouillage</Label>
         <p className="text-muted-foreground text-xs">
-          Le code est demandé à l'ouverture, et dès que l'application reste
-          un moment sans servir — c'est le poste laissé ouvert pendant un
-          cours qui est le vrai risque.
+          Le code est demandé à l'ouverture, et dès que l'application reste un
+          moment sans servir — c'est le poste laissé ouvert pendant un cours qui
+          est le vrai risque.
         </p>
       </div>
       <div className="flex flex-wrap items-end gap-3">

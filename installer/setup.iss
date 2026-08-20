@@ -20,6 +20,7 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#AppExe}
+SetupIconFile=..\packaging\academy.ico
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"

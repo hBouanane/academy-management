@@ -17,6 +17,7 @@ import {
   Wallet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { AcademyMark } from "@/components/AcademyMark"
 import { LockScreen } from "@/components/LockScreen"
 import { useLock } from "@/lib/useLock"
 import { useTeacherRoute } from "@/lib/navigation"
@@ -96,18 +97,7 @@ function App() {
   return (
     <div className="flex min-h-svh">
       <aside className="border-sidebar-border bg-sidebar sticky top-0 flex h-svh w-60 shrink-0 flex-col self-start overflow-y-auto border-r px-3 py-5">
-        <div className="mb-8 flex items-center gap-2 px-3">
-          <span
-            className="size-2.5 rounded-full"
-            style={{
-              background:
-                "conic-gradient(var(--orb-mint), var(--orb-lavender), var(--orb-peach), var(--orb-mint))",
-            }}
-          />
-          <h1 className="text-sm font-semibold tracking-tight">
-            Academy Management
-          </h1>
-        </div>
+        <AcademyMark />
         <nav className="flex-1 space-y-6">
           {SECTIONS.map((section) => (
             <div key={section.label}>
