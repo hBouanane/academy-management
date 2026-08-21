@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Plus } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -56,10 +56,38 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
       .catch((err: Error) => onError(err.message))
   }
 
-  const moveEnd = async (year: SchoolYear, month: string) => {
-    if (!month || month === year.end_month) return
-    await apiSend("PATCH", `/api/school-years/${year.id}`, { end_month: month })
+  /** Une borne déplacée. On repart de la liste : si le serveur a refusé
+      (une fin avant le début), le champ retrouve sa valeur d'avant. */
+  const moveEdge = async (
+    year: SchoolYear,
+    edge: "start_month" | "end_month",
+    month: string,
+  ) => {
+    if (!month || month === year[edge]) return
+    await apiSend("PATCH", `/api/school-years/${year.id}`, { [edge]: month })
       .then(load)
+      .catch((err: Error) => {
+        onError(err.message)
+        load()
+      })
+  }
+
+  const rename = async (year: SchoolYear, name: string) => {
+    if (!name.trim() || name === year.name) return
+    await apiSend("PATCH", `/api/school-years/${year.id}`, { name: name.trim() })
+      .then(load)
+      .catch((err: Error) => {
+        onError(err.message)
+        load()
+      })
+  }
+
+  const remove = async (year: SchoolYear) => {
+    await apiSend("DELETE", `/api/school-years/${year.id}`)
+      .then(() => {
+        toast(`${year.name} supprimée`)
+        load()
+      })
       .catch((err: Error) => onError(err.message))
   }
 
@@ -74,7 +102,7 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
 
   return (
     <div className="space-y-3">
-      <div>
+      <div className="space-y-1.5">
         <Label>Années scolaires</Label>
         <p className="text-muted-foreground text-xs">
           Une saison va d'un mois à un autre — c'est vous qui dites lequel.
@@ -95,10 +123,25 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
           key={year.id}
           className="border-border flex flex-wrap items-center gap-3 rounded-md border px-3 py-2"
         >
-          <span className="font-medium">{year.name}</span>
-          <span className="text-muted-foreground text-sm">
-            de {year.start_month}
-          </span>
+          {/* Rien n'est grave ici : l'année posée à l'installation est
+              une proposition, pas une décision. Son nom et ses bornes se
+              corrigent, et si elle ne sert à rien elle s'efface. */}
+          <Input
+            className="h-8 w-40 font-medium"
+            defaultValue={year.name}
+            disabled={Boolean(year.closed_at)}
+            onBlur={(event) => rename(year, event.target.value)}
+          />
+          <label className="text-muted-foreground flex items-center gap-1.5 text-sm">
+            de
+            <Input
+              type="month"
+              className="h-8 w-36"
+              defaultValue={year.start_month}
+              disabled={Boolean(year.closed_at)}
+              onBlur={(event) => moveEdge(year, "start_month", event.target.value)}
+            />
+          </label>
           <label className="text-muted-foreground flex items-center gap-1.5 text-sm">
             jusqu'à
             <Input
@@ -106,9 +149,10 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
               className="h-8 w-36"
               defaultValue={year.end_month}
               disabled={Boolean(year.closed_at)}
-              onBlur={(event) => moveEnd(year, event.target.value)}
+              onBlur={(event) => moveEdge(year, "end_month", event.target.value)}
             />
           </label>
+          <span className="flex-1" />
           {year.closed_at ? (
             <span className="text-muted-foreground text-xs">
               close le {year.closed_at.slice(0, 10)}
@@ -117,7 +161,6 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
             <ConfirmButton
               size="sm"
               variant="outline"
-              className="ml-auto"
               confirmLabel="Clore l'année"
               description="Les élèves seront archivés — on ne suppose pas qu'ils reviendront. Celui qui revient se réinscrit et retrouve son histoire. Ce qu'une famille doit reste dû."
               onConfirm={() => close(year)}
@@ -125,6 +168,16 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
               Clore l'année
             </ConfirmButton>
           )}
+          <ConfirmButton
+            size="sm"
+            variant="ghost"
+            title="Supprimer cette année"
+            confirmLabel="Supprimer"
+            description="Une année n'est qu'une période : l'effacer ne défait aucun paiement et ne réveille aucun élève archivé. Vous perdrez seulement son bilan de saison."
+            onConfirm={() => remove(year)}
+          >
+            <Trash2 className="size-4" />
+          </ConfirmButton>
         </div>
       ))}
 

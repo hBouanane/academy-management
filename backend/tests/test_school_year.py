@@ -194,3 +194,52 @@ class TestTheSeasonReport:
         report = client.get(f"/api/reports/school-year/{year}").json()
         assert report["cash_in"] == 0
         assert report["teachers"] == []
+
+
+class TestChangingASeasonHeAlreadyHas:
+    """Une année posée par l'application n'est pas gravée : c'est la
+    sienne. Son nom, son début et sa fin se corrigent — et si elle ne
+    lui sert à rien, elle s'efface."""
+
+    def test_he_can_rename_it(self, client):
+        year = make_year(client).json()["id"]
+        client.patch(f"/api/school-years/{year}", json={"name": "Rentrée 2026"})
+        listed = client.get("/api/school-years").json()
+        assert listed[0]["name"] == "Rentrée 2026"
+
+    def test_he_can_move_the_first_month(self, client):
+        year = make_year(client).json()["id"]
+        client.patch(f"/api/school-years/{year}", json={"start_month": "2026-10"})
+        listed = client.get("/api/school-years").json()
+        assert listed[0]["start_month"] == "2026-10"
+
+    def test_a_start_pushed_past_the_end_is_refused(self, client):
+        """Sinon la saison ne contiendrait aucun mois, et son bilan
+        serait vide sans qu'il comprenne pourquoi."""
+        year = make_year(client, start="2026-09", end="2027-06").json()["id"]
+        refused = client.patch(
+            f"/api/school-years/{year}", json={"start_month": "2027-09"}
+        )
+        assert refused.status_code == 422
+
+    def test_he_can_delete_one(self, client):
+        year = make_year(client).json()["id"]
+        client.delete(f"/api/school-years/{year}")
+        assert client.get("/api/school-years").json() == []
+
+    def test_deleting_a_season_touches_no_money_and_no_student(self, client):
+        """Une année n'est qu'une période : l'effacer ne défait aucun
+        paiement et ne réveille personne."""
+        level, class_id, _teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
+        year = make_year(client).json()["id"]
+        before = client.get("/api/reports/monthly?month=2026-09").json()
+
+        client.delete(f"/api/school-years/{year}")
+
+        assert client.get("/api/reports/monthly?month=2026-09").json() == before
+        assert len(client.get("/api/students?month=2026-09").json()) == 1

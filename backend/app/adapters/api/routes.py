@@ -2638,6 +2638,14 @@ def patch_school_year(year_id: int, patch: SchoolYearPatch, conn: Conn) -> dict:
     return update_year(conn, year_id, **patch.model_dump(exclude_none=True))
 
 
+@router.delete("/school-years/{year_id}")
+def delete_school_year(year_id: int, conn: Conn) -> dict:
+    from app.services.school_years import delete_year
+
+    delete_year(conn, year_id)
+    return {"deleted": year_id}
+
+
 @router.post("/school-years/{year_id}/close")
 def close_school_year(year_id: int, conn: Conn) -> dict:
     """Range la saison et archive les eleves.
@@ -2657,6 +2665,7 @@ def report_school_year(year_id: int, conn: Conn) -> dict:
     from app.services.school_years import season_report
 
     return season_report(conn, year_id)
+
 
 # --- Le logo de l'academie --------------------------------------------
 #

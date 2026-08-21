@@ -81,6 +81,18 @@ def close_year(conn: sqlite3.Connection, year_id: int) -> dict:
     return _one(conn, year_id)
 
 
+def delete_year(conn: sqlite3.Connection, year_id: int) -> None:
+    """Effacer une saison n'efface rien d'autre.
+
+    Une année scolaire n'est qu'une période : deux mois entre lesquels on
+    sait faire un bilan. La supprimer ne défait aucun paiement et ne
+    réveille aucun élève archivé -- elle retire seulement la borne.
+    """
+    _one(conn, year_id)
+    conn.execute("DELETE FROM school_year WHERE id = ?", (year_id,))
+    conn.commit()
+
+
 def season_report(conn: sqlite3.Connection, year_id: int) -> dict:
     """Le bilan de toute la saison : l'encaissé, la part de chacun, et ce
     que chaque professeur a gagné sur l'année entière."""
