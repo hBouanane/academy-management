@@ -3,7 +3,7 @@
 ; Compile with:  iscc installer\setup.iss
 
 #define AppName "Academy Management"
-#define AppVersion "1.4.1"
+#define AppVersion "1.5.0"
 #define AppExe "AcademyManagement.exe"
 
 [Setup]
