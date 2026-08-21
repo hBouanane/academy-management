@@ -60,8 +60,8 @@ export function affectedStudents(
 
 const PERCENT_CHOICES = [100, 70, 50, 0]
 
-/** Un seul geste pour tout le monde — le cas courant. Chaque élève reste
-    ajustable ensuite pour les exceptions. */
+/** One gesture for everybody -- the common case. Each student stays
+    adjustable afterwards for the exceptions. */
 export function RefundForEveryone({
   count,
   onApply,
@@ -70,8 +70,8 @@ export function RefundForEveryone({
   onApply: (percent: number) => void
 }) {
   const [custom, setCustom] = useState("")
-  // Ce qu'on vient d'appliquer reste marqué : sans ça, on clique un
-  // pourcentage et rien ne dit qu'il a pris.
+  // What was just applied stays marked: without it, you click a
+  // percentage and nothing tells you it took.
   const [applied, setApplied] = useState<number | null>(null)
   const toast = useToast()
 

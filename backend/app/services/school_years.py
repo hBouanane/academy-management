@@ -1,10 +1,9 @@
-"""Les saisons : les définir, les clore, et faire leur bilan.
+"""Seasons: defining them, closing them, and reporting on them.
 
-Clore une année n'efface rien. Les élèves sont archivés parce qu'on ne
-présume pas qu'ils reviendront -- celui qui revient est réinscrit comme
-d'habitude et retrouve son histoire entière. Ce qu'une famille doit, en
-revanche, la suit : l'argent dû ne s'efface pas parce que le calendrier
-a tourné.
+Closing a year erases nothing. Students are archived because we do not
+presume they will return -- whoever comes back is re-enrolled as usual
+and finds his whole history. What a family owes, by contrast, follows
+it: money due does not disappear because the calendar turned.
 """
 
 import sqlite3
@@ -60,11 +59,11 @@ def update_year(conn: sqlite3.Connection, year_id: int, **fields) -> dict:
 
 
 def close_year(conn: sqlite3.Connection, year_id: int) -> dict:
-    """Range la saison et archive les élèves.
+    """Puts the season away and archives the students.
 
-    Deux clics de suite ne doivent rien changer : une année déjà close
-    reste close, avec sa date d'origine. Réarchiver au deuxième passage
-    balaierait ceux qu'il vient de reprendre pour la rentrée.
+    Two clicks in a row must change nothing: a year already closed stays
+    closed, with its original date. Re-archiving on the second pass would
+    sweep away the students he has just taken back for the new term.
     """
     year = _one(conn, year_id)
     if year["closed_at"]:
@@ -84,9 +83,9 @@ def close_year(conn: sqlite3.Connection, year_id: int) -> dict:
 def delete_year(conn: sqlite3.Connection, year_id: int) -> None:
     """Effacer une saison n'efface rien d'autre.
 
-    Une année scolaire n'est qu'une période : deux mois entre lesquels on
-    sait faire un bilan. La supprimer ne défait aucun paiement et ne
-    réveille aucun élève archivé -- elle retire seulement la borne.
+    A school year is only a period: two months between which a report can
+    be produced. Deleting it undoes no payment and wakes no archived
+    student -- it removes the boundary, nothing else.
     """
     _one(conn, year_id)
     conn.execute("DELETE FROM school_year WHERE id = ?", (year_id,))
@@ -94,8 +93,8 @@ def delete_year(conn: sqlite3.Connection, year_id: int) -> None:
 
 
 def season_report(conn: sqlite3.Connection, year_id: int) -> dict:
-    """Le bilan de toute la saison : l'encaissé, la part de chacun, et ce
-    que chaque professeur a gagné sur l'année entière."""
+    """The whole season's report: cash in, each party's share, and what
+    every teacher earned across the full year."""
     from app.adapters.sqlite.reports import monthly_report
 
     year = _one(conn, year_id)

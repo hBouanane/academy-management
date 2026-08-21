@@ -110,7 +110,7 @@ export function PayDialog({
       .finally(() => setBusy(false))
   }
 
-  // Mois offert : le net est à zéro, il n'y a rien à saisir ni à encaisser.
+  // Gifted month: the net is zero, so there is nothing to enter or collect.
   const nothingToPay = preview !== null && preview.net_centimes === 0
 
   const pay = () => {
@@ -144,7 +144,7 @@ export function PayDialog({
           enrollment_id: enrollmentId,
           ...partial,
         }).then((posted) => {
-          // La fenêtre se referme : sans un mot, on doute d'avoir cliqué.
+          // The window closes: without a word, you doubt you clicked.
           toast(
             nothingToPay
               ? `Mois offert validé — ${studentName}`

@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react"
 
 /**
- * Aller voir un professeur, depuis n'importe où.
+ * Going to see a teacher, from anywhere.
  *
- * L'application n'a pas de routeur : les écrans se choisissent dans la
- * barre de gauche. Le profil d'un professeur, lui, s'ouvre depuis trois
- * endroits différents — la caisse, les classes, la liste des
- * professeurs. Faire descendre une fonction depuis App jusqu'à chaque
- * bouton traverserait quatre composants qui n'en ont que faire.
+ * The application has no router: screens are chosen in the sidebar. A
+ * teacher's profile, though, opens from three different places -- the
+ * till, the classes, the teacher list. Threading a function down from App
+ * to each button would cross four components that have no interest in it.
  *
- * Un évènement suffit : celui qui veut ouvrir le crie, App l'entend.
+ * An event is enough: whoever wants to open one shouts, App hears it.
  */
 const EVENT = "academy-open-teacher"
 

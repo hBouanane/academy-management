@@ -8,14 +8,14 @@ import type { StaleDocument } from "@/lib/api"
 import { monthLabel } from "@/components/MonthNav"
 
 /**
- * Les papiers que les chiffres ont dépassés.
+ * The papers the figures have overtaken.
  *
- * Le cas qui compte est celui d'un mois PASSÉ : un impayé de septembre
- * rentre en novembre, et la fiche de paie imprimée en septembre devient
- * fausse sans que rien ne le dise. Ici, on le dit — et on nomme le
- * document, pas le mois : « la fiche de Moulay Idris », pas « septembre
- * a changé », sinon l'avertissement porterait sur dix fichiers dont neuf
- * sont toujours justes.
+ * The case that matters is a PAST month: a September impayé comes in
+ * during November, and the payslip printed in September becomes wrong
+ * without anything saying so. Here, we say so -- and we name the
+ * document, not the month: « la fiche de Moulay Idris », not « septembre
+ * a changé », otherwise the warning would cover ten files of which nine
+ * are still correct.
  */
 export function StaleDocuments({ month }: { month?: string }) {
   const [items, setItems] = useState<StaleDocument[]>([])

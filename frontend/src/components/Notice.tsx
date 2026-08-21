@@ -7,15 +7,15 @@ import type { Alert } from "@/lib/alert"
 type Tone = "error" | "warning" | "info"
 
 type Props = {
-  /** Texte qui suit l'état de l'écran : il apparaît et disparaît avec
-      la condition qui le provoque. Reste sur place. */
+  /** Text that follows the screen's state: it appears and disappears with
+      the condition that caused it. Stays in place. */
   message?: string | null
-  /** Alerte levée par une ACTION — celle qui doit se revoir à chaque
-      échec, et qui flotte pour se faire voir. */
+  /** An alert raised by an ACTION -- the kind that must be seen again on
+      every failure, and floats to make itself seen. */
   alert?: Alert
   className?: string
-  /** Tout en rouge finit par ne plus alerter : l'avertissement est ambre,
-      l'information neutre, le rouge reste pour ce qui a vraiment échoué. */
+  /** All-red stops alerting anyone: warnings are amber, information is
+      neutral, and red is kept for what genuinely failed. */
   tone?: Tone
 }
 
@@ -26,20 +26,19 @@ const TONES: Record<Tone, string> = {
 }
 
 /**
- * Deux choses différentes, et c'est la distinction qui compte.
+ * Two different things, and the distinction is what matters.
  *
- * Un ÉCHEC répond à un geste : « code incorrect », « il reste 200 DH ».
- * Il flotte, se lit, s'efface, et revient si l'on refait la même
- * erreur — posé en bas d'un formulaire, il se retrouvait hors de
- * l'écran au moment précis où il avait quelque chose à dire.
+ * A FAILURE answers a gesture: « code incorrect », « il reste 200 DH ».
+ * It floats, is read, fades, and comes back if the same mistake is made
+ * again -- placed at the bottom of a form, it ended up off-screen at the
+ * exact moment it had something to say.
  *
- * Un AVERTISSEMENT D'ÉTAT décrit ce que l'écran montre en ce moment :
- * « les pourcentages dépassent 100 ». Celui-là reste sur place, près du
- * champ fautif, et s'en va tout seul dès que c'est corrigé. Le faire
- * flotter était une erreur : une bulle ne peut pas se rétracter, alors
- * elle restait à l'écran alors que le problème était déjà réglé — et
- * elle s'affichait même au chargement, le temps que les champs se
- * remplissent.
+ * A STATE WARNING describes what the screen is showing right now: « les
+ * pourcentages dépassent 100 ». That one stays put, next to the offending
+ * field, and leaves by itself once corrected. Making it float was a
+ * mistake: a bubble cannot retract, so it stayed on screen while the
+ * problem was already fixed -- and it even appeared during loading, while
+ * the fields were still filling in.
  */
 export function Notice({ message, alert, tone = "error", className = "" }: Props) {
   return alert ? (
@@ -49,7 +48,7 @@ export function Notice({ message, alert, tone = "error", className = "" }: Props
   )
 }
 
-/** L'échec d'un geste : il rejoint la pile flottante. */
+/** A gesture's failure: it joins the floating stack. */
 function FloatingFailure({ alert, tone }: { alert: Alert; tone: Tone }) {
   const toast = useToast()
   const last = useRef<number | null>(null)
@@ -59,8 +58,8 @@ function FloatingFailure({ alert, tone }: { alert: Alert; tone: Tone }) {
       last.current = null
       return
     }
-    // Chaque levée compte, même identique à la précédente : refaire la
-    // même erreur doit se revoir.
+    // Every raise counts, even one identical to the last: making the same
+    // mistake again must be seen again.
     if (last.current === alert.signal) return
     last.current = alert.signal
     toast(alert.message, tone)
@@ -69,7 +68,7 @@ function FloatingFailure({ alert, tone }: { alert: Alert; tone: Tone }) {
   return null
 }
 
-/** L'état de l'écran : il reste tant que le problème est là. */
+/** The screen's state: it stays as long as the problem does. */
 function StandingWarning({
   message,
   tone,

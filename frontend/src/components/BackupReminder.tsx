@@ -5,19 +5,19 @@ import { apiGet } from "@/lib/api"
 import type { BackupState } from "@/lib/api"
 
 /**
- * Le rappel qui vaut mieux qu'une discipline.
+ * The reminder that beats relying on discipline.
  *
- * Emporter ses sauvegardes est un geste qu'on remet toujours à demain —
- * et le jour où l'ordinateur meurt, on a trois ans de retard.
+ * Carrying your backups away is the kind of task always put off until
+ * tomorrow -- and the day the computer dies, you are three years behind.
  *
- * Mais un avertissement permanent finit par faire partie du décor : il
- * se tait jusqu'à ce qu'il y ait vraiment de quoi perdre — trente
- * journées de travail jamais sorties d'ici. Et comme on ne
- * photographie que si la base a bougé, trente veut dire trente vraies
- * journées, pas trente ouvertures pour consulter un chiffre.
+ * But a permanent warning becomes part of the furniture: this one stays
+ * quiet until there is genuinely something to lose -- thirty working
+ * days that never left this machine. And since a snapshot is only taken
+ * when the database moved, thirty means thirty real days, not thirty
+ * openings to check a figure.
  *
- * Il vit sur le tableau de bord parce que c'est l'écran qu'on ouvre le
- * matin : un avertissement rangé dans les réglages ne serait jamais lu.
+ * It lives on the dashboard because that is the screen opened in the
+ * morning: a warning filed away in the settings would never be read.
  */
 export function BackupReminder() {
   const [state, setState] = useState<BackupState | null>(null)

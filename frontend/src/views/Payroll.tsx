@@ -1,14 +1,14 @@
-// La caisse du mois : l'argent réel.
+// The month's till: the real money.
 //
-// Un élève qui paie fait ENTRER l'argent dans la caisse — il n'atterrit dans
-// la poche de personne. Payer un professeur, la salle ou soi-même le fait
-// SORTIR : le propriétaire se paie comme il paie les autres.
+// A student paying brings money INTO the till -- it lands in nobody's
+// pocket. Paying a teacher, the salle or yourself takes it OUT: the owner
+// pays himself the way he pays the others.
 //
-// Le partage suit la règle du client : le professeur touche sur les élèves
-// INSCRITS (payés ou non), la salle uniquement sur l'argent réellement
-// encaissé, et l'académie prend ce qui reste — donc elle absorbe le manque.
-// Quand un impayé rentre plus tard, il retombe dans SON mois : la salle
-// prend son pourcentage, tout le reste va à l'académie qui avait avancé.
+// The division follows the client's rule: the teacher earns on ENROLLED
+// students (paid or not), the salle only on money actually collected, and
+// the academie takes what is left -- so it absorbs the shortfall. When an
+// impayé comes in later, it falls back into ITS month: the salle takes its
+// percentage, and all the rest goes to the academie that had fronted it.
 
 import { useCallback, useEffect, useState } from "react"
 import { FileText } from "lucide-react"
@@ -49,15 +49,15 @@ const KIND_LABEL: Record<CaisseLine["kind"], string> = {
 }
 
 export function Payroll() {
-  // La caisse se solde sur le mois ÉCOULÉ : le mois en cours n'est pas fini,
-  // alors que les étudiants, eux, paient au début du leur. Cette page a donc
-  // son propre mois, indépendant du reste de l'application.
+  // The till is settled on the ELAPSED month: the current one is not over,
+  // whereas students pay at the start of theirs. This page therefore has
+  // its own month, independent of the rest of the application.
   const [month, setMonth] = useState(() => previousMonth(currentMonth()))
   const [caisse, setCaisse] = useState<Caisse | null>(null)
   const [overview, setOverview] = useState<OverviewRow[]>([])
   const [error, setError] = useAlert()
-  // Encaisser un impayé, solder un professeur, ouvrir un profil — sans
-  // quitter la page.
+  // Collect an impayé, settle a teacher, open a profile -- without
+  // leaving the page.
   const [payTarget, setPayTarget] = useState<{
     id: number
     name: string
@@ -68,8 +68,8 @@ export function Payroll() {
   } | null>(null)
   const [studentProfile, setStudentProfile] = useState<number | null>(null)
   const toast = useToast()
-  // Null tant qu'on ne sait pas : le reçu se telecharge alors, faute de
-  // savoir ou le ranger.
+  // Null while we do not know: the receipt is then downloaded, for lack of
+  // knowing where to file it.
   const [documentsFolder, setDocumentsFolder] = useState<string | null>(null)
 
   useEffect(() => {
@@ -98,8 +98,8 @@ export function Payroll() {
     })
       .then((done) => {
         setError(null)
-        // Le papier qu'on fait signer se propose ICI : c'est maintenant
-        // que le professeur est devant vous, l'argent à la main.
+        // The paper to be signed is offered HERE: this is the moment the
+        // teacher is standing in front of you, money in hand.
         toast(
           `Versé ${formatDH(done.amount_centimes)} — ${line.name}`,
           "success",
@@ -143,8 +143,8 @@ export function Payroll() {
       })
       .catch((err: Error) => setError(err.message))
 
-  /** Le reçu d'un versement : rangé si un dossier est désigné, sinon
-      enregistré comme n'importe quel téléchargement. */
+  /** A payout's receipt: filed if a folder is set, otherwise saved like
+      any other download. */
   const receipt = (teacherId: number, payoutId: number) => {
     const href =
       `/api/teachers/${teacherId}/invoice.docx?month=${month}&payout=${payoutId}`
@@ -317,8 +317,9 @@ export function Payroll() {
                     >
                       {formatDH(line.remaining_centimes)}
                     </span>
-                    {/* Il a reçu plus que son dû : on le dit pour pouvoir
-                        le déduire — on ne reprend jamais tout seul. */}
+                    {/* He received more than he was owed: we say so in
+                        order to deduct it -- we never claw back on our
+                        own. */}
                     {line.overpaid_centimes > 0 && (
                       <div className="flex flex-col items-end gap-0.5">
                         <p
@@ -327,8 +328,8 @@ export function Payroll() {
                         >
                           payé en trop {formatDH(line.overpaid_centimes)}
                         </p>
-                        {/* Deux issues, et c'est lui qui choisit : le déduire
-                            plus tard, ou l'assumer et éteindre le rappel. */}
+                        {/* Two outcomes, and he chooses: deduct it later,
+                            or absorb it and stop the reminder. */}
                         <ConfirmButton
                           size="sm"
                           variant="ghost"

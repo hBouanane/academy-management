@@ -221,8 +221,8 @@ export function EnrollDialog({
       .then((created) => {
         setOpen(false)
         reset()
-        // Le moment d'annoncer l'inscription, c'est maintenant : la
-        // famille attend de savoir que c'est fait.
+        // Now is the moment to announce the enrollment: the family is
+        // waiting to know it is done.
         toast(
           `${studentName} inscrit(e) pour ${monthLabel(selectedMonth)}`,
           "success",

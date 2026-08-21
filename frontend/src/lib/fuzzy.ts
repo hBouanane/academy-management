@@ -1,6 +1,6 @@
-// Recherche tolérante : « bnani » trouve « Bennani », « kh ben » trouve
-// « Khadija Bennis », et les accents ne comptent pas. Tout est local — la
-// base tient en mémoire, aucun aller-retour réseau.
+// Forgiving search: « bnani » finds « Bennani », « kh ben » finds
+// « Khadija Bennis », and accents do not count. Everything is local -- the
+// database fits in memory, with no network round-trip.
 
 const normalize = (value: string) =>
   value
@@ -9,7 +9,7 @@ const normalize = (value: string) =>
     .replace(/[̀-ͯ]/g, "")
     .trim()
 
-/** Tous les caractères de `needle` apparaissent-ils dans l'ordre ? */
+/** Do all of `needle`'s characters appear, in order? */
 const subsequence = (haystack: string, needle: string): boolean => {
   let index = 0
   for (const char of haystack) {
@@ -19,14 +19,14 @@ const subsequence = (haystack: string, needle: string): boolean => {
   return needle.length === 0
 }
 
-/** 0 = aucune correspondance ; plus c'est haut, plus c'est pertinent. */
+/** 0 = no match; the higher it goes, the more relevant. */
 export function fuzzyScore(text: string, query: string): number {
   const haystack = normalize(text)
   const needle = normalize(query)
   if (!needle) return 1
   if (haystack.startsWith(needle)) return 100
   if (haystack.includes(needle)) return 80
-  // Chaque mot de la requête doit toucher un mot du texte (« kh ben »).
+  // Every word of the query must hit a word of the text (« kh ben »).
   const words = haystack.split(/\s+/)
   const parts = needle.split(/\s+/).filter(Boolean)
   if (
@@ -39,7 +39,7 @@ export function fuzzyScore(text: string, query: string): number {
   return subsequence(haystack, needle) ? 20 : 0
 }
 
-/** Filtre + trie une liste selon le texte tapé (vide = liste inchangée). */
+/** Filters and sorts a list by the typed text (empty = list unchanged). */
 export function fuzzyFilter<T>(
   items: T[],
   query: string,

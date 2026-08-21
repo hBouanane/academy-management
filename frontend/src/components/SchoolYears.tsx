@@ -9,9 +9,9 @@ import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { SchoolYear } from "@/lib/api"
 
-/** Le nom que portent les deux bornes : septembre 2020 → juin 2021 se
-    dit « 2020 - 2021 ». Une saison qui tient dans une seule année civile
-    n'a qu'un nombre à donner. */
+/** The name the two bounds carry: September 2020 to June 2021 is called
+    « 2020 - 2021 ». A season fitting inside one calendar year has only
+    one number to give. */
 function nameOfSeason(start: string, end: string): string {
   if (!start || !end) return ""
   const first = start.slice(0, 4)
@@ -20,27 +20,26 @@ function nameOfSeason(start: string, end: string): string {
 }
 
 /**
- * Les années scolaires : la saison, et le mois où elle s'arrête.
+ * School years: the season, and the month it stops.
  *
- * Les mois défilaient sans fin. Or une académie ne vit pas en mois,
- * elle vit en rentrées : on ouvre en septembre, on ferme en juin, et
- * l'été on ne compte pas les mêmes choses.
+ * Months scrolled on endlessly. But an academy does not live in months,
+ * it lives in school years: it opens in September, closes in June, and
+ * over the summer it does not count the same things.
  *
- * Le mois de fin se choisit, parce que personne d'autre que lui ne sait
- * quand SON année s'arrête — ici juin, ailleurs juillet.
+ * The end month is chosen, because nobody but him knows when HIS year
+ * stops -- June here, July elsewhere.
  *
- * Clore une année archive les élèves. On ne présume pas qu'ils
- * reviendront : celui qui revient est réinscrit comme d'habitude et
- * retrouve son histoire entière. Ce qu'une famille doit, en revanche,
- * la suit — l'argent dû ne s'efface pas parce que le calendrier a
- * tourné.
+ * Closing a year archives the students. We do not presume they will
+ * return: whoever comes back is re-enrolled as usual and finds his whole
+ * history. What a family owes, by contrast, follows it -- money due does
+ * not disappear because the calendar turned.
  */
 export function SchoolYears({ onError }: { onError: (message: string) => void }) {
   const [years, setYears] = useState<SchoolYear[]>([])
   const [name, setName] = useState("")
-  // Tant qu'il n'a rien écrit lui-même, le nom suit les mois qu'il
-  // choisit. Dès qu'il en écrit un, on cesse de le corriger — sinon on
-  // effacerait sous ses doigts le nom qu'il vient de taper.
+  // Until he writes one himself, the name follows the months he picks.
+  // The moment he writes one, we stop correcting it -- otherwise we would
+  // erase, under his fingers, the name he has just typed.
   const [named, setNamed] = useState(false)
   const [start, setStart] = useState("")
   const [end, setEnd] = useState("")
@@ -73,8 +72,8 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
       .catch((err: Error) => onError(err.message))
   }
 
-  /** Une borne déplacée. On repart de la liste : si le serveur a refusé
-      (une fin avant le début), le champ retrouve sa valeur d'avant. */
+  /** A bound moved. We reload the list: if the server refused (an end
+      before the start), the field returns to its previous value. */
   const moveEdge = async (
     year: SchoolYear,
     edge: "start_month" | "end_month",
@@ -140,9 +139,9 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
           key={year.id}
           className="border-border flex flex-wrap items-center gap-3 rounded-md border px-3 py-2"
         >
-          {/* Rien n'est grave ici : l'année posée à l'installation est
-              une proposition, pas une décision. Son nom et ses bornes se
-              corrigent, et si elle ne sert à rien elle s'efface. */}
+          {/* Nothing here is grave: the year placed at installation is a
+              suggestion, not a decision. Its name and its bounds can be
+              corrected, and if it serves no purpose it can be deleted. */}
           <Input
             className="h-8 w-40 font-medium"
             defaultValue={year.name}

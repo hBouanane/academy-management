@@ -44,8 +44,8 @@ def absence_sheet(conn: sqlite3.Connection, class_id: int, month: str) -> bytes:
     ).fetchall()
 
     document = Document()
-    # Pas de « Groupe A » : une classe se nomme par sa matière et son
-    # créneau, ses jumelles se distinguent par leur professeur.
+    # No « Groupe A »: a class is named by its subject and its slot, and
+    # its twins are told apart by their teacher.
     document.add_heading(f"Liste d'absence — {facts['subject_name']}", level=1)
     document.add_paragraph(_segment_line(facts))
     document.add_paragraph(

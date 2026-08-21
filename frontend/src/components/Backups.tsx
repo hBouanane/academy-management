@@ -8,17 +8,17 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { BackupState } from "@/lib/api"
 
 /**
- * Emporter ses sauvegardes.
+ * Carrying the backups away.
  *
- * Une copie de l'académie est prise à chaque fermeture, toute seule, sur
- * cet ordinateur. Elle sauve d'une fausse manœuvre — pas d'un portable
- * volé, noyé ou mort.
+ * A copy of the academy is taken at every close, by itself, on this
+ * computer. It saves you from a slip of the hand -- not from a laptop
+ * stolen, drowned or dead.
  *
- * Exiger une clé branchée en permanence ne marcherait pas : personne ne
- * la laisse là, et une copie automatique qui échoue en silence est le
- * pire des filets, celui auquel on croit. D'où un geste : il branche
- * quand il y pense, il clique, tout part. L'application retient où, et
- * le lui rappelle quand ça traîne.
+ * Requiring a stick to stay plugged in would not work: nobody leaves one
+ * there, and an automatic copy that fails silently is the worst kind of
+ * safety net, the kind you believe in. Hence a deliberate act: he plugs
+ * it in when he thinks of it, he clicks, everything goes. The app
+ * remembers where, and reminds him when it has been too long.
  */
 export function Backups({ onError }: { onError: (message: string) => void }) {
   const [state, setState] = useState<BackupState | null>(null)

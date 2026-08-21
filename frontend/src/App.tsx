@@ -85,12 +85,12 @@ function App() {
   const [month, setMonth] = useState(currentMonth())
   const { dark, toggle } = useTheme()
   const lock = useLock()
-  // Le profil d'un professeur est une page, pas une fenetre : il prend
-  // la place du contenu et laisse la barre de gauche en place.
+  // A teacher's profile is a page, not a window: it takes the place of
+  // the content and leaves the sidebar where it is.
   const teacher = useTeacherRoute()
 
-  // Tant que le verrou n'a pas répondu, on n'affiche rien : montrer
-  // l'académie une demi-seconde avant de la cacher serait pire que tout.
+  // Until the lock has answered we show nothing: flashing the academy
+  // for half a second before hiding it would be worse than anything.
   if (lock.state === null) return null
   if (!lock.open) return <LockScreen onOpened={lock.opened} />
 
@@ -140,8 +140,8 @@ function App() {
           {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
           {dark ? "Mode clair" : "Mode sombre"}
         </Button>
-        {/* Quitter le bureau une minute ne devrait pas demander
-            d'attendre la minuterie. */}
+        {/* Stepping away from the desk for a minute should not mean
+            waiting out the timer. */}
         {lock.state.configured && (
           <Button
             variant="ghost"
@@ -174,7 +174,7 @@ function App() {
             {view === "reports" && (
               <Reports month={month} setMonth={setMonth} />
             )}
-            {/* La caisse a son propre mois : le mois écoulé, pas celui en cours. */}
+            {/* The till has its own month: the elapsed one, not the current. */}
             {view === "payroll" && <Payroll />}
             {view === "students" && (
               <Students month={month} setMonth={setMonth} />

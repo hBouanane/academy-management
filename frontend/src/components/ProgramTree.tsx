@@ -115,8 +115,8 @@ function NodeRow({
   onError: (message: string) => void
 }) {
   const [draft, setDraft] = useState("")
-  // La matière créée à l'instant : elle pulse le temps qu'on la repère
-  // parmi les autres, sinon on croit que rien ne s'est passé.
+  // The matière just created: it pulses long enough to be spotted among
+  // the others, otherwise you think nothing happened.
   const [justAdded, setJustAdded] = useState<number | null>(null)
   const field = useRef<HTMLInputElement>(null)
   const toast = useToast()
@@ -152,7 +152,7 @@ function NodeRow({
       setDraft("")
       setJustAdded(id)
       toast(`Matière « ${name} » ajoutée${node.label ? ` — ${node.label}` : ""}`)
-      // Le champ garde la main : on en ajoute plusieurs de suite.
+      // The field keeps focus: several are added one after another.
       field.current?.focus()
       onGrown()
       onToggle([{ key: slotKey(coords, id), subjectId: id }], true)

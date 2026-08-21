@@ -1,8 +1,9 @@
-// Une confirmation qui passe : l'argent bouge, l'app le dit, ça s'efface.
+// A confirmation that passes through: money moves, the app says so, it
+// fades.
 //
-// Sans ça, encaisser referme simplement la fenêtre — on doute d'avoir
-// cliqué. Le vert dit « c'est fait », le rouge reste réservé aux vrais
-// échecs (une alerte permanente en rouge finit par ne plus alerter).
+// Without it, taking a payment simply closes the window -- and you doubt
+// you clicked. Green says « it is done »; red stays reserved for genuine
+// failures (a permanent red alert ends up alerting nobody).
 
 import { createContext, useCallback, useContext, useState } from "react"
 import { Check, Info, TriangleAlert, X } from "lucide-react"
@@ -12,13 +13,13 @@ type Toast = {
   id: number
   message: string
   tone: Tone
-  /** Le rattrapage : « Enregistrer ailleurs… » APRÈS coup, plutôt qu'un
-      second bouton qui reposerait la question avant chaque geste. */
+  /** The catch-up: « Enregistrer ailleurs… » AFTER the fact, rather than a
+      second button that would re-ask the question before every gesture. */
   action?: { label: string; run: () => void }
 }
 
-// Un echec reste plus longtemps qu'une confirmation : il y a quelque
-// chose a lire et souvent a corriger.
+// A failure stays longer than a confirmation: there is something to read
+// and often something to correct.
 const LIVES: Record<Tone, number> = {
   success: 3500,
   error: 7000,
@@ -55,8 +56,8 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
     setToasts((current) => [...current, { id, message, tone, action }])
     window.setTimeout(
       () => setToasts((current) => current.filter((entry) => entry.id !== id)),
-      // Une bulle qui PROPOSE quelque chose doit rester le temps qu'on
-      // s'en saisisse : trois secondes suffisent à lire, pas à décider.
+      // A bubble that OFFERS something must stay long enough to be taken
+      // up: three seconds is enough to read, not to decide.
       action ? 9000 : LIVES[tone],
     )
     },

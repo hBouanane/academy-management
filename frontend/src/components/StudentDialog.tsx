@@ -351,10 +351,10 @@ export function StudentDialog({
   )
 }
 
-/** Déjà venu ? — recherche tolérante sur TOUS les élèves, archivés compris.
-    Un élève qui revient après deux ans se retrouve ici avec ses impayés :
-    on le réactive au lieu d'en créer un doublon, et on sait quoi lui
-    réclamer avant de le réinscrire. */
+/** Been here before? -- a forgiving search across ALL students, archived
+    included. A student returning after two years is found here with his
+    impayés: we reactivate him instead of creating a duplicate, and we know
+    what to ask him for before re-enrolling him. */
 function ReturningStudent({
   query,
   onRestored,

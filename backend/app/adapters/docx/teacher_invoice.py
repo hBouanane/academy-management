@@ -1,13 +1,14 @@
-"""La fiche de paie d'un professeur, en Word — imprimable et signable.
+"""A teacher's payslip, in Word -- printable and signable.
 
-Elle dit ce qu'il a gagné classe par classe, ce qui lui a déjà été versé
-et ce qui reste, puis laisse deux lignes de signature. Le dû vient des
-élèves INSCRITS (payés ou non) : le professeur a enseigné, il est payé.
+It states what he earned class by class, what has already been paid to
+him and what remains, then leaves two signature lines. What is owed
+comes from ENROLLED students, paid or not: the teacher taught, so the
+teacher is paid.
 
-Sortie AU MOMENT DE PAYER, elle devient un reçu : elle porte alors le
-versement — sa date et son montant — en haut, avant le détail. C'est
-celle-là qu'on fait signer, parce qu'elle atteste de ce qui vient
-d'être remis.
+Produced AT THE MOMENT OF PAYING, it becomes a receipt: it then carries
+the payout -- its date and its amount -- at the top, before the
+breakdown. That is the one to be signed, because it attests to what has
+just been handed over.
 """
 
 import sqlite3
@@ -53,17 +54,18 @@ def teacher_invoice(
     due = line["due_centimes"] if line else 0
     paid = line["paid_centimes"] if line else 0
     payout = _payout(conn, payout_id, teacher_id) if payout_id else None
-    # Le détail vient de la MÊME source que le total : ce qui est dû,
-    # classe par classe. Deux calculs différents donneraient deux vérités.
+    # The breakdown comes from the SAME source as the total: what is
+    # owed, class by class. Two separate computations would give two
+    # truths.
     per_class = teacher_class_dues(conn, academy["id"], teacher_id, month)
 
     document = Document()
 
-    # Un reçu se signe et se partage : une moitié reste à l'académie,
-    # l'autre part avec le professeur. Une seule feuille, un trait au
-    # milieu — c'est ce qu'on fait au comptoir, et ça évite d'imprimer
-    # deux fois. La fiche du mois, elle, ne se signe pas : un exemplaire
-    # suffit.
+    # A receipt is signed and split: one half stays with the academie,
+    # the other leaves with the teacher. One sheet, a line down the
+    # middle -- that is what happens at the counter, and it avoids
+    # printing twice. The plain monthly sheet is not signed: one copy is
+    # enough.
     copies = ("Exemplaire académie", "Exemplaire professeur") if payout else (None,)
     for index, whose in enumerate(copies):
         if index:
@@ -80,7 +82,7 @@ def teacher_invoice(
 
 
 def _cut_line(doc) -> None:
-    """Là où passent les ciseaux."""
+    """Where the scissors go."""
     doc.add_paragraph()
     line = doc.add_paragraph("\u2702 " + "- " * 40)
     line.runs[0].font.size = Pt(8)
@@ -88,7 +90,7 @@ def _cut_line(doc) -> None:
 
 
 def _one_copy(doc, profile, month, academy, payout, per_class, due, paid) -> None:
-    """Le contenu, écrit une fois — et imprimé deux quand on le signe."""
+    """The content, written once -- and printed twice when it is signed."""
     doc.add_heading(
         ("Reçu de versement — " if payout else "Fiche de paie — ") + month_label(month),
         level=1,
@@ -99,8 +101,8 @@ def _one_copy(doc, profile, month, academy, payout, per_class, due, paid) -> Non
         + (f"    Téléphone : {profile['phone']}" if profile["phone"] else "")
     )
 
-    # Ce qu'on vient de lui remettre, avant tout le reste : c'est la
-    # raison d'être du papier qu'il signe.
+    # What has just been handed to him, before anything else: it is the
+    # reason the paper he signs exists.
     if payout:
         doc.add_paragraph()
         paragraph = doc.add_paragraph()

@@ -1,9 +1,9 @@
 // The guided departure: a teacher who still teaches cannot just vanish.
-// Every class he holds gets an explicit fate — bulk-selectable:
-//   Remplacer            → dated handover, the money follows the days;
-//   Sans professeur      → the class survives, loudly vacant, escrow to
-//                          l'académie until someone is named;
-//   Archiver la classe   → no teacher will come: students leave it, paid
+// Every class he holds gets an explicit fate -- bulk-selectable:
+//   Remplacer            -> dated handover, the money follows the days;
+//   Sans professeur      -> the class survives, loudly vacant, escrow to
+//                          l'academie until someone is named;
+//   Archiver la classe   -> no teacher will come: students leave it, paid
 //                          ones get their refund percentage.
 // Only then is the teacher archived.
 
@@ -77,8 +77,8 @@ export function ArchiveTeacherDialog({
   const [bulkSuccessor, setBulkSuccessor] = useState<string>("")
   const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
-  // Les lignes qu'on vient de changer en lot : elles s'éclairent une
-  // seconde, sinon on clique sans savoir si quelque chose a bougé.
+  // The rows just changed in bulk: they light up for a second,
+  // otherwise you click without knowing whether anything moved.
   const [justApplied, setJustApplied] = useState<Set<number>>(new Set())
   const toast = useToast()
 
@@ -135,8 +135,8 @@ export function ArchiveTeacherDialog({
     }
   }
 
-  /** Ce que le bouton fera, écrit en toutes lettres — « Appliquer » ne
-      disait ni à quoi ni à combien. */
+  /** What the button will do, spelled out -- « Appliquer » said neither
+      to what nor to how many. */
   const bulkSummary = () => {
     const many = `${checked.size} classe${checked.size > 1 ? "s" : ""}`
     if (bulkAction === "vacate") return `Laisser ${many} sans professeur`
@@ -157,14 +157,14 @@ export function ArchiveTeacherDialog({
         action: bulkAction,
         successorId: bulkSuccessor ? Number(bulkSuccessor) : null,
       })
-    // La sélection a servi : on la relâche, sinon le geste suivant
-    // repartirait sur les mêmes lignes sans qu'on l'ait voulu.
+    // The selection has served its purpose: we release it, otherwise the
+    // next gesture would start again on the same rows unintentionally.
     setChecked(new Set())
     setJustApplied(touched)
     toast(bulkSummary())
   }
 
-  /** Le cas courant : quelqu'un reprend TOUT ce qu'il enseignait. */
+  /** The common case: somebody takes over EVERYTHING he was teaching. */
   const handEverythingTo = (successorId: number) => {
     for (const row of classes)
       setDecision(row.id, { action: "replace", successorId })
@@ -240,8 +240,8 @@ export function ArchiveTeacherDialog({
           anciens mois continueront de lui revenir quand ils seront encaissés.
         </p>
         <div className="space-y-4">
-          {/* Le cas le plus courant en un geste : quelqu'un reprend tout.
-              Sinon, chaque classe garde sa propre décision plus bas. */}
+          {/* The commonest case in one gesture: somebody takes it all.
+              Otherwise each class keeps its own decision below. */}
           {classes.length > 0 && successors.length > 0 && (
             <div className="border-border flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3">
               <span className="text-sm font-medium">
@@ -296,9 +296,9 @@ export function ArchiveTeacherDialog({
             </label>
           )}
 
-          {/* La barre ne sort que quand il y a de quoi agir, et elle dit
-              ce qu'elle fera : « Appliquer » ne disait ni à quoi, ni à
-              combien. Une fois fait, la sélection se relâche. */}
+          {/* The bar appears only when there is something to act on, and
+              it says what it will do: « Appliquer » said neither to what
+              nor to how many. Once done, the selection is released. */}
           {classes.length > 1 && checked.size > 0 && (
             <div className="border-primary/40 bg-primary/5 flex flex-wrap items-center gap-2 rounded-xl border p-2.5">
               <span className="text-sm font-medium">

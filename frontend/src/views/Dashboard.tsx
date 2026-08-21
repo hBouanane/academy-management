@@ -117,7 +117,7 @@ export function Dashboard({ month, setMonth }: Props) {
       matchesLevelFilter(filter, row),
   )
   const paging = usePagination(filtered)
-  // La famille qu'on s'apprête à prévenir, ou personne.
+  // The family we are about to notify, or nobody.
   const [writing, setWriting] = useState<{
     studentId: number
     studentName: string
@@ -136,8 +136,9 @@ export function Dashboard({ month, setMonth }: Props) {
       </header>
 
       <Notice alert={error} />
-      {/* Emporter ses sauvegardes se remet toujours a demain : le rappel
-          vit ici parce que c'est l'ecran qu'on ouvre le matin. */}
+      {/* Carrying the backups away is always put off until tomorrow: the
+          reminder lives here because this is the screen opened in the
+          morning. */}
       <BackupReminder />
 
       <section className="grid gap-4 lg:grid-cols-3">
@@ -466,7 +467,8 @@ function StudentRow({
             <Badge className="bg-success/15 text-success border-success/20 border">
               Payé
             </Badge>
-            {/* Classe archivée sous lui : il attend son argent, ou l'a reçu. */}
+            {/* A class archived under him: he is waiting for his money, or
+                has received it. */}
             {enrollment.refund_pending_centimes > 0 && (
               <Badge variant="destructive" title="Classe archivée — à lui rendre">
                 à rembourser {formatDH(enrollment.refund_pending_centimes)}
@@ -492,9 +494,9 @@ function StudentRow({
         )}
       </TableCell>
       <TableCell className="space-x-2 text-right">
-        {/* Prevenir la famille : l'application connait le mois, les
-            classes et le montant -- recopier tout ca a la main, c'est se
-            tromper un jour sur dix. */}
+        {/* Telling the family: the application knows the month, the
+            classes and the amount -- retyping all that by hand means
+            getting it wrong one day in ten. */}
         {enrollment && (
           <Button
             size="sm"

@@ -1,8 +1,8 @@
-"""Les libellés imprimés sur les documents remis en main propre.
+"""The labels printed on documents handed over in person.
 
-Ils doivent dire exactement ce que l'écran dit : « 1ère année » et non
-« 1ème », et au Lycée « Tronc commun / 1ère Bac / 2ème Bac » plutôt qu'un
-numéro d'année que personne n'emploie.
+They must say exactly what the screen says: « 1ère année » and not
+« 1ème », and at Lycée « Tronc commun / 1ère Bac / 2ème Bac » rather than
+a year number nobody uses.
 """
 
 MONTHS_FR = (
@@ -36,7 +36,7 @@ def annee_label(level_name: str, annee: int | None) -> str | None:
 
 
 def segment_label(row) -> str:
-    """Niveau · année · parcours · filière — dans cet ordre, sans les vides."""
+    """Level, année, parcours, filière -- in that order, empties dropped."""
     parts = [row["level_name"]]
     annee = annee_label(row["level_name"], row["annee"])
     if annee:

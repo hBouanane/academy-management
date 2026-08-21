@@ -1,22 +1,22 @@
-"""Joindre une famille : la règle, sans le réseau.
+"""Reaching a family: the rule, without the network.
 
-Un numéro se note comme on le dit — « 06 61 23 45 67 » — et WhatsApp,
-lui, ne connaît que la forme internationale, sans espace ni zéro
-national. La conversion appartient ici : c'est une règle, pas une
+A number is written the way it is spoken — « 06 61 23 45 67 » — while
+WhatsApp only knows the international form, with no spaces and no
+national zero. The conversion belongs here: it is a rule, not a
 technique.
 """
 
-# L'académie est marocaine ; un numéro noté « 06… » est marocain. Un
-# numéro déjà international garde le sien, quel qu'il soit.
+# The academy is Moroccan; a number written « 06… » is Moroccan. A number
+# already in international form keeps its own, whatever it is.
 DEFAULT_COUNTRY = "212"
 
 
 def whatsapp_number(raw: str, country: str = DEFAULT_COUNTRY) -> str | None:
-    """La forme que WhatsApp attend, ou rien si ce n'en est pas un.
+    """The form WhatsApp expects, or nothing if this is not a number.
 
-    Rien vaut mieux qu'un numéro inventé : une fiche porte parfois « à
-    demander » ou « chez la voisine », et il faut le voir plutôt que
-    d'écrire à un inconnu.
+    Nothing is better than an invented number: a record sometimes reads
+    « à demander » or « chez la voisine », and that has to be visible
+    rather than turned into a message to a stranger.
     """
     international = raw.strip().startswith("+")
     digits = "".join(character for character in raw if character.isdigit())
@@ -25,6 +25,6 @@ def whatsapp_number(raw: str, country: str = DEFAULT_COUNTRY) -> str | None:
     if international:
         return digits
     if digits.startswith("0"):
-        # Zéro national : on l'échange contre l'indicatif du pays.
+        # National zero: swapped for the country code.
         return country + digits[1:]
     return digits

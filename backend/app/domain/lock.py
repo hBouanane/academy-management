@@ -1,11 +1,10 @@
-"""Le verrou : ce qui protège les chiffres d'une main de passage.
+"""The lock: what keeps the figures safe from a passing hand.
 
-Ici, aucune base et aucun réseau — seulement la règle. Un code n'est
-jamais gardé tel qu'il a été tapé : on garde de quoi le reconnaître, pas
-de quoi le relire. Et comme l'application vit hors ligne, personne ne
-peut réinitialiser quoi que ce soit à distance : la phrase de secours
-est la seule porte de sortie, d'où le soin mis à la rendre notable à la
-main.
+No database and no network here — only the rule. A code is never kept as
+it was typed: we keep enough to recognise it, not enough to read it
+back. And since the application lives offline, nobody can reset anything
+remotely: the recovery phrase is the only way back in, which is why care
+was taken to make it writable by hand.
 """
 
 import hashlib
@@ -13,16 +12,17 @@ import hmac
 import secrets
 from dataclasses import dataclass
 
-# scrypt plutôt qu'un simple SHA : un code à quatre chiffres se devine en
-# une seconde si le calcul est rapide. Ces paramètres coûtent une
-# fraction de seconde à l'ouverture, et des années à qui essaierait tout.
+# scrypt rather than a plain SHA: a four-digit code is guessed in a
+# second when the computation is fast. These parameters cost a fraction
+# of a second on opening, and years to anyone trying every combination.
 _COST = 2**14
 _BLOCK_SIZE = 8
 _PARALLELISM = 1
 _KEY_LENGTH = 32
 
-# Des mots courts, sans accent ni piège d'orthographe : la phrase se
-# recopie sur un bout de papier, puis se retape des mois plus tard.
+# Short words, no accents, no spelling traps: the phrase gets copied
+# onto a scrap of paper, then typed back months later. They stay French
+# -- the owner is the one writing them down.
 _WORDS = (
     "arbre",
     "bateau",
@@ -99,30 +99,30 @@ _WORDS = (
 
 @dataclass(frozen=True)
 class Secret:
-    """Ce qu'on garde d'un code : de quoi le reconnaître, rien de plus."""
+    """What we keep of a code: enough to recognise it, nothing more."""
 
     salt: str
     digest: str
 
 
 def seal(code: str) -> Secret:
-    """Sceller un code — chaque scellement tire son propre sel, pour que
-    deux académies au même code ne se ressemblent pas."""
+    """Seal a code -- each sealing draws its own salt, so that two
+    academies sharing a code do not look alike."""
     salt = secrets.token_hex(16)
     return Secret(salt=salt, digest=_digest(code, salt))
 
 
 def matches(code: str, secret: Secret) -> bool:
-    """Comparaison à temps constant : sinon la durée de la réponse
-    trahirait combien de caractères sont déjà justes."""
+    """Constant-time comparison: otherwise how long the answer takes
+    would betray how many characters are already right."""
     return hmac.compare_digest(_digest(code, secret.salt), secret.digest)
 
 
 def recovery_phrase(words: int = 4) -> str:
-    """La roue de secours, tirée une seule fois et jamais réaffichée.
+    """The spare wheel, drawn once and never shown again.
 
-    Quatre mots et un nombre : assez pour que personne ne la devine,
-    assez peu pour tenir sur une ligne écrite à la main.
+    Four words and a number: enough that nobody guesses it, few enough to
+    fit on a single handwritten line.
     """
     chosen = [secrets.choice(_WORDS) for _ in range(words)]
     return "-".join([*chosen, str(secrets.randbelow(90) + 10)])

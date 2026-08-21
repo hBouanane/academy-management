@@ -12,15 +12,15 @@ import type { SchoolYear, SeasonReport as Season } from "@/lib/api"
 import { formatDH } from "@/lib/money"
 
 /**
- * Le bilan d'une saison entière, pas d'un mois.
+ * A whole season's report, not a month's.
  *
- * Un mois isolé ne dit pas si l'année a été bonne : la rentrée est
- * grasse, le printemps maigre, et juillet ne compte pas. Additionner
- * les mois de la saison est la seule façon de comparer une année à la
- * précédente.
+ * One month in isolation does not say whether the year went well: the
+ * autumn intake is rich, spring is lean, and July does not count. Adding
+ * up the season's months is the only way to compare one year with the
+ * one before.
  *
- * On y lit deux choses : ce qui est entré et la part de chacun, puis ce
- * que chaque professeur a gagné sur toute l'année.
+ * Two things are read here: what came in and each party's share, then
+ * what every teacher earned across the whole year.
  */
 export function SeasonReport({
   onError,
@@ -35,7 +35,7 @@ export function SeasonReport({
     apiGet<SchoolYear[]>("/api/school-years")
       .then((listed) => {
         setYears(listed)
-        // La plus récente d'abord : c'est celle qu'il regarde.
+        // Most recent first: that is the one he is looking at.
         if (listed.length > 0) setChosen((current) => current ?? listed[0].id)
       })
       .catch((err: Error) => onError(err.message))

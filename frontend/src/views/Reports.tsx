@@ -90,9 +90,9 @@ export function Reports({ month, setMonth }: Props) {
     .filter((total) => total.kind === "teacher")
     .reduce((sum, total) => sum + total.total, 0)
   const ownerTeacher = teachers.find((teacher) => teacher.is_owner === 1)
-  // Deux casquettes, deux lectures : séparées (qui gagne quoi à quel titre)
-  // ou réunies (ce que le propriétaire emporte vraiment). Le bouton bascule
-  // de l'une à l'autre, les barres se ré-animent vers leur nouvelle valeur.
+  // Two hats, two readings: separate (who earns what, in what capacity) or
+  // combined (what the owner actually takes home). The button switches
+  // between them, and the bars re-animate towards their new value.
   const isOwnerHat = (total: BeneficiaryTotal) =>
     total.kind === "owner" ||
     (total.kind === "teacher" && total.ref_id === ownerTeacher?.id)
@@ -116,8 +116,8 @@ export function Reports({ month, setMonth }: Props) {
           ...rawTotals.filter((total) => !isOwnerHat(total)),
         ]
 
-  // Impayes et remboursements grossissent avec les rentrees : on les
-  // coupe en pages plutot que d'en faire un rouleau.
+  // Impayés and refunds grow with each intake: we cut them into pages
+  // rather than make a scroll of them.
   const owingPage = usePagination(owing, 10)
   const refundsPage = usePagination(refunds, 10)
 
@@ -143,8 +143,8 @@ export function Reports({ month, setMonth }: Props) {
       </header>
 
       <Notice alert={error} />
-      {/* Ce qui a ete range et que les chiffres ont depasse depuis :
-          nomme document par document, pas mois par mois. */}
+      {/* What was filed and has since been overtaken by the figures:
+          named document by document, not month by month. */}
       <StaleDocuments />
 
       <section className="grid gap-4 lg:grid-cols-3">
@@ -156,8 +156,8 @@ export function Reports({ month, setMonth }: Props) {
         <StatCard label="Impayés cumulés" value={totalOwed} negative />
       </section>
 
-      {/* La saison entiere, avant le detail du mois : c'est elle qui
-          dit si l'annee a ete bonne. */}
+      {/* The whole season, before the month's detail: it is what says
+          whether the year went well. */}
       <SeasonReport onError={setError} />
 
       <div className="grid gap-4 lg:grid-cols-2">

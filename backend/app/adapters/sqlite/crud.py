@@ -91,8 +91,8 @@ def _active_clause(include_inactive: bool, prefix: str = "") -> str:
 
 
 def list_subjects(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
-    """Les matières ne s'archivent pas — elles se suppriment (round 9) : plus
-    rien n'est jamais masqué ici, et chacune appartient à son niveau."""
+    """Matières are not archived -- they are deleted (round 9): nothing is
+    ever hidden here, and each one belongs to its level."""
     return _rows(
         conn,
         """
@@ -286,9 +286,9 @@ def update_class(conn: sqlite3.Connection, class_id: int, fields: dict) -> None:
 
 
 def _reopen_teaching(conn: sqlite3.Connection, class_id: int) -> None:
-    """Archiver une classe ferme la période de son professeur. La restaurer
-    doit la rouvrir — sinon sa fiche prétend qu'il a arrêté alors qu'il
-    l'enseigne toujours. Il reprend à la date de la restauration."""
+    """Archiving a class closes its teacher's period. Restoring it must
+    reopen that period -- otherwise his record claims he stopped while he
+    is still teaching it. He resumes on the restoration date."""
     row = conn.execute(
         "SELECT teacher_id FROM class_group WHERE id = ?", (class_id,)
     ).fetchone()
@@ -453,10 +453,10 @@ def list_capabilities(conn: sqlite3.Connection, academy_id: int) -> list[dict]:
 def replace_teacher(
     conn: sqlite3.Connection, class_id: int, date: str, successor_id: int
 ) -> None:
-    """Dated handover to ONE professor — une classe, un professeur. La
-    répartition de l'argent suit les jours enseignés de part et d'autre de
-    `date`, et le partant continue de toucher ses anciens mois quand ils
-    sont enfin encaissés."""
+    """Dated handover to ONE professor -- une classe, un professeur. The money
+    is split by days taught on either side of `date`, and the departing
+    teacher keeps earning on his older months when those are finally
+    collected."""
     from datetime import date as date_type
     from datetime import timedelta
 
@@ -1330,11 +1330,11 @@ def _teacher_class_earnings(
     """Attribute the teacher's ledger lines to his classes: each payment's
     line is split across the classes he taught within that enrollment.
 
-    Une avance versee au prof avant que la famille paie n'a pas de
-    paiement -- il n'existe pas encore -- mais elle porte l'inscription.
-    Exiger le paiement faisait disparaitre l'avance du detail tout en y
-    laissant son annulation : la colonne « Gagne » annoncait alors moins
-    que le total du mois ecrit juste au-dessus.
+    An advance paid to the teacher before the family pays has no payment
+    attached -- none exists yet -- but it does carry the enrollment.
+    Requiring the payment made the advance vanish from the breakdown while
+    leaving its cancellation in it: the « Gagné » column then announced
+    less than the monthly total written just above.
     """
     earnings = dict.fromkeys(class_ids, 0)
     lines = conn.execute(
@@ -1468,8 +1468,8 @@ def _teacher_dues(
 def teacher_class_dues(
     conn: sqlite3.Connection, academy_id: int, teacher_id: int, month: str
 ) -> dict[int, int]:
-    """Le dû d'un professeur, classe par classe — la même somme que le total
-    du mois, simplement détaillée : une fiche de paie doit tomber juste."""
+    """What a teacher is owed, class by class -- the same sum as the monthly
+    total, merely broken down: a payslip has to add up exactly."""
     store = SqlitePaymentStore(conn)
     dues: dict[int, int] = {}
     rows = conn.execute(
@@ -1500,11 +1500,11 @@ def _enrollment_class_dues(
     guaranteed: bool,
     paid: bool,
 ) -> dict[tuple[int, int], int]:
-    """(classe, professeur) → dû sur cette inscription.
+    """(class, teacher) -> what is owed on this enrollment.
 
-    Une garantie posée sur un mois impayé fait foi (jamais venu ne doit rien,
-    présent 15 jours doit ces jours) ; elle se répartit alors sur ses classes
-    au prorata de ce qu'elles valent."""
+    A guarantee placed on an unpaid month is authoritative (never came owes
+    nothing, present 15 days owes those days); it is then spread across his
+    classes in proportion to what they are worth."""
     from app.services.payments import teacher_parts_per_class
 
     context = store.enrollment_context(enrollment_id)
@@ -1514,7 +1514,7 @@ def _enrollment_class_dues(
     try:
         parts = teacher_parts_per_class(context)
     except ValueError:
-        return {}  # une ligne invalide ne casse pas la feuille de paie
+        return {}  # one invalid line must not break the payslip
     by_class = {
         (class_ids[index], teacher_id): amount
         for (index, teacher_id), amount in parts.items()
@@ -1522,7 +1522,7 @@ def _enrollment_class_dues(
     }
     if not (guaranteed and not paid):
         return by_class
-    # Le propriétaire a tranché : sa décision remplace le calcul.
+    # The owner has settled it: his decision replaces the computation.
     promised = dict(store.guaranteed_shares(enrollment_id))
     scaled: dict[tuple[int, int], int] = {}
     for teacher_id, total in promised.items():
@@ -1536,13 +1536,13 @@ def _enrollment_class_dues(
 
 
 def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dict:
-    """L'argent réel du mois. Ce qui est entré (élèves), ce qui est sorti
-    (versements à qui que ce soit), et ce qui reste dans la caisse.
+    """The month's real money. What came in (students), what went out
+    (payouts to anyone), and what is left in the till.
 
-    Le dû de chacun suit la règle du client :
-      professeur — sur les élèves INSCRITS, payés ou non ;
-      salle      — uniquement sur l'argent réellement encaissé ;
-      académie   — ce qui reste, donc elle absorbe tout le manque.
+    What each party is owed follows the client's rule:
+      teacher  -- on ENROLLED students, paid or not;
+      salle    -- only on money actually collected;
+      academie -- whatever remains, so it absorbs every shortfall.
     """
     from app.adapters.sqlite.reports import _cash_in
 
@@ -1581,9 +1581,9 @@ def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dic
     owner_line["remaining_centimes"] = max(owner_due - owner_line["paid_centimes"], 0)
     owner_line["overpaid_centimes"] = max(owner_line["paid_centimes"] - owner_due, 0)
 
-    # Un professeur archivé en cours de mois doit quand même être payé pour
-    # ce qu'il a enseigné : on liste les actifs ET tous ceux à qui il reste
-    # quelque chose — sinon la somme des lignes ne ferait pas la caisse.
+    # A teacher archived mid-month must still be paid for what he taught:
+    # we list the active ones AND everyone still owed something --
+    # otherwise the lines would not add up to the till.
     for teacher in _rows(
         conn,
         """
@@ -1608,8 +1608,8 @@ def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dic
         entry["remaining_centimes"] = max(
             entry["due_centimes"] - entry["paid_centimes"], 0
         )
-        # Versé plus que dû : une réduction ou un remboursement est
-        # passé APRÈS le versement. On le montre, on ne le reprend pas.
+        # Paid more than owed: a reduction or a refund landed AFTER the
+        # payout. We show it; we never claw it back.
         entry["overpaid_centimes"] = max(
             entry["paid_centimes"] - entry["due_centimes"], 0
         )
@@ -1660,8 +1660,8 @@ def _caisse_line(
         "due_centimes": 0,
         "paid_centimes": sum(payout["amount_centimes"] for payout in payouts),
         "remaining_centimes": 0,
-        # Versé de plus que le dû — arrive quand une réduction ou un
-        # remboursement fait baisser le dû APRÈS le versement.
+        # Paid above what was owed -- happens when a reduction or a
+        # refund lowers the amount due AFTER the payout.
         "overpaid_centimes": 0,
         # Ce que l'academie a pris a sa charge : le professeur garde
         # l'argent, le rappel s'eteint, la trace reste.
@@ -1683,8 +1683,8 @@ def _caisse_line(
 def overpaid_for(
     conn: sqlite3.Connection, academy_id: int, month: str, kind: str, ref_id: int
 ) -> int:
-    """Le trop-versé encore à régler pour ce mois : versé − dû − ce que
-    l'académie a déjà pris à sa charge."""
+    """The overpayment still outstanding for this month: paid - owed - what
+    the academie has already written off."""
     paid = conn.execute(
         "SELECT COALESCE(SUM(amount_centimes), 0) FROM payout"
         " WHERE academy_id = ? AND beneficiary_kind = ? AND beneficiary_id = ?"
@@ -1736,10 +1736,10 @@ def delete_overpaid_charge(conn: sqlite3.Connection, charge_id: int) -> None:
 def _previous_overpaid(
     conn: sqlite3.Connection, academy_id: int, month: str, kind: str, ref_id: int
 ) -> int:
-    """Ce qui a été versé en trop les mois PRÉCÉDENTS et reste à déduire.
+    """What was overpaid in PREVIOUS months and is still to be deducted.
 
-    On ne reprend jamais l'argent tout seul : on le rappelle, et le
-    propriétaire choisit — déduire plus tard, ou le prendre à sa charge."""
+    Money is never clawed back on its own: it is flagged, and the owner
+    chooses -- deduct it later, or write it off."""
     months = [
         row["month"]
         for row in conn.execute(
@@ -1773,9 +1773,9 @@ def _due_for(
 def _unpaid_projection(
     conn: sqlite3.Connection, academy_id: int, month: str
 ) -> tuple[int, dict]:
-    """Ce que les impayés du mois rapporteront encore : la salle prendra son
-    pourcentage, et TOUT le reste ira à l'académie — elle a déjà payé les
-    professeurs pour ces élèves-là."""
+    """What this month's impayés will still bring in: the salle will take its
+    percentage, and ALL the rest goes to the academie -- it has already
+    paid the teachers for those students."""
     store = SqlitePaymentStore(conn)
     rows = conn.execute(
         """
@@ -2001,7 +2001,7 @@ def _overview_row(conn, store, row) -> dict:
             "paid": row["payment_id"] is not None,
             "payment_id": row["payment_id"],
             "remaining_centimes": payment_remaining(conn, row["payment_id"]),
-            # Impayé mais professeur déjà payé par l'académie.
+            # Unpaid, but the teacher was already paid by the academie.
             "guaranteed_centimes": _guaranteed_total(conn, row["enrollment_id"]),
             "stopped": bool(row["stopped"]),
             **enrollment_refunds(conn, row["enrollment_id"]),
@@ -2012,8 +2012,8 @@ def _overview_row(conn, store, row) -> dict:
 
 
 def class_share(conn: sqlite3.Connection, class_id: int, month: str) -> dict | None:
-    """Qui touche quoi sur cette classe ce mois-ci : la décision du
-    propriétaire si elle existe, sinon le prorata des jours enseignés."""
+    """Who gets what on this class this month: the owner's decision when one
+    exists, otherwise pro rata by days taught."""
     if (
         conn.execute("SELECT 1 FROM class_group WHERE id = ?", (class_id,)).fetchone()
         is None
@@ -2042,7 +2042,7 @@ def class_share(conn: sqlite3.Connection, class_id: int, month: str) -> dict | N
         }
         for teacher_id, share_bp in automatic
     ]
-    # Un professeur à qui on donne une part sans avoir enseigné ce mois-là.
+    # A teacher given a share without having taught that month.
     for teacher_id, share_bp in manual.items():
         if teacher_id not in days:
             shares.append(
@@ -2065,8 +2065,8 @@ def class_share(conn: sqlite3.Connection, class_id: int, month: str) -> dict | N
 def _teaching_days(
     conn: sqlite3.Connection, class_id: int, month: str
 ) -> dict[int, int]:
-    """Combien de jours chacun a enseigné ce mois-ci (le professeur courant
-    couvre les jours que personne ne réclame)."""
+    """How many days each one taught this month (the current teacher covers
+    the days nobody claims)."""
     from calendar import monthrange
 
     current = conn.execute(
@@ -2125,9 +2125,9 @@ def clear_class_share(conn: sqlite3.Connection, class_id: int, month: str) -> No
 
 
 def enrollment_refunds(conn: sqlite3.Connection, enrollment_id: int) -> dict:
-    """Ce qui est promis à l'élève et ce qui lui a déjà été rendu : un mois
-    payé dont la classe a été archivée n'est pas juste « Payé », il attend
-    son argent."""
+    """What is promised to the student and what has already been returned to
+    him: a paid month whose class was archived is not simply « Payé » --
+    he is waiting for his money."""
     row = conn.execute(
         "SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN amount_centimes"
         " ELSE 0 END), 0) AS pending,"
@@ -2143,9 +2143,8 @@ def enrollment_refunds(conn: sqlite3.Connection, enrollment_id: int) -> dict:
 
 
 def class_profile(conn: sqlite3.Connection, class_id: int, month: str) -> dict | None:
-    """Une classe, toute son histoire : son créneau, qui l'enseigne
-    aujourd'hui, qui l'a enseignée et quand, et les élèves inscrits ce
-    mois-ci."""
+    """One class, its whole story: its slot, who teaches it today, who taught
+    it and when, and the students enrolled this month."""
     row = conn.execute(
         """
         SELECT cg.*, sub.name AS subject_name, sl.name AS level_name,
@@ -2204,15 +2203,15 @@ def _guaranteed_total(conn: sqlite3.Connection, enrollment_id: int) -> int:
 
 
 def _still_owed(payment: str) -> str:
-    """Un mois passe reste du tant qu il reste quelque chose a payer.
+    """A past month stays owed as long as anything remains to be paid.
 
-    Une avance ne solde pas le mois : elle en paie une partie. Juger sur
-    la seule existence d un paiement faisait disparaitre le reste --
-    100 DH verses sur 300 et la famille passait pour en regle.
+    An advance does not settle the month: it pays part of it. Judging on
+    the mere existence of a payment made the remainder disappear -- 100 DH
+    paid against 300 and the family passed for settled.
 
-    Ecrite ici une fois, et pas recopiee : trois copies de cette regle
-    ont deja diverge, et trois ecrans donnaient trois reponses sur la
-    meme famille.
+    Written here once, and not copied: three copies of this rule had
+    already drifted apart, and three screens gave three answers about the
+    same family.
     """
     return f"""
         {payment}.id IS NULL
@@ -2228,9 +2227,9 @@ def payment_remaining(conn: sqlite3.Connection, payment_id: int | None) -> int:
     0 for a complete payment; 0 too when nothing was paid (that is an
     impayé, not an avance).
 
-    Même formule que `_still_owed`, qui la pose en SQL pour les écrans
-    qui comptent des mois plutôt que des dirhams. Changer l'une sans
-    l'autre remettrait deux écrans en désaccord sur la même famille.
+    Same formula as `_still_owed`, which states it in SQL for the screens
+    that count months rather than dirhams. Changing one without the other
+    would put two screens back in disagreement about the same family.
     """
     if payment_id is None:
         return 0
@@ -2337,8 +2336,8 @@ def write_lock(
     recovery: lock.Secret,
     auto_lock_minutes: int = 5,
 ) -> None:
-    """Poser le verrou, ou le reposer entièrement — c'est le même geste
-    qu'on vienne de l'installer ou qu'on se soit servi de la phrase."""
+    """Set the lock, or set it again from scratch -- the same gesture whether
+    it has just been installed or the recovery phrase has just been used."""
     with _transaction(conn):
         conn.execute(
             "INSERT INTO app_lock (id, code_salt, code_digest, recovery_salt,"
@@ -2358,8 +2357,8 @@ def write_lock(
 
 
 def set_code(conn: sqlite3.Connection, code: lock.Secret) -> None:
-    """Changer le code sans toucher à la phrase de secours : elle a été
-    notée sur papier, elle ne doit pas se périmer sous la main."""
+    """Change the code without touching the recovery phrase: it was written
+    down on paper, and must not expire under the owner's hand."""
     with _transaction(conn):
         conn.execute(
             "UPDATE app_lock SET code_salt = ?, code_digest = ? WHERE id = 1",

@@ -67,7 +67,7 @@ def split_payment(
             subject_teachers=subject_teachers,
             teacher_weights=teacher_weights,
         )
-    # Une seule repartition pour tout : le calcul d avant, au centime.
+    # A single split for everything: the earlier computation, to the centime.
     policy = subject_policies[0] if subject_policies else policy
     venue_amount = percent_of(amount, policy.venue_bp)
     owner_amount = percent_of(amount, policy.owner_bp)

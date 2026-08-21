@@ -23,8 +23,8 @@ class SqlitePaymentStore:
 
     @property
     def connection(self) -> sqlite3.Connection:
-        """Pour les calculs qui vivent deja ailleurs : mieux vaut leur
-        preter la connexion que recopier leur formule."""
+        """For computations that already live elsewhere: better to lend
+        them the connection than to copy their formula."""
         return self._conn
 
     def enrollment_context(self, enrollment_id: int) -> EnrollmentContext | None:
@@ -65,10 +65,10 @@ class SqlitePaymentStore:
     def _subject_splits(
         self, class_ids: list[int], academy_id: int
     ) -> tuple[tuple[int, int], ...]:
-        """La repartition qui s applique a chaque classe, aujourd hui.
+        """The split that applies to each class, today.
 
-        Resolue au moment du paiement, puis figee dans le registre : une
-        regle changee demain ne rejuge pas un mois deja encaisse.
+        Resolved at the moment of payment, then frozen in the ledger: a
+        rule changed tomorrow does not re-judge a month already collected.
         """
         from app.services.splits import split_for_class
 
@@ -135,8 +135,8 @@ class SqlitePaymentStore:
     def _month_teacher_weights(
         self, class_id: int, current_teacher: int | None, month: str
     ) -> tuple[tuple[int | None, int], ...]:
-        # Le propriétaire a tranché lui-même pour ce mois : sa décision passe
-        # avant le calcul aux jours.
+        # The owner settled this month himself: his decision comes
+        # before the day-by-day computation.
         manual = self._conn.execute(
             "SELECT teacher_id, share_bp FROM class_month_share"
             " WHERE class_id = ? AND month = ? AND share_bp > 0"

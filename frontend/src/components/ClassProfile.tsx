@@ -1,6 +1,6 @@
-// Une classe, toute son histoire : son créneau, qui l'enseigne aujourd'hui,
-// qui l'a enseignée et depuis quand (les reprises se lisent d'un coup
-// d'œil), et les élèves inscrits ce mois-ci avec leur état de paiement.
+// One class, its whole story: its slot, who teaches it today, who taught
+// it and since when (handovers read at a glance), and the students
+// enrolled this month with their payment state.
 
 import { useCallback, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -109,8 +109,8 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
               </div>
             </div>
 
-            {/* Combien va a la salle, a l academie, au professeur --
-                et d ou vient ce chiffre. */}
+            {/* How much goes to the salle, to the academie, to the
+                teacher -- and where that figure comes from. */}
             <ClassSplit classId={profile.id} />
 
             <ShareSection classId={profile.id} month={month} />
@@ -172,13 +172,13 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
   )
 }
 
-/** Qui touche quoi sur cette classe, ce mois-ci.
+/** Who gets what on this class, this month.
 
-    Par défaut l'app partage selon le nombre de jours enseignés — juste, et
-    automatique. Mais c'est le propriétaire qui décide : un professeur parti
-    en cours de mois a pu tout préparer, un remplaçant a pu assurer double
-    dose. Il fixe alors les parts en pourcentages (un montant figé
-    deviendrait faux dès qu'un élève s'inscrit ou qu'une réduction tombe). */
+    By default the app splits by the number of days taught -- fair, and
+    automatic. But the owner decides: a teacher who left mid-month may have
+    prepared everything, a stand-in may have done double duty. He then sets
+    the shares in percentages (a fixed amount would become wrong the moment
+    a student enrolls or a reduction lands). */
 function ShareSection({ classId, month }: { classId: number; month: string }) {
   const [share, setShare] = useState<ClassShare | null>(null)
   const [draft, setDraft] = useState<Record<number, string> | null>(null)
@@ -193,7 +193,7 @@ function ShareSection({ classId, month }: { classId: number; month: string }) {
   useEffect(reload, [reload])
 
   if (!share || share.shares.length === 0) return null
-  // Un seul professeur sur tout le mois : rien à répartir.
+  // A single teacher across the whole month: nothing to split.
   if (share.shares.length === 1 && !share.manual) return null
 
   const total = draft

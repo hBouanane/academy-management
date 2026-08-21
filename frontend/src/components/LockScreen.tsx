@@ -12,9 +12,9 @@ type Props = {
   onOpened: () => void
 }
 
-/** Trois portes, jamais montrées ensemble : le code d'un matin
-    ordinaire, la phrase notée sur papier, et le dépannage par
-    l'éditeur quand les deux premières sont perdues. */
+/** Three doors, never shown together: the code on an ordinary morning,
+    the phrase written on paper, and the vendor rescue when the first two
+    are lost. */
 type Mode = "code" | "phrase" | "editeur"
 
 const TITLES: Record<Mode, string> = {
@@ -32,15 +32,15 @@ const SUBTITLES: Record<Mode, string> = {
 }
 
 /**
- * L'écran qui garde l'académie.
+ * The screen that guards the academy.
  *
- * Un matin ordinaire n'y voit qu'un champ et un bouton. Le second
- * chemin, la phrase de secours, ne se montre que si on le demande —
- * c'est la sortie de secours d'une application sans réseau, où
- * personne ne peut réinitialiser un code à distance.
+ * An ordinary morning sees only a field and a button. The second path,
+ * the recovery phrase, appears only when asked for -- it is the emergency
+ * exit of an application with no network, where nobody can reset a code
+ * remotely.
  *
- * Poser le code se fait ailleurs, dans la page Académie : ici, la
- * porte est déjà fermée.
+ * Setting the code happens elsewhere, on the Academy page: here, the door
+ * is already shut.
  */
 export function LockScreen({ onOpened }: Props) {
   const [code, setCode] = useState("")
@@ -48,12 +48,13 @@ export function LockScreen({ onOpened }: Props) {
   const [answer, setAnswer] = useState("")
   const [mode, setMode] = useState<Mode>("code")
   const [busy, setBusy] = useState(false)
-  // Le défi à dicter à l'éditeur — absent des versions livrées sans clé.
+  // The challenge to dictate to the vendor -- absent from builds shipped
+  // without a key.
   const [rescue, setRescue] = useState<{
     available: boolean
     challenge?: string
   } | null>(null)
-  // La phrase neuve rendue par un dépannage : montrée une fois, ici.
+  // The fresh phrase returned by a rescue: shown once, here.
   const [freshPhrase, setFreshPhrase] = useState<string | null>(null)
   const [error, setError] = useAlert()
   const field = useRef<HTMLTextAreaElement>(null)
@@ -94,8 +95,8 @@ export function LockScreen({ onOpened }: Props) {
           "/api/lock/rescue",
           { answer: answer.trim(), code },
         )
-        // La phrase perdue est remplacée : il repart avec la sienne,
-        // sinon il dépendrait de l'éditeur pour toujours.
+        // The lost phrase is replaced: he leaves with his own again,
+        // otherwise he would depend on the vendor forever.
         setFreshPhrase(rescued.recovery_phrase)
         return
       }
@@ -187,8 +188,8 @@ export function LockScreen({ onOpened }: Props) {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="lock-answer">Sa réponse</Label>
-                {/* Une signature fait quatre-vingt-huit caractères :
-                    elle se colle, elle ne se tape pas. */}
+                {/* A signature is eighty-eight characters: it gets
+                    pasted, not typed. */}
                 <textarea
                   id="lock-answer"
                   ref={field}
@@ -229,8 +230,8 @@ export function LockScreen({ onOpened }: Props) {
           >
             {mode === "code" ? "Code oublié ?" : "Revenir au code"}
           </button>
-          {/* Le dernier recours : le code ET la phrase sont perdus. Il
-              n'apparaît que si cette version porte une clé d'éditeur. */}
+          {/* The last resort: both the code AND the phrase are lost. It
+              appears only if this build carries a vendor key. */}
           {rescue?.available && mode !== "editeur" && (
             <button
               type="button"

@@ -97,7 +97,7 @@ export function Students({ month, setMonth }: Props) {
     fullName,
   )
   const paging = usePagination(matching)
-  // La famille qu'on s'apprête à prévenir, ou personne.
+  // The family we are about to notify, or nobody.
   const [writing, setWriting] = useState<{ id: number; name: string } | null>(
     null,
   )
