@@ -59,33 +59,33 @@ def create_app(db_path: str, frontend_dist: Path | None = None) -> FastAPI:
 
 # Deux exceptions, et pas une de plus.
 #
-# Les routes du verrou : sans elles, on ne pourrait jamais déverrouiller.
-# Elles ne rendent que l'état du verrou et n'écrivent que si le code, la
-# phrase ou la réponse de l'éditeur sont justes.
+# The lock routes: without them, nothing could ever be unlocked. They
+# return only the lock state, and write only when the code, the phrase
+# or the vendor's answer is right.
 #
 # Le battement de coeur : la FENÊTRE l'interroge avant de s'ouvrir. Le
-# fermer rendrait l'application impossible à lancer dès qu'un code est
-# posé — elle attendrait vingt secondes puis annoncerait un serveur
-# mort. Il ne dit rien d'autre que « je réponds ».
+# closing it would make the application impossible to launch as soon as
+# a code is set -- it would wait twenty seconds, then announce a dead
+# server. It says nothing beyond "I answer".
 _ALWAYS_OPEN = ("/api/lock", "/api/health")
 
 
 def _token_of(request: Request) -> str | None:
-    """Par en-tête pour les appels de l'interface, par cookie pour les
-    téléchargements : un lien `<a download>` ne peut porter aucun
-    en-tête, et on ne met pas un jeton dans une adresse."""
+    """By header for the interface's calls, by cookie for downloads: an
+    `<a download>` link cannot carry a header, and a token has no place
+    in a URL."""
     return request.headers.get("X-Session-Token") or request.cookies.get(
         "academy_session"
     )
 
 
 async def _gate(request: Request, call_next):
-    """Le portier. Tant qu'aucun code n'est posé, il laisse tout passer —
-    une installation neuve doit pouvoir servir. Dès qu'il y en a un,
-    plus rien ne s'écrit ni ne se lit sans un jeton de session.
+    """The doorman. While no code is set he lets everything through -- a
+    fresh installation has to be usable. Once one exists, nothing is
+    written or read without a session token.
 
-    L'interface elle-même (fichiers statiques) reste servie : c'est elle
-    qui affiche l'écran de déverrouillage.
+    The interface itself (static files) keeps being served: it is what
+    displays the unlock screen.
     """
     path = request.url.path
     if not path.startswith("/api") or path.startswith(_ALWAYS_OPEN):

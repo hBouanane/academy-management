@@ -1,30 +1,30 @@
-"""Les sessions ouvertes — qui a le droit de toucher aux chiffres, là,
-maintenant.
+"""Open sessions -- who may touch the figures, right now.
 
-Rien n'est écrit sur le disque : fermer l'application referme le verrou,
-ce qui est exactement ce qu'on veut. Une session ne survit pas à
-l'extinction du poste, et un jeton oublié dans un coin ne rouvrira rien
-demain matin.
+Nothing is written to disk: closing the application closes the lock,
+which is exactly what we want. A session does not survive the machine
+being switched off, and a token forgotten in a corner will reopen
+nothing tomorrow morning.
 
-Le compteur d'échecs vit ici aussi. Un code à quatre chiffres se devine
-en une minute si on peut essayer sans fin ; chaque erreur allonge donc
-l'attente, et une pause de quelques secondes suffit à rendre le jeu
-sans intérêt sans jamais gêner celui qui se trompe une fois.
+The failure counter lives here too. A four-digit code is guessed in a
+minute if attempts are unlimited; each mistake therefore lengthens the
+wait, and a pause of a few seconds is enough to make the game pointless
+without ever hindering someone who mistypes once.
 """
 
 import secrets
 import time
 from dataclasses import dataclass, field
 
-# Après tant d'échecs d'affilée, chaque essai attend. La suite monte vite
-# mais plafonne : il ne s'agit pas de punir le propriétaire pressé.
+# After so many failures in a row, every attempt waits. The sequence
+# climbs fast but plateaus: the point is not to punish an owner in a
+# hurry.
 _PATIENCE = 3
 _DELAYS = (0, 5, 15, 30, 60)
 
 
 @dataclass
 class Sessions:
-    """Les jetons vivants, et le souvenir des échecs récents."""
+    """The live tokens, and the memory of recent failures."""
 
     tokens: set[str] = field(default_factory=set)
     failures: int = 0
@@ -46,7 +46,7 @@ class Sessions:
         self.tokens.clear()
 
     def seconds_to_wait(self) -> int:
-        """Ce qu'il reste à patienter avant d'avoir droit à un essai."""
+        """How long remains before another attempt is allowed."""
         return max(0, round(self.blocked_until - time.monotonic()))
 
     def note_failure(self) -> None:

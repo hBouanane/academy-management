@@ -1,27 +1,28 @@
-"""La porte de l'éditeur — le dernier recours, et rien de plus.
+"""The vendor's door -- the last resort, and nothing more.
 
-Le propriétaire peut tout perdre : son code, et la phrase notée sur
-papier. Hors ligne, plus personne ne peut rien pour lui — sauf celui
-qui a écrit le logiciel. D'où cette porte : l'application affiche un
-défi, l'éditeur le signe avec sa clé privée, et renvoie la signature.
+The owner can lose everything: his code, and the phrase written on
+paper. Offline, nobody can help him -- except whoever wrote the
+software. Hence this door: the application shows a challenge, the vendor
+signs it with his private key, and sends the signature back.
 
-Ce qui voyage dans la version livrée n'est que la clé PUBLIQUE. Elle
-sait vérifier une signature ; elle ne sait pas en produire. L'extraire
-de l'exécutable ne donne donc aucun pouvoir — c'est toute la différence
-avec un secret partagé, qui ouvrirait toutes les installations dès
-qu'on saurait le lire.
+What ships inside the delivered build is only the PUBLIC key. It can
+verify a signature; it cannot produce one. Extracting it from the
+executable therefore grants no power -- which is the whole difference
+from a shared secret, which would open every installation the moment
+someone could read it.
 
-Le prix est la longueur : une signature fait quatre-vingt-huit
-caractères, à envoyer par message plutôt qu'à dicter au téléphone.
+The price is length: a signature is eighty-eight characters, to be sent
+by message rather than dictated over the phone.
 
-Trois autres choses la rendent supportable :
+Three further things make it bearable:
 
-  - elle n'existe QUE si une clé publique a été déposée dans la version
-    livrée ; sans elle, ni bouton ni route ;
-  - le défi part de l'installation ET du jour : la signature d'hier ne
-    vaut plus rien, et dépanner une académie n'ouvre pas l'autre ;
-  - dépanner ne prive pas le propriétaire de sa propre porte : il
-    repart avec une phrase de secours neuve.
+  - it exists ONLY if a public key was placed in the delivered build;
+    without one, there is neither button nor route;
+  - the challenge derives from the installation AND the day: yesterday's
+    signature is worthless, and rescuing one academy does not open
+    another;
+  - rescuing does not deprive the owner of his own door: he leaves with
+    a fresh recovery phrase.
 """
 
 import base64
@@ -39,11 +40,10 @@ _KEY_FILE = "vendor_key.txt"
 
 
 def vendor_key() -> str | None:
-    """La clé publique de l'éditeur, si cette version en porte une.
+    """The vendor's public key, if this build carries one.
 
-    Elle n'est jamais dans le dépôt : elle est déposée au moment de la
-    construction, et une version sans clé n'a tout simplement pas de
-    porte de dépannage.
+    It is never in the repository: it is placed at build time, and a
+    build without a key simply has no rescue door.
     """
     from_env = os.environ.get("ACADEMY_VENDOR_KEY")
     if from_env:
@@ -58,8 +58,8 @@ def vendor_key() -> str | None:
 
 
 def _key_folders() -> list[Path]:
-    """Où chercher la clé : à côté du programme livré d'abord, puis dans
-    packaging/ pour le développement — là où l'éditeur la garde."""
+    """Where to look for the key: next to the delivered program first,
+    then in packaging/ for development -- where the vendor keeps it."""
     here = Path(__file__).resolve()
     folders = [here.parents[3], here.parents[4] / "packaging"]
     bundled = getattr(sys, "_MEIPASS", None)
@@ -69,24 +69,24 @@ def _key_folders() -> list[Path]:
 
 
 def today_stamp() -> str:
-    """Le jour, en clair. Il fait tourner le défi : la signature envoyée
-    hier ne rouvre rien aujourd'hui."""
+    """The day, in plain text. It rotates the challenge: a signature sent
+    yesterday reopens nothing today."""
     return datetime.now(UTC).strftime("%Y%m%d")
 
 
 def challenge_for(installation_id: str) -> str:
-    """Le défi affiché : court, recopiable, propre à cette installation
-    et à ce jour."""
+    """The challenge shown: short, copyable, specific to this
+    installation and this day."""
     material = f"{installation_id}:{today_stamp()}"
     digest = hashlib.sha256(material.encode()).hexdigest().upper()
     return f"{digest[:4]}-{digest[4:8]}-{digest[8:12]}"
 
 
 def answer_matches(public_key_pem: str, challenge: str, given: str) -> bool:
-    """La signature répond-elle bien à CE défi ?
+    """Does this signature actually answer THIS challenge?
 
-    Indulgente sur la forme : la réponse voyage par message et arrive
-    souvent avec un retour à la ligne ou une espace collée.
+    Lenient about shape: the answer travels by message and often arrives
+    with a line break or a stray space attached.
     """
     try:
         key = serialization.load_pem_public_key(public_key_pem.encode())
@@ -100,7 +100,7 @@ def answer_matches(public_key_pem: str, challenge: str, given: str) -> bool:
 
 
 def public_key_text(public_key: Ed25519PublicKey) -> str:
-    """La clé publique telle qu'elle est déposée dans la version livrée."""
+    """The public key exactly as placed in the delivered build."""
     return public_key.public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
