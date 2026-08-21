@@ -1,12 +1,12 @@
-"""Quelle répartition suit une classe, et d'où elle la tient.
+"""Which split a class follows, and where it gets it from.
 
-L'académie avait une répartition unique. Elle reste la référence — mais
-un professeur chevronné ne se paie pas comme un débutant, et le
-primaire ne coûte pas ce que coûte le lycée.
+The academy had a single split. It stays the reference -- but a seasoned
+teacher is not paid like a beginner, and primary does not cost what
+lycee costs.
 
-La règle la plus PRÉCISE gagne. On remonte du particulier au général et
-on s'arrête à la première trouvée : sans cela, il faudrait deviner
-laquelle de deux règles applicables l'emporte, et ce genre de devinette
+The MOST SPECIFIC rule wins. We walk from the particular to the general
+and stop at the first match: without that, one would have to guess which
+of two applicable rules prevails, and that kind of guessing
 finit toujours par surprendre quelqu'un sur une feuille de paie.
 """
 
@@ -21,8 +21,8 @@ PRECEDENCE = ("class", "teacher", "filiere", "level")
 class ResolvedSplit:
     venue_bp: int
     owner_bp: int
-    #  D'où elle vient : « class », « teacher », « filiere », « level »
-    #  ou « academy ». Le dire évite la question « pourquoi ce chiffre ? »
+    #  Where it comes from: « class », « teacher », « filiere », « level »
+    #  or « academy ». Saying so heads off "why this figure?"
     origin: str
     rule_name: str | None = None
 
@@ -30,7 +30,7 @@ class ResolvedSplit:
 def split_for_class(
     conn: sqlite3.Connection, class_id: int, academy_id: int
 ) -> ResolvedSplit:
-    """La répartition qui s'applique à cette classe, aujourd'hui."""
+    """The split that applies to this class, today."""
     row = conn.execute(
         "SELECT c.id, c.teacher_id, c.level_id, c.filiere FROM class_group c"
         " WHERE c.id = ?",
@@ -57,12 +57,11 @@ def resolve(
     level_id: int | None = None,
     filiere: str | None = None,
 ) -> ResolvedSplit:
-    """La règle qui gagne, pour une classe existante OU en train de se
-    créer.
+    """The winning rule, for a class that exists OR is being created.
 
-    Le formulaire de création peut ainsi montrer ce qui s'appliquera
-    avant que la classe existe — sans dupliquer l'ordre de priorité
-    dans l'interface, où il finirait par diverger de celui-ci.
+    The creation form can therefore show what will apply before the class
+    exists -- without duplicating the precedence order in the interface,
+    where it would eventually drift away from this one.
     """
     keys = {"class": class_id, "teacher": teacher_id, "level": level_id}
     for scope in PRECEDENCE:
@@ -116,7 +115,7 @@ def _found(
 
 
 def _academy_split(conn: sqlite3.Connection, academy_id: int) -> ResolvedSplit:
-    """Le fond de la chaîne : la répartition des réglages."""
+    """The bottom of the chain: the split from the settings."""
     row = conn.execute(
         "SELECT venue_bp, owner_bp FROM academy WHERE id = ?", (academy_id,)
     ).fetchone()

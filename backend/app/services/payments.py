@@ -58,8 +58,9 @@ def post_payment(
     apply_adjustments(allocations, [adj for _, adj in adjustments])  # bearer check
     net_amount = _net_amount(context, adjustments)
     cash = net_amount if amount is None else amount
-    # Un mois offert ne coûte rien : 0 est alors le seul montant valable.
-    # Sinon l'étudiant paie entre un centime et le net — jamais davantage.
+    # A gifted month costs nothing: 0 is then the only valid amount.
+    # Otherwise the student pays between one centime and the net -- never
+    # more.
     if amount is not None and not (
         0 <= amount <= net_amount and (amount > 0 or net_amount == 0)
     ):
@@ -121,9 +122,9 @@ def guarantee_unpaid(
     with nothing collected, the salle receives nothing. No cash moves; only
     who-earned-what does, so the month stays an impayé.
 
-    Le montant des jours enseignés n'est qu'une PROPOSITION : le
-    propriétaire décide. Il peut donner moins ce mois-ci, ou davantage —
-    c'est son argent, et lui seul connaît l'arrangement.
+    The amount for the days taught is only a SUGGESTION: the owner
+    decides. He may give less this month, or more -- it is his money, and
+    he alone knows the arrangement.
     """
     context = _context_or_raise(store, enrollment_id)
     if context.guaranteed:
@@ -150,11 +151,11 @@ def guarantee_unpaid(
 def guarantee_proposal(
     context: EnrollmentContext, present_until: str | None = None
 ) -> dict:
-    """Ce qu'on propose d'avancer, et le maximum raisonnable.
+    """What we suggest advancing, and the reasonable ceiling.
 
-    La proposition suit les jours enseignés — c'est ce que le professeur
-    a gagné. Le plafond est le prix du mois : au-delà, c'est une faute
-    de frappe, pas une générosité."""
+    The suggestion follows the days taught -- that is what the teacher
+    earned. The ceiling is the month's price: beyond it, this is a typo,
+    not generosity."""
     shares = _guaranteed_shares(context, present_until)
     return {
         "suggested_centimes": sum(amount for _, amount in shares),
@@ -171,10 +172,10 @@ def _scaled_to(
     amount: Centimes,
     context: EnrollmentContext,
 ) -> tuple[tuple[int, Centimes], ...]:
-    """Le montant voulu, réparti entre les professeurs du mois.
+    """The chosen amount, spread across this month's teachers.
 
-    Au prorata de ce qu'ils auraient touché ; à parts égales si le calcul
-    ne dit rien (élève jamais venu, mais on donne quand même).
+    In proportion to what they would have received; equally when the
+    computation says nothing (a student who never came, yet is paid for).
     """
     if amount <= 0:
         return ()
@@ -189,7 +190,7 @@ def _scaled_to(
 
 
 def _month_teachers(context: EnrollmentContext) -> tuple[int, ...]:
-    """Qui enseigne à cet élève ce mois-ci, sans doublon et dans l'ordre."""
+    """Who teaches this student this month, deduplicated and in order."""
     seen: list[int] = []
     for weights in context.teacher_weights:
         for teacher_id, _ in weights:
@@ -227,12 +228,12 @@ def _guaranteed_shares(
 def teacher_parts_per_class(
     context: EnrollmentContext,
 ) -> dict[tuple[int, int], Centimes]:
-    """(rang de la classe, professeur) → ce qu'il touche sur CETTE classe.
+    """(class index, teacher) -> what he earns on THAT class.
 
-    Même calcul que le partage global, mais sans agréger : c'est ce qui
-    permet à une fiche de paie de détailler classe par classe une somme qui
-    tombe juste. Les réductions portées par un professeur sont réparties sur
-    ses classes au prorata (largest remainder : le total reste exact)."""
+    Same computation as the overall split, but without aggregating: this
+    is what lets a payslip break a sum down class by class and still add
+    up exactly. Reductions borne by a teacher are spread across his
+    classes proportionally (largest remainder, so the total stays exact)."""
     from app.domain.money import split_equally
 
     policy = SplitPolicy(venue_bp=context.venue_bp, owner_bp=context.owner_bp)
@@ -251,7 +252,7 @@ def teacher_parts_per_class(
             else ((context.subject_teachers[index], 1),)
         )
         for teacher_id, part in _proportional_parts(entries, subject_slice):
-            if teacher_id is None:  # jours vacants : l'académie encaisse
+            if teacher_id is None:  # vacant days: the academie collects
                 continue
             raw[(index, teacher_id)] = raw.get((index, teacher_id), 0) + part
 

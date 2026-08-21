@@ -1,16 +1,16 @@
-"""L'année scolaire : une saison bornée, et rien d'autre.
+"""The school year: a bounded season, and nothing else.
 
-Ici on ne sait ni lire ni écrire : on compte des mois. Savoir quels mois
-compose une saison, et à quelle saison appartient un mois, n'a besoin
-d'aucune base de données -- et se vérifie donc sans en monter une.
+Nothing here reads or writes: it counts months. Knowing which months
+make up a season, and which season holds a given month, needs no
+database at all -- and can therefore be verified without standing one up.
 """
 
 Month = str  # 'YYYY-MM'
 
 
 def _ordinal(month: Month) -> int:
-    """Un mois devient un nombre : décembre et janvier se suivent alors
-    d'eux-mêmes, sans qu'on ait à y penser."""
+    """A month becomes a number, so December and January follow one
+    another on their own, with nobody having to think about it."""
     return int(month[:4]) * 12 + int(month[5:7]) - 1
 
 
@@ -19,20 +19,20 @@ def _month(ordinal: int) -> Month:
 
 
 def months_between(start: Month, end: Month) -> list[Month]:
-    """Tous les mois de la saison, du premier au dernier inclus.
+    """Every month of the season, first to last inclusive.
 
-    Une fin posée avant le début ne donne aucun mois plutôt qu'une
-    boucle sans terme : une saison vide se voit, un blocage non.
+    An end placed before the start yields no months rather than an
+    endless loop: an empty season is visible, a hang is not.
     """
     return [_month(o) for o in range(_ordinal(start), _ordinal(end) + 1)]
 
 
 def year_holding(years: list[dict], month: Month) -> dict | None:
-    """La saison qui contient ce mois — ou aucune.
+    """The season holding this month -- or none.
 
-    L'été n'appartient à personne quand la rentrée s'arrête en juin. Lui
-    inventer une saison ferait entrer des recettes dans un bilan qui ne
-    les attend pas.
+    Summer belongs to nobody when the school year stops in June.
+    Inventing a season for it would push takings into a report that does
+    not expect them.
     """
     for year in years:
         if year["start_month"] <= month <= year["end_month"]:

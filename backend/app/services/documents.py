@@ -1,32 +1,32 @@
-"""Les documents sortis, et ce qui les périme.
+"""Documents that were produced, and what makes them stale.
 
-Un papier imprimé est une photographie : il vieillit dès que les
-chiffres bougent. Ce module tient deux registres — ce qui a été sorti,
-et quand chaque chose a bougé pour la dernière fois — et compare.
+A printed sheet is a photograph: it ages the moment the figures move.
+This module keeps two registers -- what was produced, and when each
+thing last moved -- and compares them.
 
-La portée est tout l'intérêt. Signaler « septembre a changé » marquerait
-périmées toutes les fiches du mois pour un seul encaissement ; au bout
-de deux semaines l'avertissement ne serait plus lu. Chaque écriture dit
-donc QUI elle touche, et seuls les documents concernés remontent.
+Scope is the whole point. Announcing "September changed" would mark
+every sheet of the month stale for a single payment; after two weeks the
+warning would go unread. Each write therefore says WHO it touches, and
+only the affected documents surface.
 """
 
 import sqlite3
 from dataclasses import dataclass
 
-# datetime('now') s'arrete a la seconde : deux gestes dans la meme
-# seconde se vaudraient, et une fiche perimee juste apres avoir ete
-# sortie passerait pour fraiche.
+# datetime('now') stops at the second: two actions within the same
+# second would compare equal, and a sheet made stale immediately after
+# being produced would pass for fresh.
 _NOW = "strftime('%Y-%m-%d %H:%M:%f', 'now')"
 
-# Un tiroir par sorte de document, un dossier par mois : le classement
-# que le propriétaire ferait à la main, fait pour lui.
+# One drawer per kind of document, one folder per month: the filing the
+# owner would do by hand, done for him.
 DRAWERS = {
     "payslip": "fiches-de-paie",
     "absence": "absences",
     "excel": "rapports",
 }
 
-# À quoi se rattache chaque sorte de document.
+# What each kind of document attaches to.
 SCOPES = {"payslip": "teacher", "absence": "class", "excel": "month"}
 
 LABELS = {
@@ -49,9 +49,9 @@ class StaleDocument:
 
 
 def touch(conn: sqlite3.Connection, month: str, scopes: list[tuple[str, int]]) -> None:
-    """Dire que quelque chose a bougé, et pour qui.
+    """Record that something moved, and for whom.
 
-    Le mois entier est toujours marqué en plus de la portée précise :
+    The whole month is always marked alongside the precise scope:
     l'export Excel, lui, regarde tout le mois.
     """
     marks = {("month", 0), *scopes}
@@ -69,8 +69,8 @@ def scopes_of_enrollment(
 ) -> list[tuple[str, int]]:
     """Ce qu'une inscription touche : ses classes, et leurs professeurs.
 
-    Le professeur est concerné même sans paiement — son dû se compte sur
-    les élèves INSCRITS. Un élève de plus change sa fiche.
+    The teacher is concerned even without a payment -- what he is owed is
+    counted on ENROLLED students. One more student changes his sheet.
     """
     rows = conn.execute(
         "SELECT c.id AS class_id, c.teacher_id FROM enrollment_class ec"
@@ -102,16 +102,15 @@ def record_export(
 def stale_documents(
     conn: sqlite3.Connection, month: str | None = None
 ) -> list[StaleDocument]:
-    """Ce qui a été sorti avant que les chiffres ne bougent.
+    """What was produced before the figures moved.
 
-    Ce qui n'a jamais été sorti n'apparaît pas : on ne réclame pas un
-    document que personne n'a demandé.
+    What was never produced does not appear: we do not demand a document
+    nobody asked for.
     """
-    # La fiche de paie n'est pas un rapport : c'est un REÇU. Elle
-    # constate que 265,16 DH sont sortis de la caisse ce jour-là, et
-    # rien de ce qui arrive ensuite ne rend cela faux. Proposer de la
-    # « regénérer » produirait un second papier contredisant celui que
-    # le professeur a signé.
+    # A payslip is not a report: it is a RECEIPT. It states that
+    # 265,16 DH left the till that day, and nothing that happens
+    # afterwards makes that false. Offering to "regenerate" it would
+    # produce a second sheet contradicting the one the teacher signed.
     sql = (
         "SELECT d.kind, d.month, d.scope, d.ref_id, d.path, d.generated_at,"
         " t.touched_at FROM exported_document d"
@@ -139,7 +138,7 @@ def stale_documents(
 
 
 def _who(conn: sqlite3.Connection, scope: str, ref_id: int) -> str:
-    """Le nom derrière la portée — « Moulay Idris » vaut mieux que « 3 »."""
+    """The name behind the scope -- « Moulay Idris » beats « 3 »."""
     if scope == "teacher":
         row = conn.execute(
             "SELECT name FROM teacher WHERE id = ?", (ref_id,)
