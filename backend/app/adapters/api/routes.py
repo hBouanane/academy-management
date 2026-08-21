@@ -75,9 +75,10 @@ def _secret(row: dict, prefix: str) -> lock_rules.Secret:
 
 
 def _refuse_if_impatient(sessions) -> None:
-    """Deviner un code court est l'affaire d'une minute si l'on peut
-    essayer sans fin. La phrase de secours ouvre autant que le code :
-    les deux portes attendent donc pareil."""
+    """Guessing a short code is a minute's work if attempts are unlimited.
+    The recovery phrase opens as much as the code does: both doors
+    therefore wait alike.
+    """
     waiting = sessions.seconds_to_wait()
     if waiting > 0:
         raise HTTPException(
@@ -110,8 +111,9 @@ def lock_state(request: Request, conn: Conn) -> dict:
 
 @router.post("/lock", status_code=201)
 def pose_lock(body: CodeBody, conn: Conn) -> dict:
-    """Poser le code, une fois. La phrase de secours est rendue ICI et
-    nulle part ailleurs : c'est la seule fois où elle sera lisible."""
+    """Set the code, once. The recovery phrase is returned HERE and nowhere
+    else: this is the only time it will be readable.
+    """
     if crud.read_lock(conn) is not None:
         raise HTTPException(
             status_code=409,
@@ -132,8 +134,8 @@ def unlock(body: CodeBody, request: Request, response: Response, conn: Conn) -> 
         sessions.note_failure()
         raise HTTPException(status_code=401, detail="Code incorrect.")
     token = sessions.open()
-    # Le cookie ne sert qu'aux téléchargements, qui ne peuvent pas porter
-    # d'en-tête. Il meurt avec la fenêtre, comme la session elle-même.
+    # The cookie serves downloads only, which cannot carry a header. It
+    # dies with the window, like the session itself.
     response.set_cookie(
         "academy_session", token, httponly=True, samesite="strict", path="/"
     )
@@ -150,8 +152,9 @@ def relock(request: Request, response: Response) -> dict:
 
 @router.post("/lock/recover")
 def recover(body: RecoverBody, request: Request, conn: Conn) -> dict:
-    """La phrase notée sur papier repose un code — la seule porte de
-    sortie d'une application sans réseau."""
+    """The phrase written on paper sets a new code -- the only way back into
+    an application with no network.
+    """
     row = _lock_row(conn)
     _refuse_if_impatient(request.app.state.sessions)
     if not lock_rules.matches(body.phrase.strip().lower(), _secret(row, "recovery")):
@@ -169,9 +172,9 @@ class RescueBody(BaseModel):
 
 
 def _installation_id(conn: sqlite3.Connection) -> str:
-    """Ce qui distingue CETTE installation. Tiré une fois, gardé pour
-    toujours : c'est lui qui fait qu'un dépannage ne vaut que pour une
-    académie."""
+    """What distinguishes THIS installation. Drawn once, kept forever: it is
+    what makes a rescue valid for one academy only.
+    """
     import secrets
 
     row = conn.execute(
@@ -190,8 +193,9 @@ def _installation_id(conn: sqlite3.Connection) -> str:
 
 @router.get("/lock/rescue")
 def rescue_challenge(conn: Conn) -> dict:
-    """Le défi à lire à l'éditeur. Sans clé dans cette version, il n'y a
-    rien à montrer et le bouton ne s'affiche pas."""
+    """The challenge to read out to the vendor. With no key in this build
+    there is nothing to show, and the button does not appear.
+    """
     if vendor.vendor_key() is None:
         return {"available": False}
     return {
@@ -202,11 +206,12 @@ def rescue_challenge(conn: Conn) -> dict:
 
 @router.post("/lock/rescue")
 def rescue(body: RescueBody, request: Request, conn: Conn) -> dict:
-    """Le dernier recours : le code ET la phrase sont perdus.
+    """The last resort: both the code AND the phrase are lost.
 
-    L'éditeur dicte la réponse au défi du jour ; l'académie repart avec
-    un code neuf ET une phrase de secours neuve — dépanner ne doit pas
-    le priver de sa propre porte."""
+    The vendor dictates the answer to the day's challenge; the academy
+    leaves with a new code AND a new recovery phrase -- rescuing must not
+    deprive the owner of his own door.
+    """
     key = vendor.vendor_key()
     if key is None:
         raise HTTPException(
@@ -398,9 +403,9 @@ def subjects(conn: Conn) -> list[dict]:
 
 class SubjectCreate(BaseModel):
     name: str
-    # Obligatoire : une matière appartient à SON niveau. Sans lui elle
-    # n'apparaîtrait nulle part — c'est l'ancien « Tous niveaux » qu'on a
-    # supprimé (migration 0012).
+    # Mandatory: a matière belongs to ITS level. Without one it would
+    # appear nowhere -- this is the old « Tous niveaux » that was removed
+    # (migration 0012).
     level_id: int
 
 
@@ -503,8 +508,8 @@ class ClassPatch(BaseModel):
 
 class ReplaceTeacherBody(BaseModel):
     date: Annotated[str, StringConstraints(pattern=DATE_PATTERN)]
-    # Une classe, un professeur : la reprise se donne à quelqu'un. Deux
-    # professeurs sur le même créneau ? Dédoublez la classe.
+    # One class, one teacher: a handover goes to somebody. Two teachers on
+    # the same slot? Split the class in two.
     successor_id: int
 
 
@@ -659,8 +664,9 @@ def teacher_profile(
 
 @router.get("/classes/{class_id}/profile")
 def class_profile(class_id: int, conn: Conn, month: MonthQuery | None = None) -> dict:
-    """La fiche d'une classe : son créneau, son professeur, la succession
-    de ceux qui l'ont enseignée, et ses inscrits du mois."""
+    """One class's record: its slot, its teacher, the succession of those who
+    taught it, and this month's enrolled students.
+    """
     profile = crud.class_profile(conn, class_id, month or clock.current_month())
     if profile is None:
         raise LookupError(f"no class_group {class_id}")
@@ -679,8 +685,9 @@ class ShareBody(BaseModel):
 
 @router.get("/classes/{class_id}/share")
 def class_share(class_id: int, conn: Conn, month: MonthQuery | None = None) -> dict:
-    """La répartition entre professeurs pour ce mois : automatique (au
-    prorata des jours enseignés) ou fixée par le propriétaire."""
+    """The split between teachers for this month: automatic (pro rata by days
+    taught) or fixed by the owner.
+    """
     share = crud.class_share(conn, class_id, month or clock.current_month())
     if share is None:
         raise LookupError(f"no class_group {class_id}")
@@ -689,10 +696,11 @@ def class_share(class_id: int, conn: Conn, month: MonthQuery | None = None) -> d
 
 @router.put("/classes/{class_id}/share")
 def set_class_share(class_id: int, body: ShareBody, conn: Conn) -> dict:
-    """Le propriétaire tranche lui-même. En pourcentages : un montant figé
-    deviendrait faux dès qu'un élève s'inscrit ou qu'une réduction tombe.
-    Les mois déjà encaissés ne bougent pas — le registre ne se réécrit
-    jamais ; cela vaut pour les encaissements à venir."""
+    """The owner decides himself. In percentages: a fixed amount would become
+    wrong the moment a student enrolls or a reduction lands. Months already
+    collected do not move -- the ledger is never rewritten; this applies to
+    future collections.
+    """
     total = sum(share.share_bp for share in body.shares)
     if total != 10_000:
         raise HTTPException(
@@ -727,10 +735,11 @@ def teacher_invoice_route(
     conn: Conn,
     payout: Annotated[int | None, Query()] = None,
 ) -> Response:
-    """La fiche de paie du mois, imprimable et signable des deux côtés.
+    """The month's payslip, printable and signable on both halves.
 
-    Avec un versement désigné, elle devient le reçu de ce versement :
-    c'est celle-là qu'on fait signer au moment de payer."""
+    With a payout named, it becomes that payout's receipt: this is the one
+    signed at the moment of paying.
+    """
     import unicodedata
 
     from app.adapters.docx.teacher_invoice import teacher_invoice
@@ -739,8 +748,8 @@ def teacher_invoice_route(
     row = conn.execute(
         "SELECT name FROM teacher WHERE id = ?", (teacher_id,)
     ).fetchone()
-    # Le nom dans le fichier : dix fiches dans un dossier, on doit savoir
-    # laquelle est laquelle sans les ouvrir.
+    # The name inside the filename: ten sheets in one folder, and you
+    # must know which is which without opening them.
     ascii_name = (
         unicodedata.normalize("NFKD", row["name"]).encode("ascii", "ignore").decode()
     )
@@ -1018,11 +1027,12 @@ def overview(month: MonthPath, conn: Conn) -> list[dict]:
 
 
 def _touched(conn: sqlite3.Connection, enrollment_id: int) -> None:
-    """Dire ce que ce geste vient de perimer, nommement.
+    """State what this action has just made stale, by name.
 
-    Une seule ligne a chaque ecriture : c'est l'ecriture elle-meme qui
-    sait qui elle touche, et c'est ce qui permet de signaler JUSTE plutot
-    que de crier « ce mois a change » sur tous les documents."""
+    One line per write: the write itself knows who it touches, and that is
+    what allows a PRECISE warning rather than shouting « this month
+    changed » across every document.
+    """
     month = crud.enrollment_month(conn, enrollment_id)
     if month is None:
         return
@@ -1032,13 +1042,13 @@ def _touched(conn: sqlite3.Connection, enrollment_id: int) -> None:
 
 
 def _refile_quietly(conn: sqlite3.Connection) -> None:
-    """Refaire ce qui vient de vieillir, sans le dire.
+    """Redo what has just aged, without saying so.
 
-    Un impaye d'aout qui rentre en novembre perime l'export d'aout : on
-    le refait tout de suite plutot que de reclamer un clic. Et si ca
-    echoue -- dossier deplace, disque plein -- le geste de l'utilisateur
-    aboutit quand meme : c'est son paiement qui compte, pas notre
-    classement."""
+    An August impayé arriving in November makes August's export stale: we
+    redo it at once rather than demand a click. And if that fails -- folder
+    moved, disk full -- the user's action still completes: it is his
+    payment that matters, not our filing.
+    """
     try:
         reconcile_documents(conn)
     except Exception:  # noqa: BLE001, S110 - un rangement ne casse pas un paiement
@@ -1276,7 +1286,7 @@ class GuaranteeBody(BaseModel):
     present_until: Annotated[str, StringConstraints(pattern=DATE_PATTERN)] | None = None
     never_came: bool = False  # nothing taught, nothing owed to anyone
     stop: bool = False  # « il a arrêté » : don't carry him into next month
-    # Ce qu'on donne vraiment. Absent : ce que disent les jours enseignés.
+    # What is actually given. Absent: whatever the days taught say.
     # C'est son argent : il peut donner moins, ou davantage.
     amount_centimes: int | None = None
 
@@ -1287,10 +1297,11 @@ def guarantee_proposal(
     conn: Conn,
     present_until: Annotated[str | None, Query(pattern=DATE_PATTERN)] = None,
 ) -> dict:
-    """Ce qu'on propose de donner au professeur, et le plafond.
+    """What we suggest giving the teacher, and the ceiling.
 
-    La proposition suit les jours enseignés ; le plafond est le prix du
-    mois -- au-dela, c'est une faute de frappe, pas une generosite."""
+    The suggestion follows the days taught; the ceiling is the month's
+    price -- beyond it, this is a typo, not generosity.
+    """
     store = SqlitePaymentStore(conn)
     context = store.enrollment_context(enrollment_id)
     if context is None:
@@ -1303,9 +1314,10 @@ def guarantee_proposal(
 def _check_guarantee_amount(
     store: SqlitePaymentStore, enrollment_id: int, amount: int
 ) -> None:
-    """Un montant negatif n a pas de sens, et au-dela du prix du mois
-    c est une faute de frappe -- on ne laisse pas passer un zero de trop
-    sur une ecriture qui touche a l argent."""
+    """A negative amount makes no sense, and beyond the month's price it is a
+    typo -- we do not let one extra zero through on an entry that touches
+    money.
+    """
     if amount < 0:
         raise HTTPException(
             status_code=422, detail="Le montant ne peut pas etre negatif."
@@ -1324,8 +1336,9 @@ def _check_guarantee_amount(
 
 @router.post("/enrollments/{enrollment_id}/guarantee")
 def guarantee(enrollment_id: int, body: GuaranteeBody, conn: Conn) -> dict:
-    """Solder un impayé côté professeur : il est payé pour les jours
-    enseignés, l'académie avance — et la salle encaisse le coup avec elle."""
+    """Settle an impayé on the teacher's side: he is paid for the days taught,
+    the academie fronts it -- and the salle takes the hit with it.
+    """
     month = crud.enrollment_month(conn, enrollment_id)
     if month is None:
         raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
@@ -1404,8 +1417,9 @@ def _record_payout(
 
 @router.post("/payouts", status_code=201)
 def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
-    """Sortir de la caisse la part d'un bénéficiaire — professeur, salle ou
-    le propriétaire lui-même : il se paie comme il paie les autres."""
+    """Take a beneficiary's share out of the till -- teacher, salle, or the
+    owner himself: he pays himself the way he pays the others.
+    """
     return _record_payout(conn, body.kind, body.ref_id, body)
 
 
@@ -1420,15 +1434,17 @@ class OverpaidChargeBody(BaseModel):
     kind: Literal["teacher", "venue", "owner"]
     ref_id: int
     month: Month
-    amount_centimes: int | None = None  # None = tout le trop-versé
+    amount_centimes: int | None = None  # None = the whole overpayment
     note: str | None = None
 
 
 @router.post("/overpaid-charges", status_code=201)
 def take_overpaid_charge(body: OverpaidChargeBody, conn: Conn) -> dict:
-    """L'académie prend le trop-versé à sa charge : le bénéficiaire garde
-    l'argent et le rappel s'éteint. C'est un cadeau assumé, pas un oubli —
-    la ligne reste datée, et s'annule si elle a été saisie par erreur."""
+    """The academie writes off the overpayment: the beneficiary keeps the
+    money and the reminder stops. It is a deliberate gift, not an oversight
+    -- the line stays dated, and can be undone if it was entered by
+    mistake.
+    """
     academy_id = default_academy_id(conn)
     overpaid = crud.overpaid_for(conn, academy_id, body.month, body.kind, body.ref_id)
     amount = body.amount_centimes if body.amount_centimes is not None else overpaid
@@ -1618,10 +1634,10 @@ def export_monthly(month: MonthQuery, conn: Conn) -> Response:
     )
 
 
-# --- le classement des documents -----------------------------------------
+# --- filing the documents ------------------------------------------------
 
-# Le mois en toutes lettres dans le nom du dossier : « 2026-09 Septembre »
-# se trie tout seul ET se lit d'un coup d'oeil dans l'explorateur.
+# The month spelled out in the folder name: « 2026-09 Septembre » sorts
+# itself AND reads at a glance in the file explorer.
 _MONTHS_FR = (
     "Janvier",
     "Fevrier",
@@ -1638,13 +1654,13 @@ _MONTHS_FR = (
 )
 
 
-# Un seul dossier a configurer : celui ou l'application range les
-# documents. Les sauvegardes de la base, elles, ne se configurent pas --
-# elles se font toutes seules a cote du fichier, et s'emportent sur une
-# cle a la demande (voir /api/backups).
+# Only one folder to configure: the one where the application files
+# documents. Database backups are not configured -- they happen by
+# themselves next to the file, and are carried onto a stick on demand
+# (see /api/backups).
 #
-# La cle de stockage garde son ancien nom : la renommer effacerait le
-# reglage des installations deja posees.
+# The storage key keeps its old name: renaming it would wipe the setting
+# on installations already in place.
 FOLDERS = {"documents": "backup_root"}
 FolderKind = Literal["documents"]
 
@@ -1683,9 +1699,10 @@ class BackupRootBody(BaseModel):
 
 @router.get("/settings/folders")
 def folders(conn: Conn) -> dict:
-    """Les deux dossiers, et pour les documents un exemple de ce qu'ils
-    contiendront — l'interface ne devine pas le nom du sous-dossier,
-    elle le demande."""
+    """The two folders, and for documents an example of what they will
+    contain -- the interface does not guess the subfolder's name, it asks
+    for it.
+    """
     documents = _folder(conn, "documents")
     return {
         "documents": {
@@ -1705,15 +1722,14 @@ def backup_root(conn: Conn) -> dict:
 
 @router.post("/settings/backup-root/browse")
 def browse_for_backup_root(conn: Conn) -> dict:
-    """Ouvrir la vraie fenêtre de Windows pour choisir un dossier.
+    """Open the real Windows dialog to choose a folder.
 
-    Taper un chemin à la main marche, mais personne ne connaît par cœur
-    l'adresse de sa clé USB. L'application et la fenêtre sont le même
-    programme : on peut donc lui demander d'ouvrir le sélecteur du
-    système, comme n'importe quel logiciel.
+    Typing a path by hand works, but nobody knows their USB stick's address
+    by heart. The application and the window are the same program, so it
+    can be asked to open the system picker, like any other software.
 
-    Renvoie `null` si la fenêtre a été fermée sans choisir — annuler
-    n'est pas une erreur.
+    Returns `null` if the window was closed without choosing -- cancelling
+    is not an error.
     """
     chosen = _ask_for_a_folder(_backup_root(conn))
     if chosen is None:
@@ -1722,11 +1738,11 @@ def browse_for_backup_root(conn: Conn) -> dict:
 
 
 def _ask_for_a_folder(start_at: str | None) -> str | None:
-    """Le sélecteur de dossier du système, par la porte qui répond.
+    """The system's folder picker, through whichever door answers.
 
-    Dans l'application livrée c'est la fenêtre elle-même qui le fournit ;
-    en développement il n'y a pas de fenêtre, alors on se rabat sur
-    tkinter — même sélecteur Windows, autre chemin pour y arriver.
+    In the delivered application the window itself provides it; in
+    development there is no window, so we fall back on tkinter -- the same
+    Windows picker, reached another way.
     """
     try:
         import webview
@@ -1764,8 +1780,10 @@ def _ask_for_a_folder(start_at: str | None) -> str | None:
 
 @router.put("/settings/backup-root")
 def set_backup_root(body: BackupRootBody, conn: Conn) -> dict:
-    """Le dossier ou l'application rangera tout. On le cree s'il manque —
-    taper un chemin qui n'existe pas encore est le cas normal."""
+    """The folder where the application will file everything. We create it if
+    it is missing -- typing a path that does not exist yet is the normal
+    case.
+    """
     root = FsPathlib(body.path).expanduser()
     if root.exists() and not root.is_dir():
         raise HTTPException(
@@ -1791,8 +1809,9 @@ def _remember_folder(conn: sqlite3.Connection, kind: str, root: FsPathlib) -> di
 
 
 def _usable_folder(path: str) -> FsPathlib:
-    """Un dossier ou l'on pourra vraiment ecrire. On le cree s'il manque —
-    designer un dossier qui n'existe pas encore est le cas normal."""
+    """A folder we can genuinely write into. We create it if it is missing --
+    naming a folder that does not exist yet is the normal case.
+    """
     root = FsPathlib(path).expanduser()
     if root.exists() and not root.is_dir():
         raise HTTPException(
@@ -1824,8 +1843,9 @@ def browse_for_folder(kind: FolderKind, conn: Conn) -> dict:
 
 @router.delete("/settings/folders/{kind}")
 def forget_folder(kind: FolderKind, conn: Conn) -> dict:
-    """Ne plus rien y deposer. Pour la base, les copies retournent dans
-    le dossier cache -- elles ne cessent jamais d'exister."""
+    """Stop depositing anything there. For the database, copies return to the
+    hidden folder -- they never stop existing.
+    """
     conn.execute("DELETE FROM app_setting WHERE key = ?", (FOLDERS[kind],))
     conn.commit()
     return {"path": None}
@@ -1908,9 +1928,10 @@ def edit_split_rule(rule_id: int, body: SplitRuleBody, conn: Conn) -> dict:
 
 @router.delete("/split-rules/{rule_id}")
 def delete_split_rule(rule_id: int, conn: Conn) -> dict:
-    """Les classes qui la suivaient remontent la chaine : professeur,
-    filiere, niveau, puis la repartition de l academie. Rien ne se perd
-    -- ce qui est deja encaisse garde son partage."""
+    """Classes that followed it climb back up the chain: teacher, filière,
+    level, then the academy's split. Nothing is lost -- what is already
+    collected keeps its division.
+    """
     conn.execute("DELETE FROM split_assignment WHERE rule_id = ?", (rule_id,))
     conn.execute("DELETE FROM split_rule WHERE id = ?", (rule_id,))
     conn.commit()
@@ -1919,10 +1940,11 @@ def delete_split_rule(rule_id: int, conn: Conn) -> dict:
 
 @router.post("/split-rules/{rule_id}/applies-to")
 def rule_applies_to(rule_id: int, body: AppliesToBody, conn: Conn) -> dict:
-    """Dire a qui cette repartition s applique.
+    """State who this split applies to.
 
-    Une meme cible ne suit qu une regle : la reposer remplace la
-    precedente, sinon il faudrait deviner laquelle gagne."""
+    One target follows one rule only: setting it again replaces the
+    previous one, otherwise you would have to guess which wins.
+    """
     if body.scope == "filiere":
         if not body.ref_text:
             raise HTTPException(status_code=422, detail="Quelle filiere ?")
@@ -1969,11 +1991,12 @@ def split_preview(
     level_id: Annotated[int | None, Query()] = None,
     filiere: Annotated[str | None, Query()] = None,
 ) -> dict:
-    """Ce qui s appliquera a une classe qu on est en train de creer.
+    """What will apply to a class currently being created.
 
-    Le formulaire montre ainsi la consequence au moment ou l on y
-    pense, sans avoir a poser la question -- et sans redire l ordre de
-    priorite dans l interface, ou il finirait par diverger."""
+    The form thus shows the consequence at the moment one thinks about it,
+    without having to ask -- and without restating the precedence order in
+    the interface, where it would eventually drift.
+    """
     from app.services.splits import resolve
 
     found = resolve(
@@ -1993,8 +2016,9 @@ def split_preview(
 
 @router.get("/classes/{class_id}/split")
 def class_split(class_id: int, conn: Conn) -> dict:
-    """Quelle repartition cette classe suit, et d ou elle la tient --
-    parce que « pourquoi ce chiffre ? » doit avoir une reponse."""
+    """Which split this class follows, and where it gets it from -- because
+    « pourquoi ce chiffre ? » deserves an answer.
+    """
     from app.services.splits import split_for_class
 
     found = split_for_class(conn, class_id, default_academy_id(conn))
@@ -2006,13 +2030,12 @@ def class_split(class_id: int, conn: Conn) -> dict:
     }
 
 
-# --- prevenir la famille ---------------------------------------------------
+# --- telling the family ----------------------------------------------------
 #
-# L application PREPARE le message et ouvre WhatsApp dessus. Elle n envoie
-# rien toute seule : c est le proprietaire qui relit et qui appuie. Un
-# logiciel qui ecrit aux familles sans qu on ait vu le texte est un
-# logiciel dont on se mefie -- et une erreur de montant partie toute seule
-# ne se rattrape pas.
+# The application PREPARES the message and opens WhatsApp on it. It sends
+# nothing by itself: the owner rereads it and presses send. Software that
+# writes to families without the text having been seen is software people
+# distrust -- and a wrong amount sent on its own cannot be taken back.
 
 
 class WhatsAppBody(BaseModel):
@@ -2021,14 +2044,14 @@ class WhatsAppBody(BaseModel):
 
 
 def _open_outside(url: str) -> None:
-    """Ouvrir HORS de la fenetre : WhatsApp Desktop s il est installe,
-    le navigateur sinon. Surtout pas dans la fenetre de l application,
-    qui deviendrait un navigateur sans bouton retour.
+    """Open OUTSIDE the window: WhatsApp Desktop if installed, the browser
+    otherwise. Never inside the application's own window, which would turn
+    it into a browser with no back button.
 
-    os.startfile d abord : c est ce que Windows fait quand on clique un
-    lien, et c est le seul chemin sur lequel on peut compter dans une
-    application sans console -- webbrowser y cherche parfois un
-    navigateur en ligne de commande qui n existe pas.
+    os.startfile first: it is what Windows does when a link is clicked, and
+    it is the only path that can be relied on in an application with no
+    console -- webbrowser sometimes looks there for a command-line browser
+    that does not exist.
     """
     import os
     import webbrowser
@@ -2075,8 +2098,9 @@ class TemplatePatch(BaseModel):
 
 
 def _clean_template(label: str | None, body: str | None) -> None:
-    """Un modèle vide n'a rien à faire dans la liste : il occuperait une
-    place et ne dirait rien."""
+    """An empty template has no business in the list: it would take up a slot
+    and say nothing.
+    """
     if label is not None and not label.strip():
         raise HTTPException(status_code=422, detail="Donnez un nom au modèle.")
     if body is not None and not body.strip():
@@ -2085,7 +2109,7 @@ def _clean_template(label: str | None, body: str | None) -> None:
 
 @router.get("/message-templates")
 def message_templates(conn: Conn) -> list[dict]:
-    """Ses modèles à lui, dans l'ordre qu'il leur a donné."""
+    """His own templates, in the order he gave them."""
     return crud.rows(
         conn,
         "SELECT id, label, body, shown_when, position FROM message_template"
@@ -2156,8 +2180,8 @@ def student_messages(student_id: int, month: MonthQuery, conn: Conn) -> dict:
             {
                 "tag": phone["tag"],
                 "number": phone["number"],
-                # None : le numero est inutilisable tel quel. On le montre
-                # quand meme, pour qu il sache lequel corriger.
+                # None: the number is unusable as written. We show it
+                # anyway, so he knows which one to correct.
                 "whatsapp": whatsapp_number(phone["number"]),
             }
             for phone in _rows_of(conn, student_id)
@@ -2179,12 +2203,13 @@ def _rows_of(conn: sqlite3.Connection, student_id: int) -> list[dict]:
 def _messages_for(
     conn, row: dict | None, name: str, academy: str, month: str
 ) -> list[dict]:
-    """Les messages qui ont un sens ce mois-ci — jamais plus.
+    """The messages that make sense this month -- never more.
 
-    Tous viennent de la meme liste, y compris les trois poses au
-    depart : le proprietaire peut les reprendre a son gout, les traduire
-    ou les jeter. Chacun dit a quel moment il sert, et on n en propose
-    aucun qui tomberait a cote."""
+    They all come from the same list, including the ones placed at
+    installation: the owner can rework them to his taste, translate them or
+    throw them away. Each says when it serves, and none is offered that
+    would land wrong.
+    """
     from app.adapters.docx.labels import month_label
 
     enrollment = (row or {}).get("enrollment")
@@ -2210,10 +2235,11 @@ def _messages_for(
 
 
 def _whole_debt(conn: sqlite3.Connection, student_id: int, month: str) -> dict:
-    """Tout ce que cette famille doit, tous mois confondus.
+    """Everything this family owes, all months together.
 
-    Le rappel ordinaire parle d un mois ; celui-ci parle de la dette.
-    Reclamer 300 DH a qui en doit 900 fait perdre les 600 autres."""
+    The ordinary reminder speaks of one month; this one speaks of the debt.
+    Claiming 300 DH from someone who owes 900 loses the other 600.
+    """
     from app.adapters.docx.labels import month_label
     from app.adapters.sqlite.reports import arrears
 
@@ -2228,11 +2254,11 @@ def _whole_debt(conn: sqlite3.Connection, student_id: int, month: str) -> dict:
 
 
 def _templates(conn, settled: bool, filling: dict, behind: bool = False) -> list[dict]:
-    """Les modeles qui conviennent a ce mois-ci, les reperes remplis.
+    """The templates that suit this month, with the markers filled in.
 
-    Un repere inconnu reste visible tel quel : mieux vaut qu il voie
-    « {{truc}} » dans l apercu que de le laisser croire qu on a compris
-    ce qu il voulait dire."""
+    An unknown marker stays visible as it is: better he sees « {truc} » in
+    the preview than be left believing we understood what he meant.
+    """
     # « arrears » ne sort que s il y a VRAIMENT plusieurs mois en
     # retard : pour un seul, le rappel du mois suffit, et deux
     # messages sur la meme dette se contrediraient.
@@ -2264,19 +2290,18 @@ def _dh(centimes: int) -> str:
     return f"{centimes / 100:,.2f} DH".replace(",", " ").replace(".", ",")
 
 
-# --- emporter ses sauvegardes ---------------------------------------------
+# --- carrying the backups away ---------------------------------------------
 
-# Au-dela, on le lui rappelle. Une semaine : assez pour ne pas harceler,
-# assez peu pour qu'un mois de travail ne parte jamais en fumee.
-# Un avertissement permanent finit par faire partie du decor. Celui-ci
-# attend d avoir trente sauvegardes jamais sorties de l ordinateur --
-# et comme on ne photographie que si la base a bouge, trente veut dire
+# Beyond this, we remind him. A permanent warning ends up becoming part
+# of the furniture. This one waits until thirty backups have never left
+# the computer -- and since a snapshot is only taken when the database
+# moved, thirty means
 # trente vraies journees de travail. A ce compte-la, il y a de quoi
 # perdre.
 _REMIND_AFTER = 30
 
-# Sur la cle, tout se range dans un dossier a nous : une cle sert a
-# vingt choses, la notre ne doit pas s'y perdre.
+# On the stick, everything goes into a folder of our own: a stick serves
+# twenty purposes, and ours must not get lost among them.
 _ON_THE_STICK = "AcademyManagement"
 
 
@@ -2286,7 +2311,7 @@ class CopyBackupsBody(BaseModel):
 
 
 def _backups_folder(request: Request) -> FsPathlib:
-    """Les copies vivent a cote de la base, la ou la fermeture les pose."""
+    """Copies live next to the database, where closing the app puts them."""
     return FsPathlib(request.app.state.db_path).parent / "backups"
 
 
@@ -2323,18 +2348,18 @@ def backups_state(request: Request, conn: Conn) -> dict:
 
 
 def _uncopied(conn: sqlite3.Connection, request: Request, copies: list) -> int:
-    """Combien de sauvegardes n ont jamais quitte cet ordinateur.
+    """How many backups have never left this computer.
 
-    On compte ce qui manque a destination plutot que les jours ecoules :
-    quinze jours de vacances ne mettent rien en peril, quinze journees
-    de travail non sauvegardees, si.
+    We count what is missing at the destination rather than days elapsed:
+    fifteen days of holiday endanger nothing, fifteen unsaved working days
+    do.
     """
     destination = _setting_value(conn, "backups_destination")
     if destination is None:
         return len(copies)
     there = FsPathlib(destination) / _ON_THE_STICK
     if not there.is_dir():
-        # La cle n est pas branchee : on ne sait pas, on ne crie pas.
+        # The stick is not plugged in: we do not know, so we do not shout.
         return len(copies) - int(_setting_value(conn, "backups_copied_count") or 0)
     saved = {item.name for item in there.glob("data-*.db")}
     return sum(1 for item in copies if item.name not in saved)
@@ -2342,11 +2367,11 @@ def _uncopied(conn: sqlite3.Connection, request: Request, copies: list) -> int:
 
 @router.post("/backups/copy")
 def copy_backups(body: CopyBackupsBody, request: Request, conn: Conn) -> dict:
-    """Emporter les sauvegardes sur une cle, ou n'importe quel disque.
+    """Carry the backups onto a stick, or any other disk.
 
-    Une copie automatique vers une cle ne marche pas : personne ne la
-    laisse branchee, et un filet qui echoue en silence est pire que pas
-    de filet. Il branche quand il y pense, il clique, tout part.
+    Automatic copying to a stick does not work: nobody leaves one plugged
+    in, and a safety net that fails silently is worse than none. He plugs it
+    in when he thinks of it, he clicks, everything goes.
     """
     import shutil
     from datetime import datetime
@@ -2359,14 +2384,13 @@ def copy_backups(body: CopyBackupsBody, request: Request, conn: Conn) -> dict:
     copied = 0
     for snapshot in _snapshots(request):
         target = destination / snapshot.name
-        # Deja la : on ne recopie pas dix fois le meme fichier.
+        # Already there: we do not copy the same file ten times.
         if target.exists() and target.stat().st_size == snapshot.stat().st_size:
             continue
         shutil.copy2(snapshot, target)
         copied += 1
     _remember(conn, "backups_destination", chosen)
-    # Ce qui est a l abri, pour savoir compter quand la cle sera
-    # debranchee.
+    # What is safe, so we can still count once the stick is unplugged.
     _remember(conn, "backups_copied_count", str(len(_snapshots(request))))
     _remember(
         conn, "backups_copied_at", datetime.now(UTC).isoformat(timespec="seconds")
@@ -2392,17 +2416,18 @@ class FileDocumentBody(BaseModel):
     kind: Literal["payslip", "absence", "excel"]
     month: Month
     ref_id: int = 0
-    # Une fiche de paie sortie au moment de payer devient un reçu.
+    # A payslip produced at the moment of paying becomes a receipt.
     payout_id: int | None = None
 
 
 @router.post("/documents/file", status_code=201)
 def file_document(body: FileDocumentBody, conn: Conn) -> dict:
-    """Ranger le document dans le dossier du proprietaire, a sa place.
+    """File the document in the owner's folder, in its place.
 
-    Un dossier par mois, un tiroir par sorte : le classement qu'il ferait
-    a la main, fait pour lui — et un nom stable, pour que regenerer
-    remplace au lieu d'empiler des « (2) »."""
+    One folder per month, one drawer per kind: the filing he would do by
+    hand, done for him -- and a stable name, so that regenerating replaces
+    instead of piling up « (2) » copies.
+    """
     root = _backup_root(conn)
     if root is None:
         raise HTTPException(
@@ -2435,8 +2460,8 @@ def _render_document(
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Professeur inconnu.")
-        # Un reçu porte le numéro du versement : deux versements dans le
-        # mois font deux papiers, et le second n'écrase pas le premier.
+        # A receipt carries the payout number: two payouts in one month
+        # make two sheets, and the second does not overwrite the first.
         name = f"paie-{_slug(row['name'])}"
         if payout_id:
             name += f"-versement-{payout_id}"
@@ -2459,25 +2484,25 @@ def _render_document(
 
 @router.post("/documents/reconcile")
 def reconcile_documents(conn: Conn) -> dict:
-    """Ranger ce qui manque, refaire ce qui a vieilli — sans un clic.
+    """File what is missing, redo what has aged -- without a click.
 
-    L'export d'un mois clos et sa feuille d'absence n'ont rien d'un
-    choix : ils doivent exister. Demander un clic pour un document que
-    l'application sait produire, c'est demander au client de se
-    souvenir a notre place -- et il oubliera.
+    A closed month's export and its absence sheet are not a choice: they
+    must exist. Asking for a click on a document the application knows how
+    to produce is asking the client to remember on our behalf -- and he will
+    forget.
 
-    Le mois EN COURS ne voit rien NAITRE ici : son export changerait
-    tous les jours, et son dossier se remplirait de fichiers qu'il n'a
-    pas demandes. Mais ce qu'il a demande une fois, on le tient a jour
-    -- meme pendant le mois en cours. Sinon le bandeau reclamerait
-    pendant tout aout un geste que l'application s'etait interdit de
-    faire, et rien ne l'eteindrait jamais.
+    The RUNNING month sees nothing BORN here: its export would change every
+    day, and his folder would fill with files he never asked for. But what
+    he asked for once, we keep current -- including during the running
+    month. Otherwise the banner would spend all of August demanding an
+    action the application had forbidden itself to take, and nothing would
+    ever clear it.
 
-    La fiche de paie non plus n'est jamais produite ici : c'est un recu,
-    il se fait au moment ou l'on paie.
+    The payslip is never produced here either: it is a receipt, made at the
+    moment of paying.
 
-    Rien ici ne doit faire echouer l'appel qui l'a declenche : si le
-    dossier a disparu, on se tait et on reessaiera plus tard.
+    Nothing here may fail the call that triggered it: if the folder has
+    vanished, we stay quiet and try again later.
     """
     if _backup_root(conn) is None:
         return {"filed": 0}
@@ -2516,8 +2541,9 @@ def _months_with_something(conn: sqlite3.Connection) -> list[str]:
 def _classes_of_month(
     conn: sqlite3.Connection, academy_id: int, month: str
 ) -> list[dict]:
-    """Les classes qui ont eu au moins un inscrit ce mois-la : les
-    autres n'ont pas de feuille d'absence a produire."""
+    """Classes that had at least one enrolled student that month: the others
+    have no absence sheet to produce.
+    """
     return crud.rows(
         conn,
         "SELECT DISTINCT c.id FROM class_group c"
@@ -2529,9 +2555,9 @@ def _classes_of_month(
 
 
 def _was_filed(conn: sqlite3.Connection, kind: str, month: str, ref_id: int) -> bool:
-    """Ce document a deja ete range une fois -- donc il l'a voulu.
+    """This document has been filed once already -- so he wanted it.
 
-    C'est ce qui separe « tenir a jour » de « creer sans qu'on demande ».
+    That is what separates keeping current from creating unasked.
     """
     return (
         conn.execute(
@@ -2565,8 +2591,9 @@ def _already_fresh(
 def stale_documents_route(
     conn: Conn, month: Annotated[str | None, Query(pattern=MONTH_PATTERN)] = None
 ) -> list[dict]:
-    """Ce qui a ete sorti avant que les chiffres ne bougent — et pour qui,
-    nommement, pour qu'on sache quel fichier retelecharger."""
+    """What was produced before the figures moved -- and for whom, by name, so
+    one knows which file to fetch again.
+    """
     return [vars(item) for item in documents.stale_documents(conn, month)]
 
 
@@ -2593,10 +2620,10 @@ def report_arrears(up_to_month: MonthQuery, conn: Conn) -> list[dict]:
     ]
 
 
-# --- Années scolaires -------------------------------------------------
+# --- School years -----------------------------------------------------
 #
-# Une académie vit en rentrées, pas en mois. Le mois où la saison
-# s'arrête ne se devine pas : ici on ferme en juin, ailleurs en juillet.
+# An academy lives in school years, not in months. The month a season
+# stops is not guessable: here it closes in June, elsewhere in July.
 
 
 class SchoolYearBody(BaseModel):
@@ -2648,12 +2675,11 @@ def delete_school_year(year_id: int, conn: Conn) -> dict:
 
 @router.post("/school-years/{year_id}/close")
 def close_school_year(year_id: int, conn: Conn) -> dict:
-    """Range la saison et archive les eleves.
+    """Put the season away and archive the students.
 
-    On ne presume pas qu'ils reviendront : celui qui revient est
-    reinscrit comme d'habitude et retrouve son histoire. Ce qu'une
-    famille doit, en revanche, la suit -- l'argent du ne s'efface pas
-    parce que le calendrier a tourne.
+    We do not presume they will return: whoever comes back is re-enrolled as
+    usual and finds his history. What a family owes, by contrast, follows it
+    -- money due does not disappear because the calendar turned.
     """
     from app.services.school_years import close_year
 
@@ -2667,18 +2693,18 @@ def report_school_year(year_id: int, conn: Conn) -> dict:
     return season_report(conn, year_id)
 
 
-# --- Le logo de l'academie --------------------------------------------
+# --- The academy's logo -----------------------------------------------
 #
-# « Academy Management » en haut de la barre, c'est le nom de l'OUTIL.
-# Lui ouvre l'application pour voir SON academie -- et quand un parent
-# regarde par-dessus son epaule, c'est son enseigne qui doit etre la.
+# « Academy Management » at the top of the sidebar is the name of the
+# TOOL. He opens the application to see HIS academy -- and when a parent
+# looks over his shoulder, it is his own sign that should be there.
 #
-# Il vit dans la base, pas dans un dossier : il part ainsi avec les
-# sauvegardes. Un fichier pose sur le bureau puis efface laisserait un
-# carre vide au prochain demarrage.
+# It lives in the database, not in a folder: that way it travels with the
+# backups. A file dropped on the desktop and later deleted would leave an
+# empty square at the next launch.
 
-# Assez pour une belle enseigne, trop peu pour une photo de vacances :
-# le logo entre dans CHAQUE sauvegarde, et les alourdirait toutes.
+# Enough for a handsome sign, too little for a holiday photograph: the
+# logo goes into EVERY backup, and would weigh them all down.
 _LOGO_MAX = 2 * 1024 * 1024
 _LOGO_PREFIX = "data:image/"
 
@@ -2694,11 +2720,10 @@ def academy_logo(conn: Conn) -> dict:
 
 @router.put("/settings/logo")
 def set_academy_logo(body: LogoBody, conn: Conn) -> dict:
-    """Poser son enseigne, ou la retirer (logo: null).
+    """Set his sign, or take it down (logo: null).
 
-    On verifie que c'est bien une image : un fichier quelconque glisse
-    ici s'afficherait comme un carre casse, et il chercherait longtemps
-    pourquoi.
+    We check it really is an image: any other file dropped here would show
+    as a broken square, and he would spend a long time wondering why.
     """
     if body.logo is not None:
         if not body.logo.startswith(_LOGO_PREFIX):

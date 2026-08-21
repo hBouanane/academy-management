@@ -1514,7 +1514,7 @@ def _enrollment_class_dues(
     try:
         parts = teacher_parts_per_class(context)
     except ValueError:
-        return {}  # une ligne invalide ne casse pas la feuille de paie
+        return {}  # one invalid line must not break the payslip
     by_class = {
         (class_ids[index], teacher_id): amount
         for (index, teacher_id), amount in parts.items()
@@ -1582,8 +1582,8 @@ def caisse_summary(conn: sqlite3.Connection, academy_id: int, month: str) -> dic
     owner_line["overpaid_centimes"] = max(owner_line["paid_centimes"] - owner_due, 0)
 
     # A teacher archived mid-month must still be paid for what he taught:
-    # we list the active ones AND everyone still owed something
-    # quelque chose — sinon la somme des lignes ne ferait pas la caisse.
+    # we list the active ones AND everyone still owed something --
+    # otherwise the lines would not add up to the till.
     for teacher in _rows(
         conn,
         """

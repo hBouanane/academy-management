@@ -34,17 +34,17 @@ def seed_default_academy(
 
 
 def _insert_first_season(connection: sqlite3.Connection, academy_id: int) -> None:
-    """Une saison des le premier jour.
+    """A season from the very first day.
 
-    La migration en pose une sur les installations qui ont deja des mois
-    saisis ; une base neuve n'a pas encore d'academie quand elle tourne,
-    donc rien n'y etait pose. Le bilan de saison n'apparaissait alors pas
-    du tout, et le nouveau proprietaire ne pouvait pas deviner qu'il
-    fallait d'abord creer une annee pour le voir.
+    The migration places one on installations that already have months
+    recorded; a fresh database has no academy yet when it runs, so
+    nothing was placed there. The season report then did not appear at
+    all, and a new owner had no way to guess he had to create a year
+    first in order to see it.
 
-    Douze mois a partir du mois courant, faute de savoir quand SON annee
-    s'arrete. Le nom suit les deux annees civiles, comme a l'ecran, et
-    tout se corrige d'un clic.
+    Twelve months from the current one, for lack of knowing when HIS year
+    stops. The name follows the two calendar years, as it does on screen,
+    and all of it can be corrected in one click.
     """
     from app.services import clock
 

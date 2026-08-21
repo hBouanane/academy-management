@@ -250,11 +250,11 @@ def _month_stats(conn: sqlite3.Connection, academy_id: int, month: str) -> dict:
 
 
 def _safe_owed(store: SqlitePaymentStore, row: sqlite3.Row) -> Centimes:
-    """Ce que cette famille doit encore sur ce mois.
+    """What this family still owes on this month.
 
-    Une avance ne solde pas le mois : elle en paie une partie, et le
-    reste est toujours du. Le calculer ici serait le calculer deux fois
-    -- on demande a celui qui sait deja.
+    An advance does not settle the month: it pays part of it, and the
+    rest is still due. Computing it here would compute it twice -- so we
+    ask whoever already knows.
     """
     if row["payment_id"] is not None:
         from app.adapters.sqlite.crud import payment_remaining

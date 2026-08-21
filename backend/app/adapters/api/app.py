@@ -63,8 +63,8 @@ def create_app(db_path: str, frontend_dist: Path | None = None) -> FastAPI:
 # return only the lock state, and write only when the code, the phrase
 # or the vendor's answer is right.
 #
-# Le battement de coeur : la FENÊTRE l'interroge avant de s'ouvrir. Le
-# closing it would make the application impossible to launch as soon as
+# The heartbeat: the WINDOW polls it before opening. Closing it would
+# make the application impossible to launch as soon as
 # a code is set -- it would wait twenty seconds, then announce a dead
 # server. It says nothing beyond "I answer".
 _ALWAYS_OPEN = ("/api/lock", "/api/health")
@@ -103,14 +103,13 @@ async def _gate(request: Request, call_next):
 
 
 def _file_what_is_missing(db_path: str) -> None:
-    """Au demarrage, ranger les documents des mois clos qui manquent.
+    """On startup, file the missing documents of closed months.
 
-    Un mois vient de se terminer : son export existe sans qu'on ait rien
-    demande. Et si l'application n'a pas tourne pendant deux mois, elle
-    rattrape le retard en s'ouvrant.
+    A month has just ended: its export exists without anyone asking. And
+    if the application has not run for two months, it catches up as it
+    opens.
 
-    Jamais au prix du demarrage : si quoi que ce soit resiste, on ouvre
-    quand meme."""
+    Never at the cost of starting: if anything resists, we open anyway."""
     from .routes import reconcile_documents
 
     connection = connect(db_path)
