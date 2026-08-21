@@ -9,6 +9,16 @@ import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { SchoolYear } from "@/lib/api"
 
+/** Le nom que portent les deux bornes : septembre 2020 → juin 2021 se
+    dit « 2020 - 2021 ». Une saison qui tient dans une seule année civile
+    n'a qu'un nombre à donner. */
+function nameOfSeason(start: string, end: string): string {
+  if (!start || !end) return ""
+  const first = start.slice(0, 4)
+  const last = end.slice(0, 4)
+  return first === last ? first : `${first} - ${last}`
+}
+
 /**
  * Les années scolaires : la saison, et le mois où elle s'arrête.
  *
@@ -28,9 +38,15 @@ import type { SchoolYear } from "@/lib/api"
 export function SchoolYears({ onError }: { onError: (message: string) => void }) {
   const [years, setYears] = useState<SchoolYear[]>([])
   const [name, setName] = useState("")
+  // Tant qu'il n'a rien écrit lui-même, le nom suit les mois qu'il
+  // choisit. Dès qu'il en écrit un, on cesse de le corriger — sinon on
+  // effacerait sous ses doigts le nom qu'il vient de taper.
+  const [named, setNamed] = useState(false)
   const [start, setStart] = useState("")
   const [end, setEnd] = useState("")
   const toast = useToast()
+
+  const shownName = named ? name : nameOfSeason(start, end)
 
   const load = useCallback(() => {
     apiGet<SchoolYear[]>("/api/school-years")
@@ -41,14 +57,15 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
   useEffect(load, [load])
 
   const add = async () => {
-    if (!name.trim() || !start || !end) return
+    if (!shownName.trim() || !start || !end) return
     await apiSend("POST", "/api/school-years", {
-      name: name.trim(),
+      name: shownName.trim(),
       start_month: start,
       end_month: end,
     })
       .then(() => {
         setName("")
+        setNamed(false)
         setStart("")
         setEnd("")
         load()
@@ -189,9 +206,12 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
           <Input
             id="annee-nom"
             className="h-8 w-40"
-            placeholder="2026-2027"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
+            placeholder="2026 - 2027"
+            value={shownName}
+            onChange={(event) => {
+              setNamed(true)
+              setName(event.target.value)
+            }}
           />
         </div>
         <div>
@@ -222,7 +242,7 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
           size="sm"
           variant="outline"
           onClick={add}
-          disabled={!name.trim() || !start || !end}
+          disabled={!shownName.trim() || !start || !end}
         >
           <Plus className="size-4" />
           Ajouter

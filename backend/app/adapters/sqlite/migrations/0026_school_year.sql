@@ -34,7 +34,7 @@ CREATE INDEX idx_school_year_academy ON school_year (academy_id, start_month);
 INSERT INTO school_year (academy_id, name, start_month, end_month)
 SELECT
     a.id,
-    substr(debut.mois, 1, 4) || '-' ||
+    substr(debut.mois, 1, 4) || ' - ' ||
         CAST(CAST(substr(debut.mois, 1, 4) AS INTEGER) + 1 AS TEXT),
     debut.mois,
     printf(

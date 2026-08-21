@@ -205,13 +205,13 @@ class TestChangingASeasonHeAlreadyHas:
         year = make_year(client).json()["id"]
         client.patch(f"/api/school-years/{year}", json={"name": "Rentrée 2026"})
         listed = client.get("/api/school-years").json()
-        assert listed[0]["name"] == "Rentrée 2026"
+        assert next(y for y in listed if y["id"] == year)["name"] == "Rentrée 2026"
 
     def test_he_can_move_the_first_month(self, client):
         year = make_year(client).json()["id"]
         client.patch(f"/api/school-years/{year}", json={"start_month": "2026-10"})
         listed = client.get("/api/school-years").json()
-        assert listed[0]["start_month"] == "2026-10"
+        assert next(y for y in listed if y["id"] == year)["start_month"] == "2026-10"
 
     def test_a_start_pushed_past_the_end_is_refused(self, client):
         """Sinon la saison ne contiendrait aucun mois, et son bilan
@@ -223,9 +223,14 @@ class TestChangingASeasonHeAlreadyHas:
         assert refused.status_code == 422
 
     def test_he_can_delete_one(self, client):
+        before = client.get("/api/school-years").json()
         year = make_year(client).json()["id"]
+
         client.delete(f"/api/school-years/{year}")
-        assert client.get("/api/school-years").json() == []
+
+        after = client.get("/api/school-years").json()
+        assert year not in [y["id"] for y in after]
+        assert len(after) == len(before)
 
     def test_deleting_a_season_touches_no_money_and_no_student(self, client):
         """Une année n'est qu'une période : l'effacer ne défait aucun
@@ -243,3 +248,25 @@ class TestChangingASeasonHeAlreadyHas:
 
         assert client.get("/api/reports/monthly?month=2026-09").json() == before
         assert len(client.get("/api/students?month=2026-09").json()) == 1
+
+
+class TestAFreshInstall:
+    def test_it_opens_with_a_season_already_there(self, client):
+        """Sans saison, le bilan d'année n'existe simplement pas à
+        l'écran — et le nouveau propriétaire ne saurait pas qu'il faut
+        d'abord en créer une pour le voir apparaître."""
+        listed = client.get("/api/school-years").json()
+        assert len(listed) == 1
+
+    def test_that_season_holds_today(self, client):
+        """Elle doit contenir le mois courant, sinon elle ne sert à rien
+        le jour de l'installation."""
+        (season,) = client.get("/api/school-years").json()
+        assert season["start_month"] <= "2026-09" <= season["end_month"]
+
+    def test_its_name_says_the_two_years(self, client):
+        (season,) = client.get("/api/school-years").json()
+        first = season["start_month"][:4]
+        last = season["end_month"][:4]
+        expected = first if first == last else f"{first} - {last}"
+        assert season["name"] == expected
