@@ -54,9 +54,13 @@ class TestBackupState:
         assert state["count"] == 3
         assert state["newest"] == "data-20260803-120000-v21.db"
 
-    def test_never_copied_is_worth_saying(self, client, tmp_path):
+    def test_one_lonely_backup_says_nothing(self, client, tmp_path):
+        """Un avertissement permanent finit par faire partie du décor :
+        il attend d'avoir de quoi le justifier."""
         snapshots(tmp_path, 1)
-        assert client.get("/api/backups").json()["stale"] is True
+        state = client.get("/api/backups").json()
+        assert state["stale"] is False
+        assert state["uncopied"] == 1
 
 
 class TestCopyingThemOut:

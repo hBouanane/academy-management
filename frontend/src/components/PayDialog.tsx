@@ -25,6 +25,8 @@ type Props = {
   enrollmentId: number
   studentName: string
   onDone: () => void
+  /** Proposer d annoncer la nouvelle a la famille, juste apres. */
+  onNotify?: () => void
   /** Controlled mode: when provided, no trigger button renders (used to
       chain straight from a fresh enrollment). */
   open?: boolean
@@ -41,6 +43,7 @@ export function PayDialog({
   enrollmentId,
   studentName,
   onDone,
+  onNotify,
   open: controlledOpen,
   onOpenChange,
 }: Props) {
@@ -146,6 +149,9 @@ export function PayDialog({
             nothingToPay
               ? `Mois offert validé — ${studentName}`
               : `Encaissé ${formatDH(centimes)} — ${studentName}`,
+            "success",
+            onNotify,
+            "Prévenir la famille",
           )
           return posted
         }),
@@ -201,13 +207,13 @@ export function PayDialog({
     >
       {controlledOpen === undefined && (
         <DialogTrigger asChild>
-          <Button size="sm">Encaisser</Button>
+          <Button size="sm">Recevoir le paiement</Button>
         </DialogTrigger>
       )}
       <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            Encaisser — {studentName}
+            Recevoir le paiement — {studentName}
             {preview && (
               <span className="text-muted-foreground capitalize">
                 {" "}
@@ -225,7 +231,7 @@ export function PayDialog({
               </p>
               <div className="border-border divide-border divide-y overflow-hidden rounded-xl border">
                 <div className="text-muted-foreground bg-muted/50 grid grid-cols-[1fr_auto_auto] gap-4 px-4 py-2 text-xs font-medium uppercase">
-                  <span>Bénéficiaire</span>
+                  <span>Pour qui</span>
                   <span className="w-24 text-right">Base</span>
                   <span className="w-24 text-right">Reçoit</span>
                 </div>
@@ -345,7 +351,7 @@ export function PayDialog({
                       : nothingToPay
                         ? "Valider le mois offert"
                         : isAvance
-                          ? "Encaisser l'avance"
+                          ? "Recevoir le reste"
                           : "Encaisser"}
                   </Button>
                 </div>

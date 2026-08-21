@@ -55,7 +55,9 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
     setToasts((current) => [...current, { id, message, tone, action }])
     window.setTimeout(
       () => setToasts((current) => current.filter((entry) => entry.id !== id)),
-      LIVES[tone],
+      // Une bulle qui PROPOSE quelque chose doit rester le temps qu'on
+      // s'en saisisse : trois secondes suffisent à lire, pas à décider.
+      action ? 9000 : LIVES[tone],
     )
     },
     [],

@@ -107,12 +107,17 @@ def stale_documents(
     Ce qui n'a jamais été sorti n'apparaît pas : on ne réclame pas un
     document que personne n'a demandé.
     """
+    # La fiche de paie n'est pas un rapport : c'est un REÇU. Elle
+    # constate que 265,16 DH sont sortis de la caisse ce jour-là, et
+    # rien de ce qui arrive ensuite ne rend cela faux. Proposer de la
+    # « regénérer » produirait un second papier contredisant celui que
+    # le professeur a signé.
     sql = (
         "SELECT d.kind, d.month, d.scope, d.ref_id, d.path, d.generated_at,"
         " t.touched_at FROM exported_document d"
         " JOIN document_touch t ON t.month = d.month AND t.scope = d.scope"
         "   AND t.ref_id = d.ref_id"
-        " WHERE t.touched_at > d.generated_at"
+        " WHERE t.touched_at > d.generated_at AND d.kind <> 'payslip'"
     )
     params: tuple = ()
     if month is not None:

@@ -65,8 +65,45 @@ def backup_database(db_path: Path, stamp: str | None = None) -> Path | None:
             destination.close()
     finally:
         source.close()
+    if _same_as_last(target, backups):
+        # Rien n a bouge depuis la derniere fois : ouvrir l application
+        # pour consulter un chiffre ne merite pas une photographie.
+        # Trente copies identiques chasseraient les vraies.
+        target.unlink()
+        return None
     _prune(backups)
     return target
+
+
+def _same_as_last(fresh: Path, backups: Path) -> bool:
+    """Cette photographie dit-elle exactement la meme chose que la
+    precedente ?
+
+    On compare le contenu, pas la date : deux fermetures dans la meme
+    seconde ont la meme heure, et une base qui n a pas bouge a la meme
+    taille. Seul le contenu tranche.
+    """
+    others = sorted(
+        item for item in backups.glob("data-*.db") if item.name != fresh.name
+    )
+    if not others:
+        return False
+    try:
+        return _fingerprint(fresh) == _fingerprint(others[-1])
+    except OSError:
+        # Dans le doute on garde : une copie de trop ne coute rien, une
+        # copie manquante coute tout.
+        return False
+
+
+def _fingerprint(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _prune(backups: Path, keep: int = BACKUPS_TO_KEEP) -> None:
@@ -96,6 +133,12 @@ def database_complaint(db_path: Path) -> str | None:
 
     Sans ce garde-fou, le client lirait « le serveur interne n'a pas
     démarré » et n'aurait aucune idée de la vraie raison.
+
+    Ce contrôle s'exerce au démarrage, sur la base VIVANTE : il n'y a
+    pas de restauration dans l'application. Lui conseiller de revenir à
+    une sauvegarde plus ancienne reviendrait à lui dire d'écraser les
+    écritures d'aujourd'hui par celles d'avant. La seule sortie qui ne
+    perd rien, c'est d'installer la version récente.
     """
     if not db_path.exists():
         return None
@@ -106,10 +149,12 @@ def database_complaint(db_path: Path) -> str | None:
     if found <= known:
         return None
     return (
-        "Cette sauvegarde vient d'une version plus récente de"
-        f" l'application (schéma {found}, celle-ci connaît {known}).\n\n"
-        "Installez la dernière version, ou restaurez une sauvegarde plus"
-        " ancienne."
+        "Vos données ont été enregistrées par une version plus récente"
+        f" de l'application (schéma {found}, celle-ci connaît {known})."
+        "\n\nInstallez la version la plus récente : elle les ouvrira"
+        " sans rien perdre."
+        "\n\nN'écrasez pas ce fichier par une sauvegarde plus ancienne"
+        " — vous perdriez tout ce qui a été saisi depuis."
     )
 
 

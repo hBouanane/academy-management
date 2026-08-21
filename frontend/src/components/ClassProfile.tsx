@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table"
 import { Field, FieldGrid } from "@/components/Field"
 import { monthLabel } from "@/components/MonthNav"
+import { ClassSplit } from "@/components/ClassSplit"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassProfile as Profile, ClassShare } from "@/lib/api"
@@ -108,6 +109,10 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
               </div>
             </div>
 
+            {/* Combien va a la salle, a l academie, au professeur --
+                et d ou vient ce chiffre. */}
+            <ClassSplit classId={profile.id} />
+
             <ShareSection classId={profile.id} month={month} />
 
             <div>
@@ -169,7 +174,7 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
 
 /** Qui touche quoi sur cette classe, ce mois-ci.
 
-    Par défaut l'app partage au prorata des jours enseignés — juste, et
+    Par défaut l'app partage selon le nombre de jours enseignés — juste, et
     automatique. Mais c'est le propriétaire qui décide : un professeur parti
     en cours de mois a pu tout préparer, un remplaçant a pu assurer double
     dose. Il fixe alors les parts en pourcentages (un montant figé
@@ -234,7 +239,7 @@ function ShareSection({ classId, month }: { classId: number; month: string }) {
         {share.manual ? (
           <Badge variant="outline">fixée à la main</Badge>
         ) : (
-          <Badge variant="outline">au prorata des jours</Badge>
+          <Badge variant="outline">selon les jours</Badge>
         )}
       </div>
 
@@ -315,7 +320,7 @@ function ShareSection({ classId, month }: { classId: number; month: string }) {
                 disabled={busy}
                 onClick={backToAutomatic}
               >
-                Revenir au prorata
+                Revenir au partage par jours
               </Button>
             )}
           </>

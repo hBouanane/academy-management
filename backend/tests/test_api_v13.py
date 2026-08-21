@@ -21,6 +21,8 @@ from test_api_v4 import enroll, setup_base
 from app.adapters.api.app import create_app
 from app.services import clock
 
+DH = 100
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -127,61 +129,104 @@ class TestFiling:
 
 
 class TestStaleness:
-    def test_a_fresh_document_is_not_stale(self, client, tmp_path):
-        level, class_id, teacher, package = setup_base(client)
+    """Ce qui vieillit, et ce qui ne vieillit pas.
+
+    L'export Excel est l'etat d'un mois : payer un professeur, un impaye
+    qui rentre — tout le deplace. La feuille d'absence liste les
+    inscrits : un eleve de plus la perime.
+
+    La fiche de paie, elle, est un RECU. Elle constate que l'argent est
+    sorti ce jour-la, et rien de ce qui arrive ensuite ne rend cela
+    faux.
+    """
+
+    def test_a_fresh_export_is_not_stale(self, client, tmp_path):
+        level, class_id, _teacher, package = setup_base(client)
         enroll(client, level, package, class_id)
-        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
-        client.post(
-            "/api/documents/file",
-            json={"kind": "payslip", "month": "2026-09", "ref_id": teacher},
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
         )
+        client.post("/api/documents/file", json={"kind": "excel", "month": "2026-09"})
         assert stale(client) == []
 
-    def test_money_moving_ages_the_payslip_it_concerns(self, client, tmp_path):
+    def test_money_moving_redoes_the_month_export(self, client, tmp_path):
+        """L'export suit l'argent, tout seul.
+
+        Il restait perime jusqu'a ce qu'on clique -- pour un mois EN
+        COURS, le bandeau reclamait alors un geste que le rangement
+        automatique s'etait interdit de faire, et rien ne l'eteignait.
+        Ce qu'il a demande une fois, on le tient a jour.
+        """
+        level, class_id, _teacher, package = setup_base(client)
+        _, enrollment = enroll(client, level, package, class_id)
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
+        client.post("/api/documents/file", json={"kind": "excel", "month": "2026-09"})
+        depose = tmp_path / "aX" / "2026-09 Septembre" / "rapports" / "paiements.xlsx"
+        avant = depose.read_bytes()
+
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
+
+        assert stale(client) == []
+        assert depose.read_bytes() != avant  # le fichier porte le paiement
+
+    def test_a_receipt_is_never_aged_by_anything(self, client, tmp_path):
+        """Le professeur l'a signee : la regenerer produirait un second
+        papier contredisant le premier."""
         level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
-        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
+        )
+        payout = client.post(
+            "/api/payouts",
+            json={"kind": "teacher", "ref_id": teacher, "month": "2026-09"},
+        ).json()
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
         client.post(
             "/api/documents/file",
-            json={"kind": "payslip", "month": "2026-09", "ref_id": teacher},
-        )
-        client.post(
-            "/api/payments",
-            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
-        )
-        aged = stale(client)
-        assert [(item["kind"], item["ref_id"]) for item in aged] == [
-            ("payslip", teacher)
-        ]
-        assert "fiche de paie" in aged[0]["label"].lower()
-
-    def test_another_teachers_payslip_stays_quiet(self, client, tmp_path):
-        """Le cœur de la demande : signaler JUSTE. Un professeur dont
-        rien n'a bougé ne doit pas voir sa fiche marquée périmée."""
-        level, class_id, teacher, package = setup_base(client)
-        other = client.post("/api/teachers", json={"name": "Sara Alami"}).json()["id"]
-        other_class = client.post(
-            "/api/classes",
             json={
-                "level_id": level,
-                "subject_id": client.get("/api/subjects").json()[0]["id"],
-                "teacher_id": other,
+                "kind": "payslip",
+                "month": "2026-09",
+                "ref_id": teacher,
+                "payout_id": payout["id"],
             },
-        ).json()["id"]
-        _, enrollment = enroll(client, level, package, class_id)
-        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
-        for who in (teacher, other):
-            client.post(
-                "/api/documents/file",
-                json={"kind": "payslip", "month": "2026-09", "ref_id": who},
-            )
-        client.post(
-            "/api/payments",
-            json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
         )
-        aged = stale(client)
-        assert [item["ref_id"] for item in aged] == [teacher]
-        assert other_class is not None
+        client.post(
+            f"/api/enrollments/{enrollment}/adjustments",
+            json={"kind": "amount", "value": 50 * DH},
+        )
+        assert [
+            item["kind"] for item in stale(client) if item["kind"] == "payslip"
+        ] == []
+
+    def test_an_absence_sheet_takes_in_the_new_student_by_itself(
+        self, client, tmp_path
+    ):
+        """Un eleve de plus, et la feuille le porte -- sans un clic."""
+        level, class_id, _teacher, package = setup_base(client)
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
+        client.post(
+            "/api/documents/file",
+            json={"kind": "absence", "month": "2026-09", "ref_id": class_id},
+        )
+        tiroir = tmp_path / "aX" / "2026-09 Septembre" / "absences"
+        feuille = next(iter(tiroir.iterdir()))
+        avant = feuille.read_bytes()
+
+        enroll(client, level, package, class_id)
+
+        assert stale(client) == []
+        assert feuille.read_bytes() != avant
 
     def test_a_document_never_filed_is_never_stale(self, client, tmp_path):
         level, class_id, _teacher, package = setup_base(client)
@@ -190,67 +235,65 @@ class TestStaleness:
             "/api/payments",
             json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
         )
-        # Rien n'a été sorti : il n'y a rien à regénérer.
+        # Rien n'a ete sorti : il n'y a rien a regenerer.
         assert stale(client) == []
 
-    def test_refiling_settles_the_warning(self, client, tmp_path):
-        level, class_id, teacher, package = setup_base(client)
+    def test_without_a_folder_the_warning_stands_and_the_button_settles_it(
+        self, client, tmp_path
+    ):
+        """Le seul cas ou l'avertissement demeure : plus de dossier ou
+        deposer. L'application ne peut plus rien refaire toute seule --
+        elle le dit, et le bouton reste la pour cela."""
+        level, class_id, _teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
-        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
-        body = {"kind": "payslip", "month": "2026-09", "ref_id": teacher}
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
+        body = {"kind": "excel", "month": "2026-09"}
         client.post("/api/documents/file", json=body)
+        client.delete("/api/settings/folders/documents")
+
         client.post(
             "/api/payments",
             json={"enrollment_id": enrollment, "paid_on": "2026-09-03"},
         )
         assert len(stale(client)) == 1
+
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
+        )
         client.post("/api/documents/file", json=body)
         assert stale(client) == []
 
-    def test_an_enrollment_ages_the_absence_sheet(self, client, tmp_path):
-        """La feuille d'absence liste les inscrits : un élève de plus la
-        périme, même si personne n'a encore payé."""
+    def test_a_past_month_refreshes_itself(self, client, tmp_path):
+        """La demande d'origine etait « dites-moi quel fichier
+        retelecharger ». Mieux : il se refait tout seul, et il n'y a
+        plus rien a dire."""
         level, class_id, _teacher, package = setup_base(client)
-        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
-        client.post(
-            "/api/documents/file",
-            json={"kind": "absence", "month": "2026-09", "ref_id": class_id},
-        )
-        enroll(client, level, package, class_id)
-        aged = stale(client)
-        assert [(item["kind"], item["ref_id"]) for item in aged] == [
-            ("absence", class_id)
-        ]
-
-    def test_a_past_month_is_the_one_that_needs_saying(self, client, tmp_path):
-        """C'est la demande exacte : quand un mois PASSÉ change, il faut
-        savoir quel fichier retélécharger."""
-        level, class_id, teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id, month="2026-08")
-        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
-        client.post(
-            "/api/documents/file",
-            json={"kind": "payslip", "month": "2026-08", "ref_id": teacher},
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
         )
+        client.post("/api/documents/file", json={"kind": "excel", "month": "2026-08"})
+        export = tmp_path / "aX" / "2026-08 Aout" / "rapports" / "paiements.xlsx"
+        before = export.read_bytes()
+
         client.post(
             "/api/payments",
             json={"enrollment_id": enrollment, "paid_on": "2026-09-20"},
         )
-        aged = stale(client, "2026-08")
-        assert [item["kind"] for item in aged] == ["payslip"]
-        assert aged[0]["month"] == "2026-08"
+        assert export.read_bytes() != before
+        assert stale(client, "2026-08") == []
 
-    def test_without_a_month_every_stale_document_shows(self, client, tmp_path):
-        level, class_id, teacher, package = setup_base(client)
+    def test_nothing_is_left_hanging_anywhere(self, client, tmp_path):
+        level, class_id, _teacher, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id, month="2026-08")
-        client.put("/api/settings/backup-root", json={"path": str(tmp_path / "aX")})
-        client.post(
-            "/api/documents/file",
-            json={"kind": "payslip", "month": "2026-08", "ref_id": teacher},
+        client.put(
+            "/api/settings/folders/documents", json={"path": str(tmp_path / "aX")}
         )
+        client.post("/api/documents/file", json={"kind": "excel", "month": "2026-08"})
         client.post(
             "/api/payments",
             json={"enrollment_id": enrollment, "paid_on": "2026-09-20"},
         )
-        everything = client.get("/api/documents/stale").json()
-        assert [item["month"] for item in everything] == ["2026-08"]
+        assert client.get("/api/documents/stale").json() == []

@@ -15,6 +15,7 @@ import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { Pagination, usePagination } from "@/components/Pagination"
 import { FileDocument } from "@/components/FileDocument"
+import { SeasonReport } from "@/components/SeasonReport"
 import { StaleDocuments } from "@/components/StaleDocuments"
 import { PayDialog } from "@/components/PayDialog"
 import { apiGet, apiSend } from "@/lib/api"
@@ -154,6 +155,10 @@ export function Reports({ month, setMonth }: Props) {
         <StatCard label="Reversé aux professeurs" value={teacherTotal} />
         <StatCard label="Impayés cumulés" value={totalOwed} negative />
       </section>
+
+      {/* La saison entiere, avant le detail du mois : c'est elle qui
+          dit si l'annee a ete bonne. */}
+      <SeasonReport onError={setError} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="surface-card orb-backdrop p-5">
@@ -457,7 +462,7 @@ function TotalsTable({ totals }: { totals: BeneficiaryTotal[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Bénéficiaire</TableHead>
+            <TableHead>Pour qui</TableHead>
             <TableHead>Rôle</TableHead>
             <TableHead className="text-right">Montant</TableHead>
           </TableRow>

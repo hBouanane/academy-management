@@ -70,7 +70,7 @@ export function Backups({ onError }: { onError: (message: string) => void }) {
       <p className="text-muted-foreground text-sm">
         {state === null || state.count === 0
           ? "Aucune copie pour l'instant — la première sera prise à la fermeture."
-          : `${state.count} copie(s) sur cet ordinateur.`}
+          : `${state.count} copie(s) sur cet ordinateur, dont ${state.uncopied} jamais emportée(s).`}
         {state?.last_copied_at && (
           <>
             {" "}
@@ -83,9 +83,8 @@ export function Backups({ onError }: { onError: (message: string) => void }) {
       {state?.stale && (
         <p className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-sm text-amber-600">
           <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-          {state.last_copied_at
-            ? "Vos sauvegardes n'ont pas quitté cet ordinateur depuis un moment. Branchez votre clé et copiez-les."
-            : "Vos sauvegardes ne sont jamais sorties de cet ordinateur. S'il tombe en panne, tout part avec lui."}
+          {`${state.uncopied} sauvegarde(s) n'ont jamais quitté cet ordinateur.`}{" "}
+          Branchez votre clé et copiez-les.
         </p>
       )}
 

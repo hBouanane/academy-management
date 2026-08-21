@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Pencil, UserMinus, UserPlus } from "lucide-react"
+import { MessageCircle, Pencil, UserMinus, UserPlus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -17,6 +17,7 @@ import type { LevelFilterValue } from "@/components/LevelFilter"
 import { MonthNav } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
+import { WhatsAppDialog } from "@/components/WhatsAppDialog"
 import { StudentDialog } from "@/components/StudentDialog"
 import { StudentProfile } from "@/components/StudentProfile"
 import { Input } from "@/components/ui/input"
@@ -96,6 +97,10 @@ export function Students({ month, setMonth }: Props) {
     fullName,
   )
   const paging = usePagination(matching)
+  // La famille qu'on s'apprête à prévenir, ou personne.
+  const [writing, setWriting] = useState<{ id: number; name: string } | null>(
+    null,
+  )
 
   return (
     <div className="view-enter space-y-6">
@@ -241,6 +246,9 @@ export function Students({ month, setMonth }: Props) {
                       onEnrolled={(id) =>
                         setPayTarget({ id, name: student.name })
                       }
+                      onNotify={() =>
+                        setWriting({ id: student.id, name: student.name })
+                      }
                     />
                   )}
                   {student.month_enrollment_id !== null &&
@@ -249,8 +257,22 @@ export function Students({ month, setMonth }: Props) {
                         enrollmentId={student.month_enrollment_id}
                         studentName={student.name}
                         onDone={reload}
+                        onNotify={() =>
+                          setWriting({ id: student.id, name: student.name })
+                        }
                       />
                     )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-success hover:text-success hover:bg-success/10"
+                    title="Prévenir la famille par WhatsApp"
+                    onClick={() =>
+                      setWriting({ id: student.id, name: student.name })
+                    }
+                  >
+                    <MessageCircle className="size-4" />
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -353,6 +375,15 @@ export function Students({ month, setMonth }: Props) {
             setPayTarget(null)
             reload()
           }}
+        />
+      )}
+
+      {writing && (
+        <WhatsAppDialog
+          studentId={writing.id}
+          studentName={writing.name}
+          month={month}
+          onClose={() => setWriting(null)}
         />
       )}
     </div>

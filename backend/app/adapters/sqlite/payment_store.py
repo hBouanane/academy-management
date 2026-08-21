@@ -21,6 +21,12 @@ class SqlitePaymentStore:
     def __init__(self, connection: sqlite3.Connection):
         self._conn = connection
 
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """Pour les calculs qui vivent deja ailleurs : mieux vaut leur
+        preter la connexion que recopier leur formule."""
+        return self._conn
+
     def enrollment_context(self, enrollment_id: int) -> EnrollmentContext | None:
         row = self._conn.execute(
             """
@@ -53,6 +59,25 @@ class SqlitePaymentStore:
                 for class_id, teacher_id in classes
             ),
             guaranteed=self.guaranteed_shares(enrollment_id),
+            subject_splits=self._subject_splits(class_ids, row["academy_id"]),
+        )
+
+    def _subject_splits(
+        self, class_ids: list[int], academy_id: int
+    ) -> tuple[tuple[int, int], ...]:
+        """La repartition qui s applique a chaque classe, aujourd hui.
+
+        Resolue au moment du paiement, puis figee dans le registre : une
+        regle changee demain ne rejuge pas un mois deja encaisse.
+        """
+        from app.services.splits import split_for_class
+
+        return tuple(
+            (found.venue_bp, found.owner_bp)
+            for found in (
+                split_for_class(self._conn, class_id, academy_id)
+                for class_id in class_ids
+            )
         )
 
     def guaranteed_shares(self, enrollment_id: int) -> tuple[tuple[int, int], ...]:

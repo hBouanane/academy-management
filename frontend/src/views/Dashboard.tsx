@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertTriangle, UserRoundX } from "lucide-react"
+import { AlertTriangle, MessageCircle, UserRoundX } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -22,6 +22,7 @@ import type { LevelFilterValue } from "@/components/LevelFilter"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { BackupReminder } from "@/components/BackupReminder"
 import { Notice } from "@/components/Notice"
+import { WhatsAppDialog } from "@/components/WhatsAppDialog"
 import { Pagination, usePagination } from "@/components/Pagination"
 import { StudentProfile } from "@/components/StudentProfile"
 import { PayDialog } from "@/components/PayDialog"
@@ -116,6 +117,11 @@ export function Dashboard({ month, setMonth }: Props) {
       matchesLevelFilter(filter, row),
   )
   const paging = usePagination(filtered)
+  // La famille qu'on s'apprête à prévenir, ou personne.
+  const [writing, setWriting] = useState<{
+    studentId: number
+    studentName: string
+  } | null>(null)
 
   return (
     <div className="view-enter space-y-6">
@@ -159,7 +165,7 @@ export function Dashboard({ month, setMonth }: Props) {
             <h3 className="font-medium">Étudiants</h3>
             <p className="text-muted-foreground text-sm">
               {locked
-                ? "Mois passé : consultation et encaissement des impayés uniquement"
+                ? "Mois passé : on peut seulement recevoir les paiements en retard"
                 : "Rouge clair = impayé · fond pêche = réduction appliquée"}
             </p>
           </div>
@@ -225,6 +231,9 @@ export function Dashboard({ month, setMonth }: Props) {
                     })
                   }
                   onShowProfile={setProfileId}
+                  onWhatsApp={(studentId, studentName) =>
+                    setWriting({ studentId, studentName })
+                  }
                 />
               ))}
               {filtered.length === 0 && (
@@ -293,6 +302,14 @@ export function Dashboard({ month, setMonth }: Props) {
         onClose={() => setProfileId(null)}
         onChanged={reload}
       />
+      {writing && (
+        <WhatsAppDialog
+          studentId={writing.studentId}
+          studentName={writing.studentName}
+          month={month}
+          onClose={() => setWriting(null)}
+        />
+      )}
     </div>
   )
 }
@@ -335,6 +352,7 @@ function StudentRow({
   onComplete,
   onGuarantee,
   onShowProfile,
+  onWhatsApp,
 }: {
   row: OverviewRow
   index: number
@@ -345,6 +363,7 @@ function StudentRow({
   onComplete: (paymentId: number, remainingCentimes: number) => void
   onGuarantee: (enrollmentId: number) => void
   onShowProfile: (studentId: number) => void
+  onWhatsApp: (studentId: number, studentName: string) => void
 }) {
   const enrollment = row.enrollment
   const reduced =
@@ -424,7 +443,7 @@ function StudentRow({
             )}
             {enrollment.arrival_date && (
               <p className="text-muted-foreground text-xs">
-                prorata — début le{" "}
+                mois entamé — début le{" "}
                 {new Date(
                   `${enrollment.arrival_date}T00:00:00`,
                 ).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
@@ -473,6 +492,20 @@ function StudentRow({
         )}
       </TableCell>
       <TableCell className="space-x-2 text-right">
+        {/* Prevenir la famille : l'application connait le mois, les
+            classes et le montant -- recopier tout ca a la main, c'est se
+            tromper un jour sur dix. */}
+        {enrollment && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-success hover:text-success hover:bg-success/10"
+            title="Prévenir la famille par WhatsApp"
+            onClick={() => onWhatsApp(row.student_id, row.student_name)}
+          >
+            <MessageCircle className="size-4" />
+          </Button>
+        )}
         {!enrollment && !locked && (
           <EnrollDialog
             studentId={row.student_id}
@@ -484,6 +517,7 @@ function StudentRow({
             month={month}
             onDone={onDone}
             onEnrolled={onEnrolled}
+            onNotify={() => onWhatsApp(row.student_id, row.student_name)}
           />
         )}
         {enrollment && unpaid && (
@@ -492,12 +526,13 @@ function StudentRow({
               enrollmentId={enrollment.id}
               studentName={row.student_name}
               onDone={onDone}
+              onNotify={() => onWhatsApp(row.student_id, row.student_name)}
             />
             {enrollment.guaranteed_centimes === 0 && (
               <Button
                 size="sm"
                 variant="outline"
-                title="Payer le professeur malgré l'impayé (l'académie avance)"
+                title="Payer le professeur même si l'élève n'a pas payé (l'académie met l'argent)"
                 onClick={() => onGuarantee(enrollment.id)}
               >
                 Solder le prof

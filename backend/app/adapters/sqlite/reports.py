@@ -80,10 +80,13 @@ def arrears(
     conn: sqlite3.Connection, academy_id: int, up_to_month: str
 ) -> tuple[StudentArrears, ...]:
     store = SqlitePaymentStore(conn)
-    grouped: dict[int, list[sqlite3.Row]] = {}
+    grouped: dict[int, list[tuple[sqlite3.Row, Centimes]]] = {}
     for row in _unpaid_enrollments(conn, academy_id, up_to_month):
-        grouped.setdefault(row["student_id"], []).append(row)
-    return tuple(_student_arrears(store, rows) for rows in grouped.values())
+        owed = _safe_owed(store, row)
+        if owed <= 0:
+            continue  # solde : plus rien a reclamer sur ce mois
+        grouped.setdefault(row["student_id"], []).append((row, owed))
+    return tuple(_student_arrears(rows) for rows in grouped.values())
 
 
 def _cash_in(conn: sqlite3.Connection, academy_id: int, month: str) -> Centimes:
@@ -173,13 +176,14 @@ def _unpaid_enrollments(
     return conn.execute(
         """
         SELECT e.id AS enrollment_id, e.month, e.price_centimes,
-               s.id AS student_id, s.name AS student_name, sl.name AS level_name
+               s.id AS student_id, s.name AS student_name, sl.name AS level_name,
+               p.id AS payment_id
         FROM enrollment e
         JOIN student s ON s.id = e.student_id
         JOIN school_level sl ON sl.id = s.level_id
         LEFT JOIN payment p
             ON p.enrollment_id = e.id AND p.reversed_at IS NULL
-        WHERE s.academy_id = ? AND e.month <= ? AND p.id IS NULL
+        WHERE s.academy_id = ? AND e.month <= ?
         ORDER BY s.name, e.month
         """,
         (academy_id, up_to_month),
@@ -187,20 +191,17 @@ def _unpaid_enrollments(
 
 
 def _student_arrears(
-    store: SqlitePaymentStore, rows: list[sqlite3.Row]
+    rows: list[tuple[sqlite3.Row, Centimes]],
 ) -> StudentArrears:
     items = tuple(
-        ArrearsItem(
-            enrollment_id=row["enrollment_id"],
-            month=row["month"],
-            owed=_safe_owed(store, row),
-        )
-        for row in rows
+        ArrearsItem(enrollment_id=row["enrollment_id"], month=row["month"], owed=owed)
+        for row, owed in rows
     )
+    first = rows[0][0]
     return StudentArrears(
-        student_id=rows[0]["student_id"],
-        student_name=rows[0]["student_name"],
-        level_name=rows[0]["level_name"],
+        student_id=first["student_id"],
+        student_name=first["student_name"],
+        level_name=first["level_name"],
         items=items,
         total_owed=sum(item.owed for item in items),
     )
@@ -249,6 +250,16 @@ def _month_stats(conn: sqlite3.Connection, academy_id: int, month: str) -> dict:
 
 
 def _safe_owed(store: SqlitePaymentStore, row: sqlite3.Row) -> Centimes:
+    """Ce que cette famille doit encore sur ce mois.
+
+    Une avance ne solde pas le mois : elle en paie une partie, et le
+    reste est toujours du. Le calculer ici serait le calculer deux fois
+    -- on demande a celui qui sait deja.
+    """
+    if row["payment_id"] is not None:
+        from app.adapters.sqlite.crud import payment_remaining
+
+        return payment_remaining(store.connection, row["payment_id"])
     # One invalid stored adjustment must not take down the whole arrears list.
     try:
         return net_price(store.enrollment_context(row["enrollment_id"]))

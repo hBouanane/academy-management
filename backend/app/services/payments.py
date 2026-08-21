@@ -114,18 +114,26 @@ def guarantee_unpaid(
     enrollment_id: int,
     present_until: str | None = None,
     never_came: bool = False,
+    amount: Centimes | None = None,
 ) -> PostedGuarantee:
     """The professor is paid for the days he taught even when the student
     never paid: the académie fronts it and LA SALLE TAKES THE HIT WITH IT —
     with nothing collected, the salle receives nothing. No cash moves; only
-    who-earned-what does, so the month stays an impayé."""
+    who-earned-what does, so the month stays an impayé.
+
+    Le montant des jours enseignés n'est qu'une PROPOSITION : le
+    propriétaire décide. Il peut donner moins ce mois-ci, ou davantage —
+    c'est son argent, et lui seul connaît l'arrangement.
+    """
     context = _context_or_raise(store, enrollment_id)
     if context.guaranteed:
         raise AlreadyGuaranteedError(
             f"enrollment {enrollment_id} is already guaranteed"
         )
     shares = () if never_came else _guaranteed_shares(context, present_until)
-    total = sum(amount for _, amount in shares)
+    if amount is not None:
+        shares = _scaled_to(shares, amount, context)
+    total = sum(share for _, share in shares)
     owner = Beneficiary("owner", context.owner_id)
     lines = tuple(
         line
@@ -137,6 +145,57 @@ def guarantee_unpaid(
     )
     store.record_guarantee(context, present_until, total, lines)
     return PostedGuarantee(total, shares)
+
+
+def guarantee_proposal(
+    context: EnrollmentContext, present_until: str | None = None
+) -> dict:
+    """Ce qu'on propose d'avancer, et le maximum raisonnable.
+
+    La proposition suit les jours enseignés — c'est ce que le professeur
+    a gagné. Le plafond est le prix du mois : au-delà, c'est une faute
+    de frappe, pas une générosité."""
+    shares = _guaranteed_shares(context, present_until)
+    return {
+        "suggested_centimes": sum(amount for _, amount in shares),
+        "max_centimes": net_price(context),
+        "teachers": [
+            {"teacher_id": teacher_id, "amount_centimes": amount}
+            for teacher_id, amount in shares
+        ],
+    }
+
+
+def _scaled_to(
+    shares: tuple[tuple[int, Centimes], ...],
+    amount: Centimes,
+    context: EnrollmentContext,
+) -> tuple[tuple[int, Centimes], ...]:
+    """Le montant voulu, réparti entre les professeurs du mois.
+
+    Au prorata de ce qu'ils auraient touché ; à parts égales si le calcul
+    ne dit rien (élève jamais venu, mais on donne quand même).
+    """
+    if amount <= 0:
+        return ()
+    if shares:
+        return tuple(_proportional_parts(shares, amount))
+    teachers = _month_teachers(context)
+    if not teachers:
+        return ()
+    return tuple(
+        _proportional_parts(tuple((teacher, 1) for teacher in teachers), amount)
+    )
+
+
+def _month_teachers(context: EnrollmentContext) -> tuple[int, ...]:
+    """Qui enseigne à cet élève ce mois-ci, sans doublon et dans l'ordre."""
+    seen: list[int] = []
+    for weights in context.teacher_weights:
+        for teacher_id, _ in weights:
+            if teacher_id is not None and teacher_id not in seen:
+                seen.append(teacher_id)
+    return tuple(seen)
 
 
 def _guaranteed_shares(
@@ -361,6 +420,12 @@ def _base_split(context: EnrollmentContext) -> tuple[Allocation, ...]:
         owner_id=context.owner_id,
         subject_teachers=list(context.subject_teachers),
         teacher_weights=context.teacher_weights,
+        # Chaque matiere suit la repartition de sa classe. Toutes
+        # identiques : le calcul d avant, au centime pres.
+        subject_policies=tuple(
+            SplitPolicy(venue_bp=venue, owner_bp=owner)
+            for venue, owner in context.subject_splits
+        ),
     )
 
 

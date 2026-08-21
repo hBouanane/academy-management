@@ -58,7 +58,7 @@ export function CompleteDialog({
     <Dialog open onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Compléter l'avance — {studentName}</DialogTitle>
+          <DialogTitle>Recevoir le reste — {studentName}</DialogTitle>
         </DialogHeader>
         <p className="text-muted-foreground text-sm">
           Il reste <span className="font-medium">{formatDH(remainingCentimes)}</span>{" "}

@@ -39,9 +39,16 @@ if (Test-Path $vendorKey) {
 } else {
     Write-Host "   (pas de cle de depannage : porte editeur absente)"
 }
+# L icone voyage DANS l exe : le bureau, le menu et la barre des taches
+# la prennent tous les trois sans qu on ait rien d autre a poser.
+$icone = Join-Path $root "packaging\academy.ico"
+if (-not (Test-Path $icone)) {
+    & (Join-Path $root ".venv\Scripts\python.exe") (Join-Path $root "packaging\make_icon.py")
+}
 & (Join-Path $root ".venv\Scripts\pyinstaller") `
     --noconfirm --noconsole --onedir `
     --name AcademyManagement `
+    --icon "$icone" `
     --add-data "..\frontend\dist;frontend/dist" `
     --add-data "app\adapters\sqlite\migrations\*.sql;app/adapters/sqlite/migrations" `
     @extra `

@@ -63,7 +63,7 @@ export function ReverseDialog({ paymentId, onDone }: Props) {
           <DialogTitle>Annuler ce paiement ?</DialogTitle>
         </DialogHeader>
         <p className="text-muted-foreground text-sm">
-          Le paiement sera contre-passé dans le registre (rien n'est effacé) et
+          Le paiement sera annulé dans le registre (rien n'est effacé) et
           le mois redeviendra impayé.
         </p>
         <div className="space-y-2">
@@ -77,7 +77,7 @@ export function ReverseDialog({ paymentId, onDone }: Props) {
         <Notice alert={error} />
         <DialogFooter>
           <Button variant="destructive" onClick={submit} disabled={busy}>
-            {busy ? "…" : "Contre-passer"}
+            {busy ? "…" : "Annuler le paiement"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -53,14 +53,48 @@ def teacher_invoice(
     due = line["due_centimes"] if line else 0
     paid = line["paid_centimes"] if line else 0
     payout = _payout(conn, payout_id, teacher_id) if payout_id else None
+    # Le détail vient de la MÊME source que le total : ce qui est dû,
+    # classe par classe. Deux calculs différents donneraient deux vérités.
+    per_class = teacher_class_dues(conn, academy["id"], teacher_id, month)
 
     document = Document()
-    document.add_heading(
+
+    # Un reçu se signe et se partage : une moitié reste à l'académie,
+    # l'autre part avec le professeur. Une seule feuille, un trait au
+    # milieu — c'est ce qu'on fait au comptoir, et ça évite d'imprimer
+    # deux fois. La fiche du mois, elle, ne se signe pas : un exemplaire
+    # suffit.
+    copies = ("Exemplaire académie", "Exemplaire professeur") if payout else (None,)
+    for index, whose in enumerate(copies):
+        if index:
+            _cut_line(document)
+        if whose:
+            marker = document.add_paragraph(whose)
+            marker.runs[0].font.size = Pt(8)
+            marker.runs[0].font.bold = True
+        _one_copy(document, profile, month, academy, payout, per_class, due, paid)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _cut_line(doc) -> None:
+    """Là où passent les ciseaux."""
+    doc.add_paragraph()
+    line = doc.add_paragraph("\u2702 " + "- " * 40)
+    line.runs[0].font.size = Pt(8)
+    doc.add_paragraph()
+
+
+def _one_copy(doc, profile, month, academy, payout, per_class, due, paid) -> None:
+    """Le contenu, écrit une fois — et imprimé deux quand on le signe."""
+    doc.add_heading(
         ("Reçu de versement — " if payout else "Fiche de paie — ") + month_label(month),
         level=1,
     )
-    document.add_paragraph(academy["name"])
-    document.add_paragraph(
+    doc.add_paragraph(academy["name"])
+    doc.add_paragraph(
         f"Professeur : {profile['name']}"
         + (f"    Téléphone : {profile['phone']}" if profile["phone"] else "")
     )
@@ -68,18 +102,18 @@ def teacher_invoice(
     # Ce qu'on vient de lui remettre, avant tout le reste : c'est la
     # raison d'être du papier qu'il signe.
     if payout:
-        document.add_paragraph()
-        paragraph = document.add_paragraph()
+        doc.add_paragraph()
+        paragraph = doc.add_paragraph()
         run = paragraph.add_run(
             f"Versé ce jour ({payout['paid_on']}) : {_dh(payout['amount_centimes'])}"
         )
         run.font.bold = True
         run.font.size = Pt(14)
         if payout["note"]:
-            document.add_paragraph(payout["note"]).runs[0].font.size = Pt(9)
+            doc.add_paragraph(payout["note"]).runs[0].font.size = Pt(9)
 
-    document.add_paragraph()
-    table = document.add_table(rows=1, cols=4)
+    doc.add_paragraph()
+    table = doc.add_table(rows=1, cols=4)
     table.style = "Table Grid"
     for cell, title in zip(
         table.rows[0].cells,
@@ -89,9 +123,6 @@ def teacher_invoice(
         cell.text = title
         cell.paragraphs[0].runs[0].font.bold = True
 
-    # Le détail vient de la MÊME source que le total : ce qui est dû, classe
-    # par classe. Deux calculs différents donneraient deux vérités.
-    per_class = teacher_class_dues(conn, academy["id"], teacher_id, month)
     for entry in profile["classes"]:
         amount = per_class.get(entry["id"], 0)
         if amount == 0 and entry["enrolled_count"] == 0:
@@ -103,37 +134,33 @@ def teacher_invoice(
         cells[3].text = _dh(amount)
         cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    document.add_paragraph()
+    doc.add_paragraph()
     for label, amount, bold in (
         ("Dû pour le mois", due, True),
         ("Déjà versé", paid, False),
         ("Reste à verser", max(due - paid, 0), True),
     ):
-        paragraph = document.add_paragraph()
+        paragraph = doc.add_paragraph()
         run = paragraph.add_run(f"{label} : {_dh(amount)}")
         run.font.bold = bold
         run.font.size = Pt(12)
 
-    document.add_paragraph()
-    document.add_paragraph(
+    doc.add_paragraph()
+    doc.add_paragraph(
         "Le détail par classe suit les élèves inscrits du mois — un élève qui"
         " n'a pas encore payé ne change rien à ce qui est dû au professeur."
     ).runs[0].font.size = Pt(8)
-    document.add_paragraph()
+    doc.add_paragraph()
     if payout:
-        document.add_paragraph(
+        doc.add_paragraph(
             "Reçu pour solde de ce versement. Le reste à verser, s'il y en"
             " a, fera l'objet d'un autre reçu."
         ).runs[0].font.size = Pt(8)
-    signatures = document.add_table(rows=2, cols=2)
+    signatures = doc.add_table(rows=2, cols=2)
     signatures.rows[0].cells[0].text = "Signature du professeur"
     signatures.rows[0].cells[1].text = "Signature de l'académie"
     for cell in signatures.rows[1].cells:
         cell.text = "\n\n"
-
-    buffer = BytesIO()
-    document.save(buffer)
-    return buffer.getvalue()
 
 
 def _payout(conn: sqlite3.Connection, payout_id: int, teacher_id: int) -> dict:

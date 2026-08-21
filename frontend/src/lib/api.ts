@@ -403,13 +403,72 @@ export type Folders = {
   documents: { path: string | null; example: string | null }
 }
 
+/** Une saison : d'un mois a un autre, et le jour ou on l'a rangee. */
+export type SchoolYear = {
+  id: number
+  name: string
+  start_month: string
+  end_month: string
+  closed_at: string | null
+}
+
+export type SeasonReport = {
+  school_year_id: number
+  name: string
+  start_month: string
+  end_month: string
+  months: number
+  cash_in: number
+  totals: { kind: string; ref_id: number; name: string; total: number }[]
+  teachers: { teacher_id: number; name: string; earned: number }[]
+}
+
+export type SplitRule = {
+  id: number
+  name: string
+  venue_bp: number
+  owner_bp: number
+  applies_to: {
+    scope: "class" | "teacher" | "filiere" | "level"
+    ref_id: number | null
+    ref_text: string | null
+  }[]
+}
+
+/** Quelle répartition suit une classe, et d'où elle la tient. */
+export type ClassSplit = {
+  venue_bp: number
+  owner_bp: number
+  from: "class" | "teacher" | "filiere" | "level" | "academy"
+  rule_name: string | null
+}
+
+export type MessageTemplate = {
+  id: number
+  label: string
+  body: string
+  /** Quand ce message a un sens : toujours, une fois payé, tant qu'il
+      reste à payer, ou lorsque plusieurs mois traînent. */
+  shown_when: "always" | "paid" | "unpaid" | "arrears"
+  position: number
+}
+
+export type StudentMessages = {
+  student_name: string
+  phones: { tag: string; number: string; whatsapp: string | null }[]
+  messages: { kind: string; label: string; text: string }[]
+}
+
 export type BackupState = {
   count: number
   newest: string | null
   destination: string | null
   last_copied_at: string | null
   days_since: number | null
-  /** Trop longtemps qu'elles n'ont pas quitté cet ordinateur. */
+  /** Combien n'ont jamais quitté cet ordinateur. */
+  uncopied: number
+  remind_after: number
+  /** Assez pour qu'il y ait vraiment de quoi perdre. */
   stale: boolean
 }
 

@@ -8,9 +8,13 @@ import type { BackupState } from "@/lib/api"
  * Le rappel qui vaut mieux qu'une discipline.
  *
  * Emporter ses sauvegardes est un geste qu'on remet toujours à demain —
- * et le jour où l'ordinateur meurt, on a trois ans de retard. Le rappel
- * ne bloque rien, ne se répète pas dans la journée, et disparaît dès
- * que la copie est faite.
+ * et le jour où l'ordinateur meurt, on a trois ans de retard.
+ *
+ * Mais un avertissement permanent finit par faire partie du décor : il
+ * se tait jusqu'à ce qu'il y ait vraiment de quoi perdre — trente
+ * journées de travail jamais sorties d'ici. Et comme on ne
+ * photographie que si la base a bougé, trente veut dire trente vraies
+ * journées, pas trente ouvertures pour consulter un chiffre.
  *
  * Il vit sur le tableau de bord parce que c'est l'écran qu'on ouvre le
  * matin : un avertissement rangé dans les réglages ne serait jamais lu.
@@ -30,11 +34,9 @@ export function BackupReminder() {
     <p className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600">
       <ShieldAlert className="size-4 shrink-0" />
       <span className="min-w-0 flex-1">
-        {state.last_copied_at
-          ? `Vos sauvegardes n'ont pas quitté cet ordinateur depuis ${state.days_since} jour(s).`
-          : "Vos sauvegardes ne sont jamais sorties de cet ordinateur — s'il tombe en panne, tout part avec lui."}{" "}
-        Branchez une clé, puis « Copier mes sauvegardes vers… » dans la page
-        Académie.
+        {state.uncopied} sauvegarde(s) n'ont jamais quitté cet ordinateur —
+        s'il tombe en panne, elles partent avec lui. Branchez une clé, puis
+        « Copier mes sauvegardes vers… » dans la page Académie.
       </span>
     </p>
   )

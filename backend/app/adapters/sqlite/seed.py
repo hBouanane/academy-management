@@ -28,8 +28,36 @@ def seed_default_academy(
     academy_id = _insert_academy(connection, name)
     _insert_venue(connection, academy_id, venue_name)
     _insert_levels(connection, academy_id)
+    _insert_first_season(connection, academy_id)
     connection.commit()
     return academy_id
+
+
+def _insert_first_season(connection: sqlite3.Connection, academy_id: int) -> None:
+    """Une saison des le premier jour.
+
+    La migration en pose une sur les installations qui ont deja des mois
+    saisis ; une base neuve n'a pas encore d'academie quand elle tourne,
+    donc rien n'y etait pose. Le bilan de saison n'apparaissait alors pas
+    du tout, et le nouveau proprietaire ne pouvait pas deviner qu'il
+    fallait d'abord creer une annee pour le voir.
+
+    Douze mois a partir du mois courant, faute de savoir quand SON annee
+    s'arrete. Le nom suit les deux annees civiles, comme a l'ecran, et
+    tout se corrige d'un clic.
+    """
+    from app.services import clock
+
+    start = clock.current_month()
+    year, month = int(start[:4]), int(start[5:7])
+    total = year * 12 + (month - 1) + 11
+    end = f"{total // 12:04d}-{total % 12 + 1:02d}"
+    first, last = start[:4], end[:4]
+    connection.execute(
+        "INSERT INTO school_year (academy_id, name, start_month, end_month)"
+        " VALUES (?, ?, ?, ?)",
+        (academy_id, first if first == last else f"{first} - {last}", start, end),
+    )
 
 
 def _existing_academy_id(connection: sqlite3.Connection) -> int | None:

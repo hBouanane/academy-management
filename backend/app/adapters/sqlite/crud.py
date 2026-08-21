@@ -879,7 +879,8 @@ def list_students(
         SELECT s.*, sl.name AS level_name, sc.name AS school_name,
           (SELECT COUNT(*) FROM enrollment e
            LEFT JOIN payment p ON p.enrollment_id = e.id AND p.reversed_at IS NULL
-           WHERE e.student_id = s.id AND e.month < ? AND p.id IS NULL
+           WHERE e.student_id = s.id AND e.month < ?
+             AND ({_still_owed("p")})
           ) AS unpaid_months,
           (SELECT e2.id FROM enrollment e2
            WHERE e2.student_id = s.id AND e2.month = ?
@@ -1327,15 +1328,24 @@ def _teacher_class_earnings(
     conn: sqlite3.Connection, teacher_id: int, month: str, class_ids: list[int]
 ) -> dict[int, int]:
     """Attribute the teacher's ledger lines to his classes: each payment's
-    line is split across the classes he taught within that enrollment."""
+    line is split across the classes he taught within that enrollment.
+
+    Une avance versee au prof avant que la famille paie n'a pas de
+    paiement -- il n'existe pas encore -- mais elle porte l'inscription.
+    Exiger le paiement faisait disparaitre l'avance du detail tout en y
+    laissant son annulation : la colonne « Gagne » annoncait alors moins
+    que le total du mois ecrit juste au-dessus.
+    """
     earnings = dict.fromkeys(class_ids, 0)
     lines = conn.execute(
         """
-        SELECT le.amount_centimes, p.enrollment_id
+        SELECT le.amount_centimes,
+               COALESCE(p.enrollment_id, le.enrollment_id) AS enrollment_id
         FROM ledger_entry le
-        JOIN payment p ON p.id = le.payment_id
+        LEFT JOIN payment p ON p.id = le.payment_id
         WHERE le.beneficiary_kind = 'teacher' AND le.beneficiary_id = ?
           AND le.month = ?
+          AND COALESCE(p.enrollment_id, le.enrollment_id) IS NOT NULL
         """,
         (teacher_id, month),
     ).fetchall()
@@ -1402,7 +1412,7 @@ def month_overview(
                  LEFT JOIN payment pp ON pp.enrollment_id = prior.id
                    AND pp.reversed_at IS NULL
                  WHERE prior.student_id = s.id AND prior.month < ?
-                   AND pp.id IS NULL
+                   AND ({_still_owed("pp")})
                ) AS has_arrears
         FROM student s
         JOIN school_level sl ON sl.id = s.level_id
@@ -2193,10 +2203,35 @@ def _guaranteed_total(conn: sqlite3.Connection, enrollment_id: int) -> int:
     return row[0]
 
 
+def _still_owed(payment: str) -> str:
+    """Un mois passe reste du tant qu il reste quelque chose a payer.
+
+    Une avance ne solde pas le mois : elle en paie une partie. Juger sur
+    la seule existence d un paiement faisait disparaitre le reste --
+    100 DH verses sur 300 et la famille passait pour en regle.
+
+    Ecrite ici une fois, et pas recopiee : trois copies de cette regle
+    ont deja diverge, et trois ecrans donnaient trois reponses sur la
+    meme famille.
+    """
+    return f"""
+        {payment}.id IS NULL
+        OR COALESCE({payment}.due_centimes, {payment}.amount_centimes) > (
+            SELECT COALESCE(SUM(amount_centimes), 0) FROM ledger_entry
+            WHERE payment_id = {payment}.id AND entry_type = 'payment_in'
+        )
+    """
+
+
 def payment_remaining(conn: sqlite3.Connection, payment_id: int | None) -> int:
     """What an avance still owes: due minus every payment_in posted so far.
     0 for a complete payment; 0 too when nothing was paid (that is an
-    impayé, not an avance)."""
+    impayé, not an avance).
+
+    Même formule que `_still_owed`, qui la pose en SQL pour les écrans
+    qui comptent des mois plutôt que des dirhams. Changer l'une sans
+    l'autre remettrait deux écrans en désaccord sur la même famille.
+    """
     if payment_id is None:
         return 0
     row = conn.execute(
@@ -2337,6 +2372,16 @@ def set_auto_lock(conn: sqlite3.Connection, minutes: int) -> None:
         conn.execute(
             "UPDATE app_lock SET auto_lock_minutes = ? WHERE id = 1", (minutes,)
         )
+
+
+def rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
+    """Lire des lignes en dictionnaires — utile aussi hors d'ici."""
+    return _rows(conn, sql, params)
+
+
+def insert(conn: sqlite3.Connection, sql: str, params: tuple) -> int:
+    """Ecrire une ligne et rendre son identifiant."""
+    return _insert(conn, sql, params)
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:

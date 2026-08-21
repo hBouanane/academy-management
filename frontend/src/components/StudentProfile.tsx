@@ -20,13 +20,15 @@ import {
 } from "@/components/ui/table"
 import { CompleteDialog } from "@/components/CompleteDialog"
 import { Field, FieldGrid } from "@/components/Field"
+import { MessageCircle } from "lucide-react"
 import { monthLabel } from "@/components/MonthNav"
+import { WhatsAppDialog } from "@/components/WhatsAppDialog"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
 import { apiGet } from "@/lib/api"
 import type { StudentProfile as Profile } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
-import { formatDH } from "@/lib/money"
+import { currentMonth, formatDH } from "@/lib/money"
 import { useAlert } from "@/lib/alert"
 
 type Props = {
@@ -58,6 +60,7 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
       .then(setProfile)
       .catch((err: Error) => setError(err.message))
   }, [studentId, refresh, setError])
+  const [writing, setWriting] = useState(false)
 
   const fullName = profile
     ? [profile.first_name, profile.name].filter(Boolean).join(" ")
@@ -65,10 +68,27 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
   const annee = profile ? anneeLabel(profile.level_name, profile.annee) : null
 
   return (
+    <>
     <Dialog open={studentId !== null} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{fullName || "Profil étudiant"}</DialogTitle>
+          <DialogTitle className="flex flex-wrap items-center gap-3">
+            {fullName || "Profil étudiant"}
+            {/* Ecrire a la famille depuis la fiche : c'est ici qu'on
+                regarde son histoire, donc ici qu'on decide d'appeler. */}
+            {studentId !== null && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-success hover:text-success border-success/40"
+                onClick={() => setWriting(true)}
+                title="Prévenir la famille par WhatsApp"
+              >
+                <MessageCircle className="size-4" />
+                WhatsApp
+              </Button>
+            )}
+          </DialogTitle>
         </DialogHeader>
         <Notice alert={error} />
         {profile && (
@@ -252,5 +272,14 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
         />
       )}
     </Dialog>
+      {writing && studentId !== null && (
+        <WhatsAppDialog
+          studentId={studentId}
+          studentName={fullName}
+          month={currentMonth()}
+          onClose={() => setWriting(false)}
+        />
+      )}
+    </>
   )
 }

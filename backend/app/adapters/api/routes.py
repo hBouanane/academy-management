@@ -16,12 +16,14 @@ from app.adapters.sqlite.payment_store import SqlitePaymentStore
 from app.adapters.sqlite.reports import arrears, monthly_report
 from app.domain import lock as lock_rules
 from app.domain.adjustments import AdjustmentSpec
+from app.domain.contact import whatsapp_number
 from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
 from app.services import clock, documents
 from app.services.payments import (
     complete_payment,
     guarantee_unpaid,
+    net_price,
     payment_preview,
     post_payment,
     reverse_payment,
@@ -1026,6 +1028,21 @@ def _touched(conn: sqlite3.Connection, enrollment_id: int) -> None:
         return
     documents.touch(conn, month, documents.scopes_of_enrollment(conn, enrollment_id))
     conn.commit()
+    _refile_quietly(conn)
+
+
+def _refile_quietly(conn: sqlite3.Connection) -> None:
+    """Refaire ce qui vient de vieillir, sans le dire.
+
+    Un impaye d'aout qui rentre en novembre perime l'export d'aout : on
+    le refait tout de suite plutot que de reclamer un clic. Et si ca
+    echoue -- dossier deplace, disque plein -- le geste de l'utilisateur
+    aboutit quand meme : c'est son paiement qui compte, pas notre
+    classement."""
+    try:
+        reconcile_documents(conn)
+    except Exception:  # noqa: BLE001, S110 - un rangement ne casse pas un paiement
+        pass
 
 
 @router.post("/enrollments", status_code=201)
@@ -1259,6 +1276,50 @@ class GuaranteeBody(BaseModel):
     present_until: Annotated[str, StringConstraints(pattern=DATE_PATTERN)] | None = None
     never_came: bool = False  # nothing taught, nothing owed to anyone
     stop: bool = False  # « il a arrêté » : don't carry him into next month
+    # Ce qu'on donne vraiment. Absent : ce que disent les jours enseignés.
+    # C'est son argent : il peut donner moins, ou davantage.
+    amount_centimes: int | None = None
+
+
+@router.get("/enrollments/{enrollment_id}/guarantee")
+def guarantee_proposal(
+    enrollment_id: int,
+    conn: Conn,
+    present_until: Annotated[str | None, Query(pattern=DATE_PATTERN)] = None,
+) -> dict:
+    """Ce qu'on propose de donner au professeur, et le plafond.
+
+    La proposition suit les jours enseignés ; le plafond est le prix du
+    mois -- au-dela, c'est une faute de frappe, pas une generosite."""
+    store = SqlitePaymentStore(conn)
+    context = store.enrollment_context(enrollment_id)
+    if context is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    from app.services.payments import guarantee_proposal as proposed
+
+    return proposed(context, present_until)
+
+
+def _check_guarantee_amount(
+    store: SqlitePaymentStore, enrollment_id: int, amount: int
+) -> None:
+    """Un montant negatif n a pas de sens, et au-dela du prix du mois
+    c est une faute de frappe -- on ne laisse pas passer un zero de trop
+    sur une ecriture qui touche a l argent."""
+    if amount < 0:
+        raise HTTPException(
+            status_code=422, detail="Le montant ne peut pas etre negatif."
+        )
+    context = store.enrollment_context(enrollment_id)
+    if context is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    ceiling = net_price(context)
+    if amount > ceiling:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Le mois vaut {_dh(ceiling)} — impossible d'en avancer"
+            f" {_dh(amount)} au professeur.",
+        )
 
 
 @router.post("/enrollments/{enrollment_id}/guarantee")
@@ -1279,11 +1340,15 @@ def guarantee(enrollment_id: int, body: GuaranteeBody, conn: Conn) -> dict:
             status_code=422,
             detail="La date de présence doit être dans le mois concerné.",
         )
+    store = SqlitePaymentStore(conn)
+    if body.amount_centimes is not None:
+        _check_guarantee_amount(store, enrollment_id, body.amount_centimes)
     posted = guarantee_unpaid(
-        SqlitePaymentStore(conn),
+        store,
         enrollment_id,
         None if body.never_came else body.present_until,
         body.never_came,
+        body.amount_centimes,
     )
     if body.stop:
         crud.stop_enrollment(conn, enrollment_id)
@@ -1766,11 +1831,449 @@ def forget_folder(kind: FolderKind, conn: Conn) -> dict:
     return {"path": None}
 
 
+# --- les repartitions nommees ---------------------------------------------
+
+
+class SplitRuleBody(BaseModel):
+    name: str
+    venue_bp: Annotated[int, Field(ge=0, le=10_000)]
+    owner_bp: Annotated[int, Field(ge=0, le=10_000)]
+
+
+class AppliesToBody(BaseModel):
+    scope: Literal["class", "teacher", "filiere", "level"]
+    ref_id: int | None = None
+    ref_text: str | None = None
+
+
+@router.get("/split-rules")
+def split_rules(conn: Conn) -> list[dict]:
+    """Ses repartitions, et a qui chacune s applique."""
+    rules = crud.rows(
+        conn,
+        "SELECT id, name, venue_bp, owner_bp FROM split_rule"
+        " WHERE academy_id = ? ORDER BY id",
+        (default_academy_id(conn),),
+    )
+    for rule in rules:
+        rule["applies_to"] = crud.rows(
+            conn,
+            "SELECT scope, ref_id, ref_text FROM split_assignment"
+            " WHERE rule_id = ? ORDER BY id",
+            (rule["id"],),
+        )
+    return rules
+
+
+@router.post("/split-rules", status_code=201)
+def add_split_rule(body: SplitRuleBody, conn: Conn) -> dict:
+    if not body.name.strip():
+        raise HTTPException(status_code=422, detail="Donnez un nom a la repartition.")
+    if body.venue_bp + body.owner_bp > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail="La salle et l academie ne peuvent pas prendre plus de 100 %"
+            " a elles deux -- il ne resterait rien au professeur.",
+        )
+    return {
+        "id": crud.insert(
+            conn,
+            "INSERT INTO split_rule (academy_id, name, venue_bp, owner_bp)"
+            " VALUES (?, ?, ?, ?)",
+            (
+                default_academy_id(conn),
+                body.name.strip(),
+                body.venue_bp,
+                body.owner_bp,
+            ),
+        )
+    }
+
+
+@router.patch("/split-rules/{rule_id}")
+def edit_split_rule(rule_id: int, body: SplitRuleBody, conn: Conn) -> dict:
+    if body.venue_bp + body.owner_bp > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail="La salle et l academie ne peuvent pas prendre plus de 100 %"
+            " a elles deux.",
+        )
+    conn.execute(
+        "UPDATE split_rule SET name = ?, venue_bp = ?, owner_bp = ? WHERE id = ?",
+        (body.name.strip(), body.venue_bp, body.owner_bp, rule_id),
+    )
+    conn.commit()
+    return {"id": rule_id}
+
+
+@router.delete("/split-rules/{rule_id}")
+def delete_split_rule(rule_id: int, conn: Conn) -> dict:
+    """Les classes qui la suivaient remontent la chaine : professeur,
+    filiere, niveau, puis la repartition de l academie. Rien ne se perd
+    -- ce qui est deja encaisse garde son partage."""
+    conn.execute("DELETE FROM split_assignment WHERE rule_id = ?", (rule_id,))
+    conn.execute("DELETE FROM split_rule WHERE id = ?", (rule_id,))
+    conn.commit()
+    return {"deleted": rule_id}
+
+
+@router.post("/split-rules/{rule_id}/applies-to")
+def rule_applies_to(rule_id: int, body: AppliesToBody, conn: Conn) -> dict:
+    """Dire a qui cette repartition s applique.
+
+    Une meme cible ne suit qu une regle : la reposer remplace la
+    precedente, sinon il faudrait deviner laquelle gagne."""
+    if body.scope == "filiere":
+        if not body.ref_text:
+            raise HTTPException(status_code=422, detail="Quelle filiere ?")
+        conn.execute(
+            "DELETE FROM split_assignment WHERE scope = 'filiere' AND ref_text = ?",
+            (body.ref_text,),
+        )
+        conn.execute(
+            "INSERT INTO split_assignment (rule_id, scope, ref_text)"
+            " VALUES (?, 'filiere', ?)",
+            (rule_id, body.ref_text),
+        )
+    else:
+        if body.ref_id is None:
+            raise HTTPException(status_code=422, detail="Sur quoi l appliquer ?")
+        conn.execute(
+            "DELETE FROM split_assignment WHERE scope = ? AND ref_id = ?",
+            (body.scope, body.ref_id),
+        )
+        conn.execute(
+            "INSERT INTO split_assignment (rule_id, scope, ref_id) VALUES (?, ?, ?)",
+            (rule_id, body.scope, body.ref_id),
+        )
+    conn.commit()
+    return {"rule_id": rule_id, "scope": body.scope}
+
+
+@router.delete("/split-rules/applies-to/{scope}/{ref}")
+def rule_no_longer_applies(scope: str, ref: str, conn: Conn) -> dict:
+    """Retirer une regle d une cible : elle remonte la chaine."""
+    column = "ref_text" if scope == "filiere" else "ref_id"
+    conn.execute(
+        f"DELETE FROM split_assignment WHERE scope = ? AND {column} = ?",
+        (scope, ref),
+    )
+    conn.commit()
+    return {"scope": scope, "ref": ref}
+
+
+@router.get("/split-preview")
+def split_preview(
+    conn: Conn,
+    teacher_id: Annotated[int | None, Query()] = None,
+    level_id: Annotated[int | None, Query()] = None,
+    filiere: Annotated[str | None, Query()] = None,
+) -> dict:
+    """Ce qui s appliquera a une classe qu on est en train de creer.
+
+    Le formulaire montre ainsi la consequence au moment ou l on y
+    pense, sans avoir a poser la question -- et sans redire l ordre de
+    priorite dans l interface, ou il finirait par diverger."""
+    from app.services.splits import resolve
+
+    found = resolve(
+        conn,
+        default_academy_id(conn),
+        teacher_id=teacher_id,
+        level_id=level_id,
+        filiere=filiere,
+    )
+    return {
+        "venue_bp": found.venue_bp,
+        "owner_bp": found.owner_bp,
+        "from": found.origin,
+        "rule_name": found.rule_name,
+    }
+
+
+@router.get("/classes/{class_id}/split")
+def class_split(class_id: int, conn: Conn) -> dict:
+    """Quelle repartition cette classe suit, et d ou elle la tient --
+    parce que « pourquoi ce chiffre ? » doit avoir une reponse."""
+    from app.services.splits import split_for_class
+
+    found = split_for_class(conn, class_id, default_academy_id(conn))
+    return {
+        "venue_bp": found.venue_bp,
+        "owner_bp": found.owner_bp,
+        "from": found.origin,
+        "rule_name": found.rule_name,
+    }
+
+
+# --- prevenir la famille ---------------------------------------------------
+#
+# L application PREPARE le message et ouvre WhatsApp dessus. Elle n envoie
+# rien toute seule : c est le proprietaire qui relit et qui appuie. Un
+# logiciel qui ecrit aux familles sans qu on ait vu le texte est un
+# logiciel dont on se mefie -- et une erreur de montant partie toute seule
+# ne se rattrape pas.
+
+
+class WhatsAppBody(BaseModel):
+    phone: str
+    text: str
+
+
+def _open_outside(url: str) -> None:
+    """Ouvrir HORS de la fenetre : WhatsApp Desktop s il est installe,
+    le navigateur sinon. Surtout pas dans la fenetre de l application,
+    qui deviendrait un navigateur sans bouton retour.
+
+    os.startfile d abord : c est ce que Windows fait quand on clique un
+    lien, et c est le seul chemin sur lequel on peut compter dans une
+    application sans console -- webbrowser y cherche parfois un
+    navigateur en ligne de commande qui n existe pas.
+    """
+    import os
+    import webbrowser
+
+    opener = getattr(os, "startfile", None)
+    if opener is not None:
+        opener(url)
+        return
+    webbrowser.open(url)
+
+
+@router.post("/whatsapp")
+def open_whatsapp(body: WhatsAppBody) -> dict:
+    """Ouvrir WhatsApp sur ce numero, message deja ecrit."""
+    from urllib.parse import quote
+
+    number = whatsapp_number(body.phone)
+    if number is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"« {body.phone} » n'est pas un numero utilisable —"
+            " corrigez-le dans la fiche de l'eleve.",
+        )
+    url = f"https://wa.me/{number}?text={quote(body.text)}"
+    _open_outside(url)
+    return {"url": url}
+
+
+# Quand un modele a un sens. « Vous n avez pas paye » propose a une
+# famille qui vient de regler, et l application se fait desinstaller.
+ShownWhen = Literal["always", "paid", "unpaid", "arrears"]
+
+
+class TemplateBody(BaseModel):
+    label: str
+    body: str
+    shown_when: ShownWhen = "always"
+
+
+class TemplatePatch(BaseModel):
+    label: str | None = None
+    body: str | None = None
+    shown_when: ShownWhen | None = None
+
+
+def _clean_template(label: str | None, body: str | None) -> None:
+    """Un modèle vide n'a rien à faire dans la liste : il occuperait une
+    place et ne dirait rien."""
+    if label is not None and not label.strip():
+        raise HTTPException(status_code=422, detail="Donnez un nom au modèle.")
+    if body is not None and not body.strip():
+        raise HTTPException(status_code=422, detail="Le message est vide.")
+
+
+@router.get("/message-templates")
+def message_templates(conn: Conn) -> list[dict]:
+    """Ses modèles à lui, dans l'ordre qu'il leur a donné."""
+    return crud.rows(
+        conn,
+        "SELECT id, label, body, shown_when, position FROM message_template"
+        " ORDER BY position, id",
+    )
+
+
+@router.post("/message-templates", status_code=201)
+def add_message_template(body: TemplateBody, conn: Conn) -> dict:
+    _clean_template(body.label, body.body)
+    position = conn.execute(
+        "SELECT COALESCE(MAX(position), 0) + 1 FROM message_template"
+    ).fetchone()[0]
+    template_id = crud.insert(
+        conn,
+        "INSERT INTO message_template (label, body, shown_when, position)"
+        " VALUES (?, ?, ?, ?)",
+        (body.label.strip(), body.body.strip(), body.shown_when, position),
+    )
+    return {"id": template_id}
+
+
+@router.patch("/message-templates/{template_id}")
+def edit_message_template(template_id: int, body: TemplatePatch, conn: Conn) -> dict:
+    _clean_template(body.label, body.body)
+    for column, value in (
+        ("label", body.label),
+        ("body", body.body),
+        ("shown_when", body.shown_when),
+    ):
+        if value is not None:
+            conn.execute(
+                f"UPDATE message_template SET {column} = ? WHERE id = ?",
+                (value.strip(), template_id),
+            )
+    conn.commit()
+    return {"id": template_id}
+
+
+@router.delete("/message-templates/{template_id}")
+def delete_message_template(template_id: int, conn: Conn) -> dict:
+    conn.execute("DELETE FROM message_template WHERE id = ?", (template_id,))
+    conn.commit()
+    return {"deleted": template_id}
+
+
+@router.get("/students/{student_id}/messages")
+def student_messages(student_id: int, month: MonthQuery, conn: Conn) -> dict:
+    """Ce qu'on peut annoncer a cette famille ce mois-ci, et a quel
+    numero. Rien d inscrit, rien a dire."""
+    student = conn.execute(
+        "SELECT id, name FROM student WHERE id = ?", (student_id,)
+    ).fetchone()
+    if student is None:
+        raise LookupError(f"no student {student_id}")
+    academy = conn.execute("SELECT name FROM academy ORDER BY id LIMIT 1").fetchone()
+    row = next(
+        (
+            entry
+            for entry in crud.month_overview(conn, default_academy_id(conn), month)
+            if entry["student_id"] == student_id
+        ),
+        None,
+    )
+    return {
+        "student_name": student["name"],
+        "phones": [
+            {
+                "tag": phone["tag"],
+                "number": phone["number"],
+                # None : le numero est inutilisable tel quel. On le montre
+                # quand meme, pour qu il sache lequel corriger.
+                "whatsapp": whatsapp_number(phone["number"]),
+            }
+            for phone in _rows_of(conn, student_id)
+        ],
+        "messages": _messages_for(conn, row, student["name"], academy["name"], month),
+    }
+
+
+def _rows_of(conn: sqlite3.Connection, student_id: int) -> list[dict]:
+    return [
+        dict(row)
+        for row in conn.execute(
+            "SELECT tag, number FROM student_phone WHERE student_id = ? ORDER BY id",
+            (student_id,),
+        )
+    ]
+
+
+def _messages_for(
+    conn, row: dict | None, name: str, academy: str, month: str
+) -> list[dict]:
+    """Les messages qui ont un sens ce mois-ci — jamais plus.
+
+    Tous viennent de la meme liste, y compris les trois poses au
+    depart : le proprietaire peut les reprendre a son gout, les traduire
+    ou les jeter. Chacun dit a quel moment il sert, et on n en propose
+    aucun qui tomberait a cote."""
+    from app.adapters.docx.labels import month_label
+
+    enrollment = (row or {}).get("enrollment")
+    if not enrollment:
+        return []
+    left = enrollment["remaining_centimes"]
+    settled = bool(enrollment["paid"]) and left == 0
+    debt = _whole_debt(conn, row["student_id"], month)
+    filling = {
+        "eleve": name,
+        "mois": month_label(month).lower(),
+        "montant": _dh(
+            enrollment["net_centimes"]
+            if settled
+            else (left or enrollment["net_centimes"])
+        ),
+        "classes": ", ".join(entry["subject_name"] for entry in enrollment["classes"]),
+        "academie": academy,
+        "impayes": _dh(debt["total"]),
+        "mois_impayes": ", ".join(debt["months"]),
+    }
+    return _templates(conn, settled, filling, behind=len(debt["months"]) > 1)
+
+
+def _whole_debt(conn: sqlite3.Connection, student_id: int, month: str) -> dict:
+    """Tout ce que cette famille doit, tous mois confondus.
+
+    Le rappel ordinaire parle d un mois ; celui-ci parle de la dette.
+    Reclamer 300 DH a qui en doit 900 fait perdre les 600 autres."""
+    from app.adapters.docx.labels import month_label
+    from app.adapters.sqlite.reports import arrears
+
+    owed = arrears(conn, default_academy_id(conn), month)
+    mine = next((entry for entry in owed if entry.student_id == student_id), None)
+    if mine is None:
+        return {"total": 0, "months": []}
+    return {
+        "total": mine.total_owed,
+        "months": [month_label(item.month).lower() for item in mine.items],
+    }
+
+
+def _templates(conn, settled: bool, filling: dict, behind: bool = False) -> list[dict]:
+    """Les modeles qui conviennent a ce mois-ci, les reperes remplis.
+
+    Un repere inconnu reste visible tel quel : mieux vaut qu il voie
+    « {{truc}} » dans l apercu que de le laisser croire qu on a compris
+    ce qu il voulait dire."""
+    # « arrears » ne sort que s il y a VRAIMENT plusieurs mois en
+    # retard : pour un seul, le rappel du mois suffit, et deux
+    # messages sur la meme dette se contrediraient.
+    allowed = ("always", "paid" if settled else "unpaid") + (
+        ("arrears",) if behind else ()
+    )
+    offers = []
+    for template in crud.rows(
+        conn,
+        "SELECT id, label, body, shown_when FROM message_template"
+        " ORDER BY position, id",
+    ):
+        if template["shown_when"] not in allowed:
+            continue
+        text = template["body"]
+        for marker, value in filling.items():
+            text = text.replace("{" + marker + "}", value)
+        offers.append(
+            {
+                "kind": f"template-{template['id']}",
+                "label": template["label"],
+                "text": text,
+            }
+        )
+    return offers
+
+
+def _dh(centimes: int) -> str:
+    return f"{centimes / 100:,.2f} DH".replace(",", " ").replace(".", ",")
+
+
 # --- emporter ses sauvegardes ---------------------------------------------
 
 # Au-dela, on le lui rappelle. Une semaine : assez pour ne pas harceler,
 # assez peu pour qu'un mois de travail ne parte jamais en fumee.
-_STALE_AFTER_DAYS = 7
+# Un avertissement permanent finit par faire partie du decor. Celui-ci
+# attend d avoir trente sauvegardes jamais sorties de l ordinateur --
+# et comme on ne photographie que si la base a bouge, trente veut dire
+# trente vraies journees de travail. A ce compte-la, il y a de quoi
+# perdre.
+_REMIND_AFTER = 30
 
 # Sur la cle, tout se range dans un dossier a nous : une cle sert a
 # vingt choses, la notre ne doit pas s'y perdre.
@@ -1806,16 +2309,35 @@ def backups_state(request: Request, conn: Conn) -> dict:
             days = (datetime.now(UTC) - datetime.fromisoformat(last)).days
         except ValueError:
             days = None
+    uncopied = _uncopied(conn, request, copies)
     return {
         "count": len(copies),
         "newest": copies[-1].name if copies else None,
         "destination": _setting_value(conn, "backups_destination"),
         "last_copied_at": last,
         "days_since": days,
-        # Jamais copiees compte comme trop vieux : c'est le cas le plus
-        # dangereux, et le plus courant.
-        "stale": bool(copies) and (days is None or days >= _STALE_AFTER_DAYS),
+        "uncopied": uncopied,
+        "remind_after": _REMIND_AFTER,
+        "stale": uncopied >= _REMIND_AFTER,
     }
+
+
+def _uncopied(conn: sqlite3.Connection, request: Request, copies: list) -> int:
+    """Combien de sauvegardes n ont jamais quitte cet ordinateur.
+
+    On compte ce qui manque a destination plutot que les jours ecoules :
+    quinze jours de vacances ne mettent rien en peril, quinze journees
+    de travail non sauvegardees, si.
+    """
+    destination = _setting_value(conn, "backups_destination")
+    if destination is None:
+        return len(copies)
+    there = FsPathlib(destination) / _ON_THE_STICK
+    if not there.is_dir():
+        # La cle n est pas branchee : on ne sait pas, on ne crie pas.
+        return len(copies) - int(_setting_value(conn, "backups_copied_count") or 0)
+    saved = {item.name for item in there.glob("data-*.db")}
+    return sum(1 for item in copies if item.name not in saved)
 
 
 @router.post("/backups/copy")
@@ -1843,6 +2365,9 @@ def copy_backups(body: CopyBackupsBody, request: Request, conn: Conn) -> dict:
         shutil.copy2(snapshot, target)
         copied += 1
     _remember(conn, "backups_destination", chosen)
+    # Ce qui est a l abri, pour savoir compter quand la cle sera
+    # debranchee.
+    _remember(conn, "backups_copied_count", str(len(_snapshots(request))))
     _remember(
         conn, "backups_copied_at", datetime.now(UTC).isoformat(timespec="seconds")
     )
@@ -1932,6 +2457,110 @@ def _render_document(
     return monthly_workbook(conn, default_academy_id(conn), month), "paiements.xlsx"
 
 
+@router.post("/documents/reconcile")
+def reconcile_documents(conn: Conn) -> dict:
+    """Ranger ce qui manque, refaire ce qui a vieilli — sans un clic.
+
+    L'export d'un mois clos et sa feuille d'absence n'ont rien d'un
+    choix : ils doivent exister. Demander un clic pour un document que
+    l'application sait produire, c'est demander au client de se
+    souvenir a notre place -- et il oubliera.
+
+    Le mois EN COURS ne voit rien NAITRE ici : son export changerait
+    tous les jours, et son dossier se remplirait de fichiers qu'il n'a
+    pas demandes. Mais ce qu'il a demande une fois, on le tient a jour
+    -- meme pendant le mois en cours. Sinon le bandeau reclamerait
+    pendant tout aout un geste que l'application s'etait interdit de
+    faire, et rien ne l'eteindrait jamais.
+
+    La fiche de paie non plus n'est jamais produite ici : c'est un recu,
+    il se fait au moment ou l'on paie.
+
+    Rien ici ne doit faire echouer l'appel qui l'a declenche : si le
+    dossier a disparu, on se tait et on reessaiera plus tard.
+    """
+    if _backup_root(conn) is None:
+        return {"filed": 0}
+    academy_id = default_academy_id(conn)
+    running = clock.current_month()
+    filed = 0
+    for month in _months_with_something(conn):
+        wanted: list[tuple[str, int]] = [("excel", 0)]
+        wanted += [
+            ("absence", row["id"]) for row in _classes_of_month(conn, academy_id, month)
+        ]
+        for kind, ref_id in wanted:
+            if _already_fresh(conn, kind, month, ref_id):
+                continue
+            if month >= running and not _was_filed(conn, kind, month, ref_id):
+                continue
+            try:
+                file_document(
+                    FileDocumentBody(kind=kind, month=month, ref_id=ref_id), conn
+                )
+                filed += 1
+            except (HTTPException, LookupError, OSError):
+                continue
+    return {"filed": filed}
+
+
+def _months_with_something(conn: sqlite3.Connection) -> list[str]:
+    return [
+        row["month"]
+        for row in crud.rows(
+            conn, "SELECT DISTINCT month FROM enrollment ORDER BY month"
+        )
+    ]
+
+
+def _classes_of_month(
+    conn: sqlite3.Connection, academy_id: int, month: str
+) -> list[dict]:
+    """Les classes qui ont eu au moins un inscrit ce mois-la : les
+    autres n'ont pas de feuille d'absence a produire."""
+    return crud.rows(
+        conn,
+        "SELECT DISTINCT c.id FROM class_group c"
+        " JOIN enrollment_class ec ON ec.class_id = c.id"
+        " JOIN enrollment e ON e.id = ec.enrollment_id"
+        " WHERE e.month = ? ORDER BY c.id",
+        (month,),
+    )
+
+
+def _was_filed(conn: sqlite3.Connection, kind: str, month: str, ref_id: int) -> bool:
+    """Ce document a deja ete range une fois -- donc il l'a voulu.
+
+    C'est ce qui separe « tenir a jour » de « creer sans qu'on demande ».
+    """
+    return (
+        conn.execute(
+            "SELECT 1 FROM exported_document WHERE kind = ? AND month = ?"
+            " AND ref_id = ?",
+            (kind, month, ref_id),
+        ).fetchone()
+        is not None
+    )
+
+
+def _already_fresh(
+    conn: sqlite3.Connection, kind: str, month: str, ref_id: int
+) -> bool:
+    """Deja range, et rien n'a bouge depuis. Reecrire pour rien userait
+    la cle USB et brouillerait les dates."""
+    row = conn.execute(
+        "SELECT d.generated_at, ("
+        "  SELECT t.touched_at FROM document_touch t"
+        "  WHERE t.month = d.month AND t.scope = d.scope AND t.ref_id = d.ref_id"
+        ") AS touched_at FROM exported_document d"
+        " WHERE d.kind = ? AND d.month = ? AND d.ref_id = ?",
+        (kind, month, ref_id),
+    ).fetchone()
+    if row is None:
+        return False
+    return row["touched_at"] is None or row["touched_at"] <= row["generated_at"]
+
+
 @router.get("/documents/stale")
 def stale_documents_route(
     conn: Conn, month: Annotated[str | None, Query(pattern=MONTH_PATTERN)] = None
@@ -1962,3 +2591,128 @@ def report_arrears(up_to_month: MonthQuery, conn: Conn) -> list[dict]:
         }
         for entry in arrears(conn, default_academy_id(conn), up_to_month)
     ]
+
+
+# --- Années scolaires -------------------------------------------------
+#
+# Une académie vit en rentrées, pas en mois. Le mois où la saison
+# s'arrête ne se devine pas : ici on ferme en juin, ailleurs en juillet.
+
+
+class SchoolYearBody(BaseModel):
+    name: str
+    start_month: Annotated[str, Field(pattern=MONTH_PATTERN)]
+    end_month: Annotated[str, Field(pattern=MONTH_PATTERN)]
+
+
+class SchoolYearPatch(BaseModel):
+    name: str | None = None
+    start_month: Annotated[str | None, Field(pattern=MONTH_PATTERN)] = None
+    end_month: Annotated[str | None, Field(pattern=MONTH_PATTERN)] = None
+
+
+@router.get("/school-years")
+def school_years(conn: Conn) -> list[dict]:
+    from app.services.school_years import list_years
+
+    return list_years(conn, default_academy_id(conn))
+
+
+@router.post("/school-years", status_code=201)
+def create_school_year(body: SchoolYearBody, conn: Conn) -> dict:
+    from app.services.school_years import create_year
+
+    return create_year(
+        conn,
+        default_academy_id(conn),
+        name=body.name,
+        start_month=body.start_month,
+        end_month=body.end_month,
+    )
+
+
+@router.patch("/school-years/{year_id}")
+def patch_school_year(year_id: int, patch: SchoolYearPatch, conn: Conn) -> dict:
+    from app.services.school_years import update_year
+
+    return update_year(conn, year_id, **patch.model_dump(exclude_none=True))
+
+
+@router.delete("/school-years/{year_id}")
+def delete_school_year(year_id: int, conn: Conn) -> dict:
+    from app.services.school_years import delete_year
+
+    delete_year(conn, year_id)
+    return {"deleted": year_id}
+
+
+@router.post("/school-years/{year_id}/close")
+def close_school_year(year_id: int, conn: Conn) -> dict:
+    """Range la saison et archive les eleves.
+
+    On ne presume pas qu'ils reviendront : celui qui revient est
+    reinscrit comme d'habitude et retrouve son histoire. Ce qu'une
+    famille doit, en revanche, la suit -- l'argent du ne s'efface pas
+    parce que le calendrier a tourne.
+    """
+    from app.services.school_years import close_year
+
+    return close_year(conn, year_id)
+
+
+@router.get("/reports/school-year/{year_id}")
+def report_school_year(year_id: int, conn: Conn) -> dict:
+    from app.services.school_years import season_report
+
+    return season_report(conn, year_id)
+
+
+# --- Le logo de l'academie --------------------------------------------
+#
+# « Academy Management » en haut de la barre, c'est le nom de l'OUTIL.
+# Lui ouvre l'application pour voir SON academie -- et quand un parent
+# regarde par-dessus son epaule, c'est son enseigne qui doit etre la.
+#
+# Il vit dans la base, pas dans un dossier : il part ainsi avec les
+# sauvegardes. Un fichier pose sur le bureau puis efface laisserait un
+# carre vide au prochain demarrage.
+
+# Assez pour une belle enseigne, trop peu pour une photo de vacances :
+# le logo entre dans CHAQUE sauvegarde, et les alourdirait toutes.
+_LOGO_MAX = 2 * 1024 * 1024
+_LOGO_PREFIX = "data:image/"
+
+
+class LogoBody(BaseModel):
+    logo: str | None = None
+
+
+@router.get("/settings/logo")
+def academy_logo(conn: Conn) -> dict:
+    return {"logo": _setting_value(conn, "logo")}
+
+
+@router.put("/settings/logo")
+def set_academy_logo(body: LogoBody, conn: Conn) -> dict:
+    """Poser son enseigne, ou la retirer (logo: null).
+
+    On verifie que c'est bien une image : un fichier quelconque glisse
+    ici s'afficherait comme un carre casse, et il chercherait longtemps
+    pourquoi.
+    """
+    if body.logo is not None:
+        if not body.logo.startswith(_LOGO_PREFIX):
+            raise ValueError(
+                "Ce fichier n'est pas une image. Choisissez un PNG ou un JPEG."
+            )
+        if len(body.logo) > _LOGO_MAX:
+            raise ValueError(
+                "Cette image est trop lourde. Elle entrerait dans chacune de"
+                " vos sauvegardes -- prenez-en une plus legere."
+            )
+    if body.logo is None:
+        conn.execute("DELETE FROM app_setting WHERE key = 'logo'")
+        conn.commit()
+    else:
+        _remember(conn, "logo", body.logo)
+    return {"logo": body.logo}
