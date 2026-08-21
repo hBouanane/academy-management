@@ -118,7 +118,7 @@ export function Academy() {
           />
         </div>
         <div className="border-border space-y-3 border-t pt-5">
-          <div>
+          <div className="space-y-1.5">
             <Label>Prorata d'arrivée en cours de mois</Label>
             <p className="text-muted-foreground text-xs">
               Le mois est divisé en {segments.length} tranche(s) égales — un
@@ -175,7 +175,7 @@ export function Academy() {
         </div>
 
         <div className="border-border space-y-3 border-t pt-5">
-          <div>
+          <div className="space-y-1.5">
             <Label>Répartition par défaut</Label>
             <p className="text-muted-foreground text-xs">
               Elle s'applique à toutes les classes — sauf à celles qui suivent
@@ -184,7 +184,7 @@ export function Academy() {
           </div>
           <div className="flex gap-4">
             <div className="flex-1 space-y-2">
-              <Label>Part salle (%)</Label>
+              <Label>Salle (%)</Label>
               <Input
                 type="number"
                 min="0"
@@ -194,7 +194,7 @@ export function Academy() {
               />
             </div>
             <div className="flex-1 space-y-2">
-              <Label>Part académie (%)</Label>
+              <Label>Académie (%)</Label>
               <Input
                 type="number"
                 min="0"
@@ -204,7 +204,7 @@ export function Academy() {
               />
             </div>
             <div className="flex-1 space-y-2">
-              <Label className="text-muted-foreground">Part professeurs</Label>
+              <Label className="text-muted-foreground">Professeurs</Label>
               <div className="border-border text-muted-foreground flex h-9 items-center rounded-lg border border-dashed px-3 text-sm">
                 {splitValid ? `${teacherPct}% (partagé par matière)` : "—"}
               </div>
@@ -228,9 +228,13 @@ export function Academy() {
           </Button>
           {saved && <span className="text-success text-sm">Enregistré ✓</span>}
         </div>
-      </div>
 
-      <SplitRules onError={setError} />
+        {/* Les particulières vivent DANS la même carte que la référence :
+            deux boîtes séparées par un blanc, c'était deux sujets. */}
+        <div className="border-border border-t pt-5">
+          <SplitRules onError={setError} />
+        </div>
+      </div>
 
       <LogoSetting onError={setError} />
 

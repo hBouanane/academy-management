@@ -90,6 +90,17 @@ export function SplitRules({ onError }: { onError: (message: string) => void }) 
       .then(load)
       .catch((err: Error) => onError(err.message))
 
+  // Deux parts saisies suffisent pour annoncer la troisieme ; le nom ne
+  // regarde que le bouton.
+  const partsFilled =
+    venue.trim() !== "" &&
+    owner.trim() !== "" &&
+    Number.isFinite(Number(venue)) &&
+    Number.isFinite(Number(owner)) &&
+    Number(venue) >= 0 &&
+    Number(owner) >= 0 &&
+    Number(venue) + Number(owner) <= 100
+
   const valid =
     name.trim() !== "" &&
     Number(venue) >= 0 &&
@@ -97,8 +108,8 @@ export function SplitRules({ onError }: { onError: (message: string) => void }) 
     Number(venue) + Number(owner) <= 100
 
   return (
-    <div className="surface-card space-y-4 p-6">
-      <div>
+    <div className="space-y-4">
+      <div className="space-y-1.5">
         <Label>Répartitions particulières</Label>
         <p className="text-muted-foreground text-xs">
           La répartition ci-dessus s'applique partout — sauf là où vous en
@@ -198,6 +209,14 @@ export function SplitRules({ onError }: { onError: (message: string) => void }) 
             className="h-8 w-24 text-sm"
             inputMode="decimal"
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-muted-foreground">Professeurs</Label>
+          <div className="border-border text-muted-foreground flex h-8 w-44 items-center rounded-lg border border-dashed px-3 text-sm">
+            {partsFilled
+              ? `${100 - Number(venue) - Number(owner)}% (partagé par matière)`
+              : "—"}
+          </div>
         </div>
         <Button size="sm" disabled={!valid} onClick={add}>
           <Plus className="size-4" />

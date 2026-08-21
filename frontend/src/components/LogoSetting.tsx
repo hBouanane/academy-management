@@ -60,7 +60,7 @@ export function LogoSetting({ onError }: { onError: (m: string) => void }) {
 
   return (
     <div className="space-y-2">
-      <div>
+      <div className="space-y-1.5">
         <Label>Logo de l'académie</Label>
         <p className="text-muted-foreground text-xs">
           Il s'affiche en haut à gauche, à côté du nom de votre académie. Il
