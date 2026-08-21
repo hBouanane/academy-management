@@ -22,23 +22,22 @@ type Props = {
   teacherId: number | null
   levelId: number | null
   filiere: string | null
-  /** La règle choisie pour cette classe seule, ou null pour suivre la
-      règle générale. Posée après la création. */
+  /** The rule chosen for this class alone, or null to follow the general
+      rule. Set after creation. */
   override: number | null
   onOverride: (ruleId: number | null) => void
 }
 
 /**
- * Ce qui s'appliquera à la classe qu'on est en train d'ouvrir.
+ * What will apply to the class currently being opened.
  *
- * On ne POSE PAS la question : dans l'immense majorité des cas la
- * classe doit suivre la règle générale, et un champ de plus inviterait
- * à poser quinze règles particulières là où une règle de professeur
- * suffisait.
+ * We do NOT ask the question: in the vast majority of cases the class
+ * should follow the general rule, and one more field would invite fifteen
+ * particular rules where a single teacher rule would have done.
  *
- * Mais le moment où l'on ouvre une classe est celui où l'on pense à
- * l'arrangement passé avec le professeur. On MONTRE donc la
- * conséquence, et on laisse un lien discret pour les vraies exceptions.
+ * But the moment a class is opened is the moment one thinks about the
+ * arrangement made with the teacher. So we SHOW the consequence, and
+ * leave a discreet link for the genuine exceptions.
  */
 export function SplitAtCreation({
   teacherId,

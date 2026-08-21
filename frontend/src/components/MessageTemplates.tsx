@@ -9,8 +9,8 @@ import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { MessageTemplate } from "@/lib/api"
 
-/** Ce que l'application sait remplir. Écrit en toutes lettres : personne
-    ne devine une liste de repères. */
+/** What the application knows how to fill in. Spelled out: nobody
+    guesses a list of markers. */
 const MARKERS = [
   ["{eleve}", "le nom de l'élève"],
   ["{mois}", "le mois concerné"],
@@ -21,11 +21,11 @@ const MARKERS = [
   ["{mois_impayes}", "la liste des mois en retard"],
 ]
 
-/** À qui ce message doit être proposé.
+/** Who this message should be offered for.
  *
- * « Toujours » ne disait rien : toujours quoi ? On nomme donc l'élève
- * concerné, pas le moment. Proposer « vous n'avez pas payé » à une
- * famille qui vient de régler ferait désinstaller l'application. */
+ * « Toujours » said nothing: always what? So we name the student
+ * concerned, not the moment. Offering « vous n'avez pas payé » to a
+ * family that has just paid would get the application uninstalled. */
 const WHEN: {
   value: MessageTemplate["shown_when"]
   label: string
@@ -54,14 +54,13 @@ const WHEN: {
 ]
 
 /**
- * Ses messages à lui.
+ * His own messages.
  *
- * Les trois posés à l'installation ne sont pas « les messages du
- * logiciel » : ce sont déjà les siens. Il les reprend à son goût, les
- * traduit — « salam khouya {eleve}, had chhar makhallastich » — les
- * jette, en ajoute d'autres. Un logiciel qui impose sa façon de dire
- * les choses finit contourné : il recopiera à la main, et se trompera
- * de montant.
+ * The ones placed at installation are not « the software's messages »:
+ * they are already his. He reworks them to his taste, translates them --
+ * « salam khouya {eleve}, had chhar makhallastich » -- throws them away,
+ * adds others. Software that imposes its own way of saying things ends up
+ * bypassed: he will retype by hand, and get an amount wrong.
  */
 export function MessageTemplates({
   onError,
@@ -216,8 +215,8 @@ export function MessageTemplates({
   )
 }
 
-/** Trois pastilles valent mieux qu'une liste déroulante : on voit les
-    trois choix sans cliquer. */
+/** Three pills beat a dropdown: all three choices are visible without
+    clicking. */
 function WhenPicker({
   value,
   onChange,

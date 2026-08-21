@@ -74,8 +74,8 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-3">
             {fullName || "Profil étudiant"}
-            {/* Ecrire a la famille depuis la fiche : c'est ici qu'on
-                regarde son histoire, donc ici qu'on decide d'appeler. */}
+            {/* Writing to the family from the record: this is where his
+                history is read, so this is where one decides to call. */}
             {studentId !== null && (
               <Button
                 size="sm"

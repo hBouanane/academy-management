@@ -20,12 +20,12 @@ const WHERE_FROM: Record<Resolved["from"], string> = {
 }
 
 /**
- * La répartition de CETTE classe.
+ * THIS class's split.
  *
- * Elle suit la chaîne — professeur, filière, niveau, académie — sauf
- * si on en pose une ici. L'écran dit toujours d'où vient le chiffre :
- * « pourquoi la salle prend-elle 30 % sur ce cours ? » doit avoir une
- * réponse immédiate, sinon on se met à douter des comptes.
+ * It follows the chain -- teacher, filière, level, academy -- unless one
+ * is set here. The screen always says where the figure comes from: « why
+ * does the salle take 30 % on this course? » must have an immediate
+ * answer, otherwise one starts doubting the accounts.
  */
 export function ClassSplit({ classId }: { classId: number }) {
   const [resolved, setResolved] = useState<Resolved | null>(null)

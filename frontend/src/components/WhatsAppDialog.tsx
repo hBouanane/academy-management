@@ -23,16 +23,16 @@ type Props = {
 }
 
 /**
- * Prévenir la famille, sans rien envoyer dans son dos.
+ * Telling the family, without sending anything behind his back.
  *
- * L'application écrit le message — elle connaît le mois, les classes et
- * le montant exact — puis ouvre WhatsApp dessus. C'est le propriétaire
- * qui relit et qui appuie sur envoyer. Un logiciel qui écrit aux
- * familles tout seul est un logiciel dont on se méfie, et un montant
- * faux parti sans relecture ne se rattrape pas.
+ * The application writes the message -- it knows the month, the classes
+ * and the exact amount -- then opens WhatsApp on it. The owner rereads it
+ * and presses send. Software that writes to families on its own is
+ * software people distrust, and a wrong amount sent unread cannot be
+ * taken back.
  *
- * Le numéro se choisit : l'élève a le sien, le père le sien — et ce
- * n'est pas au collégien qu'on réclame un impayé.
+ * The number is chosen: the student has his own, the father has his --
+ * and one does not chase a schoolboy for an impayé.
  */
 export function WhatsAppDialog({ studentId, studentName, month, onClose }: Props) {
   const [offer, setOffer] = useState<StudentMessages | null>(null)
@@ -44,8 +44,8 @@ export function WhatsAppDialog({ studentId, studentName, month, onClose }: Props
     apiGet<StudentMessages>(`/api/students/${studentId}/messages?month=${month}`)
       .then((loaded) => {
         setOffer(loaded)
-        // Le plus probable en premier : rappeler un impayé, sinon
-        // confirmer. Il peut toujours changer.
+        // The likeliest first: chase an impayé, otherwise confirm. He can
+        // always change it.
         setKind(
           loaded.messages.find((entry) => entry.kind === "unpaid")?.kind ??
             loaded.messages[0]?.kind ??
@@ -136,8 +136,8 @@ export function WhatsAppDialog({ studentId, studentName, month, onClose }: Props
               </div>
             </div>
 
-            {/* Il doit voir le texte AVANT, pas le découvrir dans
-                WhatsApp — c'est là qu'on repère un montant qui cloche. */}
+            {/* He must see the text BEFORE, not discover it inside
+                WhatsApp -- that is where a wrong amount gets caught. */}
             {chosen && (
               <div className="space-y-1.5">
                 <Label>Ce qui partira</Label>

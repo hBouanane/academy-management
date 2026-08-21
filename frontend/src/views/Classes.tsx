@@ -427,7 +427,7 @@ function StepChip({
   active: boolean
   onClick: () => void
   children: React.ReactNode
-  /** Vient d'être créée : elle pulse une fois pour se faire trouver. */
+  /** Just created: it pulses once so it can be found. */
   flash?: boolean
 }) {
   return (
@@ -494,11 +494,11 @@ function NewClassDialog({
   const [filiereDraft, setFiliereDraft] = useState("")
   const [subjectId, setSubjectId] = useState<number | null>(null)
   const [subjectDraft, setSubjectDraft] = useState("")
-  // La matière créée à l'instant : elle pulse le temps qu'on la repère.
+  // The matière created just now: it pulses long enough to be spotted.
   const [justAdded, setJustAdded] = useState<number | null>(null)
   const subjectInput = useRef<HTMLInputElement>(null)
-  // La repartition particuliere choisie pour cette classe, s'il y en
-  // a une. Posee APRES la creation : la classe doit exister.
+  // The particular split chosen for this class, if there is one. Set
+  // AFTER creation: the class has to exist.
   const [splitOverride, setSplitOverride] = useState<number | null>(null)
   const toast = useToast()
   const [teacherId, setTeacherId] = useState<number | null>(null)
@@ -800,8 +800,9 @@ function NewClassDialog({
                   !levelSubjects.some(
                     (subject) => subject.name === "Accompagnement complet",
                   ) && (
-                    // Le Primaire est un seul groupe aidé sur tout : sa
-                    // matière unique se crée ici. Aucune suggestion ailleurs.
+                    // Primaire is a single group helped with everything:
+                    // its one matière is created here. No suggestion
+                    // anywhere else.
                     <StepChip
                       active={false}
                       onClick={() => {
@@ -901,8 +902,8 @@ function NewClassDialog({
             </Step>
           )}
 
-          {/* On montre la consequence sans poser la question : la
-              classe suit la regle generale, sauf vraie exception. */}
+          {/* We show the consequence without asking the question: the
+              class follows the general rule, barring a real exception. */}
           {teacherId !== null && (
             <SplitAtCreation
               teacherId={teacherId}
@@ -937,7 +938,7 @@ function ReplaceTeacherDialog({
   onDone: () => void
 }) {
   const [date, setDate] = useState(todayIso())
-  // Une classe, un professeur : un seul choix possible.
+  // One class, one teacher: a single possible choice.
   const [successor, setSuccessor] = useState<number | null>(null)
   const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)

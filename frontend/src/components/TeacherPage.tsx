@@ -1,16 +1,14 @@
 // One professor, whole story: classes with student counts and what each one
 // actually paid him, capabilities, six-month history, assignment periods.
 //
-// Une PAGE, plus une fenetre. Six sections empilees dans une modale
-// donnaient un mur : on ne savait plus ou regarder, et la moitie etait
-// sous la ligne de flottaison. En pleine largeur, chaque chose a sa
-// place et son air.
+// A PAGE, not a window. Six sections stacked in a modal made a wall: you no
+// longer knew where to look, and half of it sat below the fold. At full
+// width, everything has its place and its air.
 //
-// Deuxieme passe : la place ne suffit pas si tout se vaut. Un professeur
-// avec douze classes en montrait onze a « 0 · 0,00 DH » ; la seule qui
-// rapportait se perdait au milieu. Ce qui rapporte passe devant, le
-// reste se replie, et les lignes qui se repetent se comptent au lieu de
-// se suivre.
+// Second pass: room is not enough if everything weighs the same. A teacher
+// with twelve classes showed eleven of them at « 0 · 0,00 DH »; the only one
+// that earned anything was lost in the middle. What earns comes first, the
+// rest folds away, and repeated lines are counted instead of listed.
 
 import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft } from "lucide-react"
@@ -38,7 +36,7 @@ const capabilityLabel = (capability: Profile["capabilities"][number]) =>
     capability.annee ? ` ${capability.annee}` : ""
   }${capability.parcours ? ` ${capability.parcours}` : ""}`
 
-/** Un titre de section, toujours de la meme facon. */
+/** A section title, always the same way. */
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
@@ -107,9 +105,10 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
   const monthTotal =
     profile?.history.find((entry) => entry.month === month)?.earned ?? 0
 
-  // Une classe qui n a ni inscrit ni recette n apprend rien sur ce mois :
-  // elle existe, c est tout. On la garde -- il doit pouvoir la retrouver --
-  // mais derriere une ligne, pas devant celle qui rapporte.
+  // A class with neither an enrolled student nor any takings teaches
+  // nothing about this month: it exists, that is all. We keep it -- he must
+  // be able to find it again -- but behind one line, not in front of the
+  // one that earns.
   const { active, dormant } = useMemo(() => {
     const rows = profile?.classes ?? []
     return {
@@ -122,8 +121,8 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
     }
   }, [profile])
 
-  // « francais · Collège — depuis le début (en cours) », treize fois de
-  // suite, ne se lit pas : les lignes identiques se comptent.
+  // « francais · Collège — depuis le début (en cours) », thirteen times in
+  // a row, does not read: identical lines are counted.
   const periods = useMemo(() => {
     const grouped = new Map<
       string,
@@ -131,8 +130,8 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
     >()
     for (const item of profile?.assignments ?? []) {
       const label = `${item.subject_name} · ${item.level_name}`
-      // « depuis le début au 2026-08-01 » ne se dit pas : chaque cas a sa
-      // tournure, sinon on lit une phrase cassée.
+      // « depuis le début au 2026-08-01 » is not something one says: each
+      // case has its own phrasing, otherwise you read a broken sentence.
       const span = item.from_date
         ? item.to_date
           ? `du ${item.from_date} au ${item.to_date}`
@@ -152,11 +151,11 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
 
   const peak = Math.max(...(profile?.history ?? []).map((e) => e.earned), 1)
 
-  // Le total des classes et le total du mois peuvent differer : une avance
-  // versee sur une inscription ne passe par aucun paiement, donc par aucune
-  // classe. La difference existait deja -- elle etait seulement invisible.
-  // Un chiffre qui contredit celui du haut sans un mot fait douter de toute
-  // la page ; on le nomme.
+  // The classes total and the month total can differ: an advance paid on
+  // an enrollment goes through no payment, and therefore through no class.
+  // The gap already existed -- it was merely invisible. A figure that
+  // contradicts the one above without a word makes the whole page
+  // doubtful; so we name it.
   const classesSum = active.reduce((sum, row) => sum + row.earned_centimes, 0)
   const unattached = monthTotal - classesSum
 
@@ -183,8 +182,8 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
       <Notice alert={error} />
       {profile && (
         <div className="space-y-6">
-          {/* Le rôle est déjà écrit sous son nom : le répéter ici volait
-              une case à ce qu'on vient vraiment lire, l'argent. */}
+          {/* The role is already written under his name: repeating it here
+              stole a slot from what one actually comes to read, the money. */}
           <FieldGrid>
             <Field label="Téléphone">{profile.phone ?? "—"}</Field>
             <Field label="Depuis le">
@@ -211,8 +210,8 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
             )}
           </FieldGrid>
 
-          {/* Le tableau ne prend plus toute la largeur : entre le nom de la
-              classe et sa recette, l'oeil avait un mètre à parcourir. */}
+          {/* The table no longer spans the full width: between the class
+              name and its takings, the eye had a metre to travel. */}
           <div className="max-w-4xl">
             <SectionTitle>Classes qui ont rapporté ce mois-ci</SectionTitle>
             {profile.classes.length === 0 && (
@@ -311,8 +310,8 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
           <div className="grid max-w-5xl gap-6 sm:grid-cols-2">
             <div>
               <SectionTitle>6 derniers mois</SectionTitle>
-              {/* Six montants alignés se ressemblaient tous. Une barre
-                  montre d'un coup le mois qui sort du lot. */}
+              {/* Six aligned amounts all looked alike. A bar shows at once
+                  the month that stands out. */}
               <div className="space-y-1">
                 {profile.history.map((entry) => (
                   <div key={entry.month} className="flex items-center gap-2">
@@ -340,9 +339,9 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
             </div>
             <div>
               <SectionTitle>Compétences</SectionTitle>
-              {/* Deux états lisibles sans pictogramme : la classe ouverte
-                    est une pastille pleine et calme, celle qui manque garde
-                    sa case à cocher. */}
+              {/* Two states readable without a pictogram: an open class is
+                    a full, quiet pill, while a missing one keeps its
+                    checkbox. */}
               {openable.length > 0 && (
                 <>
                   <p className="text-muted-foreground mb-1.5 text-xs">
@@ -398,9 +397,9 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
                   </div>
                 </>
               )}
-              {/* Ces compétences-là ont déjà leur classe : elles figurent
-                  toutes dans le tableau du dessus. Les répéter en pastilles
-                  faisait relire douze fois la même chose. */}
+              {/* Those capabilities already have their class: they all
+                  appear in the table above. Repeating them as pills meant
+                  reading the same thing twelve times over. */}
               {taught.length > 0 && (
                 <>
                   <button
@@ -449,9 +448,8 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
                   ))}
                 </div>
               )}
-              {/* Une periode terminee dit quelque chose : elle explique
-                  pourquoi un mois s arrete. Elle ne se noie plus parmi
-                  celles qui courent toujours. */}
+              {/* A finished period says something: it explains why a month
+                  stops. It no longer drowns among those still running. */}
               {periods.past.length > 0 && (
                 <div className="mt-2">
                   <p className="text-muted-foreground text-xs">Terminées</p>

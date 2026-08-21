@@ -10,8 +10,8 @@ export function dhToCentimes(dirhams: string): number {
   return Math.round(Number(dirhams.replace(",", ".")) * 100)
 }
 
-/** Des centimes vers ce qu'on tape dans un champ : « 180 », « 180,50 ».
-    Pas de « DH » ni d'espace — c'est une valeur, pas un affichage. */
+/** From centimes to what one types in a field: « 180 », « 180,50 ». No
+    « DH » and no spaces -- this is a value, not a display. */
 export function centimesToDh(centimes: number): string {
   const dirhams = centimes / 100
   return Number.isInteger(dirhams)

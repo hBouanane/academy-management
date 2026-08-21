@@ -229,8 +229,8 @@ export function Academy() {
           {saved && <span className="text-success text-sm">Enregistré ✓</span>}
         </div>
 
-        {/* Les particulières vivent DANS la même carte que la référence :
-            deux boîtes séparées par un blanc, c'était deux sujets. */}
+        {/* The particular ones live INSIDE the same card as the reference:
+            two boxes separated by white space were two subjects. */}
         <div className="border-border border-t pt-5">
           <SplitRules onError={setError} />
         </div>
@@ -248,9 +248,9 @@ export function Academy() {
   )
 }
 
-/** Le dossier où l'application range tout. Un seul choix, une fois, au
-    lieu d'un « où voulez-vous l'enregistrer ? » à chaque document — et
-    d'un dossier Téléchargements où plus rien ne se retrouve. */
+/** The folder where the application files everything. One choice, once,
+    instead of a « where do you want to save it? » on every document -- and
+    instead of a Downloads folder where nothing is ever found again. */
 function BackupFolder({ onError }: { onError: (message: string) => void }) {
   const [folders, setFolders] = useState<Folders | null>(null)
 
@@ -281,8 +281,8 @@ function BackupFolder({ onError }: { onError: (message: string) => void }) {
   )
 }
 
-/** Poser le code la première fois. Tant qu'il n'est pas posé, rien n'est
-    fermé : c'est ici, et nulle part ailleurs, qu'on ferme la porte. */
+/** Setting the code the first time. Until it is set, nothing is locked:
+    here, and nowhere else, is where the door gets closed. */
 function PoseCode({
   onError,
   onPosed,
@@ -295,8 +295,8 @@ function PoseCode({
   const [phrase, setPhrase] = useState<string | null>(null)
   const toast = useToast()
 
-  // La phrase de secours : montrée une fois, jamais réaffichée, et
-  // seule porte de sortie si le code se perd.
+  // The recovery phrase: shown once, never displayed again, and the only
+  // way out if the code is lost.
   if (phrase)
     return (
       <div className="surface-card space-y-3 p-6">
@@ -312,9 +312,8 @@ function PoseCode({
           <p className="border-border bg-muted/60 flex-1 rounded-lg border p-3 text-center font-mono text-lg tracking-wide select-all">
             {phrase}
           </p>
-          {/* Recopier une phrase de cinq mots a la main invite a la
-              faute de frappe : on la copie, et on la colle ou l'on veut
-              la garder. */}
+          {/* Copying a five-word phrase by hand invites a typo: it is
+              copied, and pasted wherever he wants to keep it. */}
           <Button
             variant="outline"
             title="Copier la phrase"
@@ -338,8 +337,8 @@ function PoseCode({
         <Button
           onClick={() => {
             setPhrase(null)
-            // Le reste de l'application doit apprendre que la porte
-            // existe : c'est ce qui fait sortir « Verrouiller ».
+            // The rest of the application must learn that the door exists:
+            // that is what makes « Verrouiller » appear.
             window.dispatchEvent(new Event("academy-lock-changed"))
             onPosed()
           }}
@@ -402,8 +401,8 @@ function PoseCode({
   )
 }
 
-/** Le verrou, réglable une fois posé : changer le code, et décider au
-    bout de combien de temps sans un geste l'écran se referme. */
+/** The lock, adjustable once set: change the code, and decide after how
+    long without a gesture the screen closes itself. */
 function Security({ onError }: { onError: (message: string) => void }) {
   const [lock, setLock] = useState<LockState | null>(null)
   const [current, setCurrent] = useState("")
@@ -465,8 +464,8 @@ function Security({ onError }: { onError: (message: string) => void }) {
                   `Verrouillage après ${lock.auto_lock_minutes} minute` +
                     (lock.auto_lock_minutes > 1 ? "s" : ""),
                 )
-                // La minuterie qui tourne doit repartir sur le nouveau
-                // délai, pas attendre le prochain déverrouillage.
+                // A running timer must restart on the new delay, not wait
+                // for the next unlock.
                 window.dispatchEvent(new Event("academy-lock-changed"))
                 void reload()
               })
@@ -519,10 +518,10 @@ function Security({ onError }: { onError: (message: string) => void }) {
   )
 }
 
-/** Le propriétaire enseigne aussi : le lier à sa fiche professeur fait
-    additionner ses deux casquettes partout (profil, rapports, versements).
-    Un seul champ — et un « ＋ » qui ouvre la vraie fiche professeur, la même
-    que dans la page Professeurs (identité + arbre des compétences). */
+/** The owner teaches too: linking him to his teacher record makes his two
+    hats add up everywhere (profile, reports, payouts). A single field --
+    and a « ＋ » that opens the real teacher record, the same one as on the
+    Professeurs page (identity + capability tree). */
 function OwnerTeacher({ onError }: { onError: (message: string) => void }) {
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [choice, setChoice] = useState("")
@@ -535,7 +534,7 @@ function OwnerTeacher({ onError }: { onError: (message: string) => void }) {
           setTeachers(rows)
           const owner = rows.find((row) => row.is_owner === 1)
           if (linkNewest && !owner && rows.length > 0) {
-            // La fiche vient d'être créée dans la modale : on la lie.
+            // The record has just been created in the dialog: we link it.
             const newest = rows.reduce((last, row) =>
               row.id > last.id ? row : last,
             )

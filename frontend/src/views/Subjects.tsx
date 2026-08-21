@@ -25,7 +25,7 @@ import { useToast } from "@/components/Toast"
 
 type Row = Subject & { class_count: number; archived_class_count: number }
 
-/** La matière unique du Primaire : un seul groupe, aidé sur tout. */
+/** Primaire's single matière: one group, helped with everything. */
 const ACCOMPAGNEMENT = "Accompagnement complet"
 
 export function Subjects() {
@@ -33,7 +33,7 @@ export function Subjects() {
   const [rows, setRows] = useState<Row[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
   const [error, setError] = useAlert()
-  // La matière créée à l'instant : elle pulse le temps qu'on la repère.
+  // The matière created just now: it pulses long enough to be spotted.
   const [justAdded, setJustAdded] = useState<number | null>(null)
   const toast = useToast()
   const [editing, setEditing] = useState<Row | null>(null)
@@ -164,10 +164,10 @@ export function Subjects() {
                 </span>
               </div>
             )}
-            {/* Le Primaire est un seul groupe où l'élève est aidé sur tout :
-                une matière honnête suffit, proposée ici en un clic tant
-                qu'elle n'existe pas (renommable ensuite). Les autres niveaux
-                en bloc, eux, ne reçoivent aucune suggestion. */}
+            {/* Primaire is a single group where the student is helped with
+                everything: one honest matière is enough, offered here in
+                one click while it does not exist (renamable afterwards).
+                Other levels taken as a block get no suggestion. */}
             {level.name === "Primaire" &&
               !entries.some((row) => row.name === ACCOMPAGNEMENT) && (
                 <button
@@ -232,7 +232,7 @@ function SubjectChip({
   taught: boolean
   onRename: () => void
   onDelete: () => void
-  /** Vient d'être créée : elle pulse une fois pour se faire trouver. */
+  /** Just created: it pulses once so it can be found. */
   flash?: boolean
 }) {
   const blocked = row.archived_class_count > 0
@@ -258,9 +258,9 @@ function SubjectChip({
       >
         <Pencil className="size-3" />
       </button>
-      {/* La corbeille est TOUJOURS là — sinon on croit l'avoir perdue. Elle
-          est simplement désactivée quand la matière est enseignée, avec la
-          raison au survol. */}
+      {/* The bin is ALWAYS there -- otherwise one thinks it has been lost.
+          It is simply disabled while the matière is taught, with the reason
+          on hover. */}
       {taught ? (
         <span
           className="cursor-not-allowed opacity-30"
@@ -311,8 +311,8 @@ function AddSubject({
     apiSend<{ id: number }>("POST", "/api/subjects", { name, level_id: levelId })
       .then(({ id }) => {
         setDraft("")
-        // Le champ garde la main : on en ajoute trois de suite sans
-        // reprendre la souris.
+        // The field keeps focus: three are added in a row without
+        // reaching for the mouse.
         field.current?.focus()
         onAdded(id, name)
         onDone()

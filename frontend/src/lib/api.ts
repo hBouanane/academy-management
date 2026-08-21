@@ -143,7 +143,7 @@ export type ProfileMonth = {
 export type ClassShare = {
   class_id: number
   month: string
-  /** true = le propriétaire a fixé les parts lui-même. */
+  /** true = the owner set the shares himself. */
   manual: boolean
   days_in_month: number
   shares: {
@@ -188,7 +188,7 @@ export type OverviewEnrollment = {
   // Unpaid month whose professors the académie already paid out of pocket.
   guaranteed_centimes: number
   stopped: boolean
-  // Classe archivée sous un élève qui avait payé : il attend son argent.
+  // A class archived under a student who had paid: he is owed his money.
   refund_pending_centimes: number
   refunded_centimes: number
   classes: EnrollmentClass[]
@@ -286,12 +286,12 @@ export type CaisseLine = {
   due_centimes: number // négatif = ce bénéficiaire a avancé de sa poche
   paid_centimes: number
   remaining_centimes: number
-  // Versé de plus que le dû — une réduction ou un remboursement est passé
-  // après le versement. À déduire plus tard, jamais repris tout seul.
+  // Paid above what was owed -- a reduction or a refund landed after the
+  // payout. To be deducted later, never clawed back on its own.
   overpaid_centimes: number
   previous_overpaid_centimes: number
-  // Le trop-versé que l'academie a assume : le beneficiaire garde
-  // l'argent, le rappel s'eteint, la trace reste.
+  // The overpayment the academie wrote off: the beneficiary keeps the
+  // money, the reminder stops, the record stays.
   charged_centimes: number
   charges: OverpaidCharge[]
   payouts: Payout[]
@@ -343,11 +343,11 @@ function detailMessage(body: unknown, status: number): string {
   return `Erreur ${status}`
 }
 
-// Le jeton de session vit en mémoire, jamais sur le disque : fermer
-// l'application referme le verrou, et rien ne traîne pour demain matin.
+// The session token lives in memory, never on disk: closing the
+// application closes the lock, and nothing lingers until tomorrow morning.
 let sessionToken: string | null = null
-// Prévenu quand le serveur répond « verrouillée » — l'écran de
-// déverrouillage remonte alors de lui-même, sans qu'on ait à recharger.
+// Notified when the server answers « verrouillée » -- the unlock screen
+// then comes back by itself, with no reload needed.
 let onLocked: (() => void) | null = null
 
 export function setSessionToken(token: string | null) {
@@ -403,7 +403,7 @@ export type Folders = {
   documents: { path: string | null; example: string | null }
 }
 
-/** Une saison : d'un mois a un autre, et le jour ou on l'a rangee. */
+/** A season: from one month to another, and the day it was put away. */
 export type SchoolYear = {
   id: number
   name: string
@@ -435,7 +435,7 @@ export type SplitRule = {
   }[]
 }
 
-/** Quelle répartition suit une classe, et d'où elle la tient. */
+/** Which split a class follows, and where it gets it from. */
 export type ClassSplit = {
   venue_bp: number
   owner_bp: number
@@ -447,8 +447,8 @@ export type MessageTemplate = {
   id: number
   label: string
   body: string
-  /** Quand ce message a un sens : toujours, une fois payé, tant qu'il
-      reste à payer, ou lorsque plusieurs mois traînent. */
+  /** When this message makes sense: always, once paid, while something
+      remains to pay, or when several months are outstanding. */
   shown_when: "always" | "paid" | "unpaid" | "arrears"
   position: number
 }
@@ -468,7 +468,7 @@ export type BackupState = {
   /** Combien n'ont jamais quitté cet ordinateur. */
   uncopied: number
   remind_after: number
-  /** Assez pour qu'il y ait vraiment de quoi perdre. */
+  /** Enough that there is genuinely something to lose. */
   stale: boolean
 }
 

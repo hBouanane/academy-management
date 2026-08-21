@@ -6,16 +6,16 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 
-/** Deux mégaoctets : de quoi faire une belle enseigne, pas une photo de
-    vacances. Le logo entre dans CHAQUE sauvegarde. */
+/** Two megabytes: enough for a handsome sign, not for a holiday
+    photograph. The logo goes into EVERY backup. */
 const POIDS_MAX = 2 * 1024 * 1024
 
 /**
- * Son logo, celui qui s'affiche en haut de la barre.
+ * His logo, the one shown at the top of the sidebar.
  *
- * Rangé dans la base et non dans un dossier : il part ainsi avec les
- * sauvegardes. Un fichier posé sur le bureau puis effacé laisserait un
- * carré vide au prochain démarrage.
+ * Kept in the database rather than in a folder: that way it travels with
+ * the backups. A file dropped on the desktop and later deleted would
+ * leave an empty square at the next launch.
  */
 export function LogoSetting({ onError }: { onError: (m: string) => void }) {
   const [logo, setLogo] = useState<string | null>(null)
@@ -32,8 +32,8 @@ export function LogoSetting({ onError }: { onError: (m: string) => void }) {
     await apiSend("PUT", "/api/settings/logo", { logo: value })
       .then(() => {
         setLogo(value)
-        // La barre de gauche écoute : elle se met à jour sans qu'on
-        // relance l'application.
+        // The sidebar listens: it updates without restarting the
+        // application.
         window.dispatchEvent(new Event("academy-changed"))
         toast(value ? "Logo enregistré" : "Logo retiré")
       })

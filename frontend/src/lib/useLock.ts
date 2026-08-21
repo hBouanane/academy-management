@@ -4,15 +4,15 @@ import { apiGet, apiSend, setSessionToken, whenLocked } from "@/lib/api"
 import type { LockState } from "@/lib/api"
 
 /**
- * Le verrou, vu de l'interface.
+ * The lock, seen from the interface.
  *
- * Le vrai moment de risque n'est pas le démarrage : c'est le portable
- * laissé ouvert sur le bureau pendant le cours. D'où la minuterie —
- * quelques minutes sans un geste et l'écran se referme, sans rien
- * perdre de ce qui était affiché.
+ * The real moment of risk is not startup: it is the laptop left open on
+ * the desk during a lesson. Hence the timer -- a few minutes without a
+ * gesture and the screen closes, losing nothing of what was displayed.
  *
- * Le serveur reste seul juge : s'il répond « verrouillée » à un appel,
- * l'écran remonte de lui-même, même si la minuterie n'avait pas fini.
+ * The server remains the sole judge: if it answers « verrouillée » to a
+ * call, the screen comes back by itself, even if the timer had not
+ * finished.
  */
 export function useLock() {
   const [state, setState] = useState<LockState | null>(null)
@@ -24,7 +24,7 @@ export function useLock() {
       apiGet<LockState>("/api/lock")
         .then((lock) => {
           setState(lock)
-          // Pas de code posé : rien à garder, on entre.
+          // No code set: nothing to guard, we go in.
           if (!lock.configured) setOpen(true)
           return lock
         })
@@ -44,15 +44,15 @@ export function useLock() {
   // Le serveur a le dernier mot.
   useEffect(() => whenLocked(() => setOpen(false)), [])
 
-  // Le délai vient d'être changé dans les réglages : la minuterie en
-  // cours doit repartir dessus.
+  // The delay has just been changed in the settings: the running timer
+  // must restart on it.
   useEffect(() => {
     const listen = () => void refresh()
     window.addEventListener("academy-lock-changed", listen)
     return () => window.removeEventListener("academy-lock-changed", listen)
   }, [refresh])
 
-  // La minuterie : chaque geste la relance, son silence la fait tomber.
+  // The timer: every gesture restarts it, its silence brings it down.
   useEffect(() => {
     if (!open || !state?.configured) return
     const delay = state.auto_lock_minutes * 60_000

@@ -4,15 +4,14 @@ import { apiGet } from "@/lib/api"
 import type { Academy } from "@/lib/api"
 
 /**
- * Son enseigne en haut de la barre — son nom, son logo.
+ * His sign at the top of the sidebar -- his name, his logo.
  *
- * « Academy Management » était le nom de l'OUTIL. Lui ouvre
- * l'application pour voir SON académie, et quand un parent regarde
- * par-dessus son épaule, c'est son enseigne qui doit être là.
+ * « Academy Management » was the name of the TOOL. He opens the
+ * application to see HIS academy, and when a parent looks over his
+ * shoulder it is his own sign that should be there.
  *
- * Tant que rien n'est chargé on garde la pastille : un titre qui
- * apparaît puis change sous les yeux fait plus désordre qu'un rond qui
- * attend.
+ * While nothing is loaded we keep the dot: a title that appears and then
+ * changes under the reader's eyes is messier than a circle that waits.
  */
 export function AcademyMark() {
   const [name, setName] = useState<string | null>(null)
@@ -27,8 +26,8 @@ export function AcademyMark() {
       .catch(() => setLogo(null))
   }, [])
 
-  // L'événement est émis par la page Académie : le nom et le logo
-  // changent là-bas, et la barre doit suivre sans qu'on relance tout.
+  // The event is emitted by the Academy page: the name and the logo
+  // change over there, and the sidebar must follow without a reload.
   useEffect(() => {
     const again = () => {
       apiGet<Academy[]>("/api/academies")

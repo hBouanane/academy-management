@@ -2,21 +2,21 @@ import { useCallback, useState } from "react"
 
 export type Alert = {
   message: string | null
-  /** Combien de fois l'alerte a été levée. Le texte peut être le même
-      deux fois de suite ; ce compteur, jamais. */
+  /** How many times the alert has been raised. The text may be the same
+      twice in a row; this counter never is. */
   signal: number
 }
 
 /**
- * Un échec répété doit se revoir.
+ * A repeated failure must be seen again.
  *
- * Avec un simple `useState<string | null>`, refaire la même erreur pose
- * exactement la même chaîne : React compare, ne trouve rien de nouveau,
- * et ne rerend pas. L'utilisateur reclique, échoue pareil, et l'écran
- * ne bronche pas — il croit que son geste est passé.
+ * With a plain `useState<string | null>`, making the same mistake sets
+ * exactly the same string: React compares, finds nothing new, and does
+ * not re-render. The user clicks again, fails the same way, and the
+ * screen does not flinch -- he believes his action went through.
  *
- * Le compteur règle ça sans rien changer aux appels : `setError` garde
- * sa signature, et chaque levée porte un signal différent.
+ * The counter fixes that without changing any call site: `setError` keeps
+ * its signature, and every raise carries a different signal.
  */
 export function useAlert(): [Alert, (message: string | null) => void] {
   const [alert, setAlert] = useState<Alert>({ message: null, signal: 0 })

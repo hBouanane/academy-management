@@ -10,7 +10,7 @@ type Props = {
   kind: "payslip" | "absence" | "excel"
   month: string
   refId?: number
-  /** L'adresse du téléchargement classique, pour « Enregistrer sous… ». */
+  /** The plain download URL, for « Enregistrer sous… ». */
   downloadHref: string
   size?: "sm" | "default"
   variant?: "default" | "outline" | "ghost"
@@ -20,17 +20,17 @@ type Props = {
 }
 
 /**
- * Un seul bouton par document.
+ * One button per document.
  *
- * Deux boutons côte à côte reposaient à chaque fois la question qu'un
- * dossier choisi une fois pour toutes était censé supprimer. Alors le
- * bouton décide : un dossier est désigné, il y range et dit où ; aucun
- * dossier, il ouvre l'enregistrement ordinaire de Windows.
+ * Two buttons side by side asked, every single time, the question that
+ * choosing a folder once was supposed to remove. So the button decides:
+ * a folder is set, it files there and says where; no folder, it opens
+ * the ordinary Windows save dialog.
  *
- * L'autre chemin ne disparaît pas — il passe APRÈS. Le mot de
- * confirmation porte « Enregistrer ailleurs… », pour la fois sur vingt
- * où l'on voulait un autre endroit. On agit d'abord, on corrige
- * ensuite, au lieu de choisir vingt fois pour un cas.
+ * The other path does not disappear -- it comes AFTER. The confirmation
+ * carries « Enregistrer ailleurs… », for the one time in twenty that
+ * another place was wanted. Act first, correct afterwards, instead of
+ * choosing twenty times for the sake of one case.
  */
 export function FileDocument({
   kind,
@@ -91,7 +91,7 @@ export function FileDocument({
   )
 }
 
-/** « Septembre › fiches-de-paie » se lit ; le chemin entier, non. */
+/** « Septembre › fiches-de-paie » reads; the whole path does not. */
 function placeOf(path: string) {
   const parts = path.replace(/\\/g, "/").split("/")
   const file = parts.at(-1)

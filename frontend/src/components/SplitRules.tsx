@@ -17,17 +17,16 @@ import { apiGet, apiSend } from "@/lib/api"
 import type { Level, SplitRule, Teacher } from "@/lib/api"
 
 /**
- * Les répartitions nommées, et à qui elles s'appliquent.
+ * The named splits, and who they apply to.
  *
- * L'académie a une répartition de référence — celle du dessus. Mais un
- * professeur chevronné ne se paie pas comme un débutant, et le primaire
- * ne coûte pas ce que coûte le lycée. Il écrit donc ses règles et dit
- * qui les suit.
+ * The academy has a reference split -- the one above. But a seasoned
+ * teacher is not paid like a beginner, and primaire does not cost what
+ * lycee costs. So he writes his rules and says who follows them.
  *
- * La plus précise gagne, et l'ordre est fixe : la classe, puis le
- * professeur, puis la filière, puis le niveau, puis la référence. Il
- * est écrit à l'écran, parce qu'une priorité qu'on ne voit pas est une
- * priorité qu'on découvre sur une feuille de paie.
+ * The most specific one wins, and the order is fixed: the class, then the
+ * teacher, then the filière, then the level, then the reference. It is
+ * written on screen, because a precedence you cannot see is a precedence
+ * you discover on a payslip.
  */
 export function SplitRules({ onError }: { onError: (message: string) => void }) {
   const [rules, setRules] = useState<SplitRule[]>([])
@@ -90,8 +89,8 @@ export function SplitRules({ onError }: { onError: (message: string) => void }) 
       .then(load)
       .catch((err: Error) => onError(err.message))
 
-  // Deux parts saisies suffisent pour annoncer la troisieme ; le nom ne
-  // regarde que le bouton.
+  // Two shares entered are enough to announce the third; the name only
+  // concerns the button.
   const partsFilled =
     venue.trim() !== "" &&
     owner.trim() !== "" &&
@@ -227,7 +226,7 @@ export function SplitRules({ onError }: { onError: (message: string) => void }) 
   )
 }
 
-/** Dire à qui une règle s'applique — un professeur, une filière, un niveau. */
+/** Say who a rule applies to -- a teacher, a filière, a level. */
 function Applier({
   teachers,
   levels,

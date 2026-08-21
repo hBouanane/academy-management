@@ -3,12 +3,12 @@ import { Notice } from "@/components/Notice"
 import { useAlert } from "@/lib/alert"
 
 /**
- * Les messages qu'on envoie aux familles.
+ * The messages sent to families.
  *
- * Ils étaient rangés au fond de la page Académie, entre le partage des
- * pourcentages et les sauvegardes — trois choses qui n'ont rien à voir.
- * Ce qu'on écrit aux familles mérite son écran : on y vient pour ça, et
- * on le retrouve sans chercher.
+ * They were filed at the bottom of the Academy page, between the
+ * percentage split and the backups -- three things with nothing to do
+ * with one another. What one writes to families deserves its own screen:
+ * you come here for that, and you find it again without searching.
  */
 export function Messages() {
   const [error, setError] = useAlert()

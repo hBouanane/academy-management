@@ -1,12 +1,12 @@
-// Payer le professeur même si l'élève n'a pas payé.
+// Paying the teacher even when the student has not paid.
 //
-// L'élève n'a pas payé, mais le professeur a fait son travail : c'est
-// l'académie qui met l'argent, et la salle n'y touche pas (rien n'est
-// entré, elle ne prend rien). Rien n'entre en caisse : l'élève doit
-// toujours son mois.
+// The student has not paid, but the teacher did his work: the academie
+// puts up the money, and the salle does not touch it (nothing came in,
+// so it takes nothing). Nothing enters the till: the student still owes
+// his month.
 //
-// Le montant proposé suit les jours faits — mais c'est le propriétaire
-// qui décide. Il connaît l'arrangement, pas nous.
+// The suggested amount follows the days taught -- but the owner decides.
+// He knows the arrangement; we do not.
 
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -50,7 +50,7 @@ export function GuaranteeDialog({
   const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
-  // La proposition suit les jours : elle change quand la présence change.
+  // The suggestion follows the days: it changes when attendance does.
   useEffect(() => {
     const query =
       presence === "until" ? `?present_until=${until}` : presence === "never" ? "" : ""
@@ -142,8 +142,8 @@ export function GuaranteeDialog({
           )}
         </div>
 
-        {/* Le montant reste modifiable : c'est son argent, et lui seul
-            connaît l'arrangement passé avec le professeur. */}
+        {/* The amount stays editable: it is his money, and he alone
+            knows the arrangement made with the teacher. */}
         <div className="space-y-1.5">
           <Label htmlFor="guarantee-amount">Combien lui donner</Label>
           <div className="flex items-center gap-2">

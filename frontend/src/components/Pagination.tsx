@@ -4,19 +4,19 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 /**
- * Découper une liste qui grossit.
+ * Cutting up a list that keeps growing.
  *
- * Une académie de six élèves tient à l'écran ; trois rentrées plus tard
- * elle en a deux cents, et la page devient un rouleau où l'on ne trouve
- * plus rien. On coupe donc en pages — et la recherche continue de
- * porter sur TOUT, pas seulement sur la page affichée, sinon chercher
- * ne servirait plus à rien.
+ * An academy of six students fits on screen; three school years later it
+ * has two hundred, and the page becomes a scroll where nothing can be
+ * found. So we cut it into pages -- and the search keeps covering
+ * EVERYTHING, not just the displayed page, otherwise searching would
+ * stop being any use.
  */
 export function usePagination<T>(items: T[], perPage = 25) {
   const [page, setPage] = useState(1)
   const pages = Math.max(1, Math.ceil(items.length / perPage))
 
-  // Filtrer réduit la liste : rester page 4 afficherait du vide.
+  // Filtering shrinks the list: staying on page 4 would show emptiness.
   useEffect(() => {
     setPage((current) => Math.min(current, pages))
   }, [pages])
@@ -29,7 +29,7 @@ export function usePagination<T>(items: T[], perPage = 25) {
     total: items.length,
     from,
     visible: items.slice(from, from + perPage),
-    /** En dessous d'une page, les boutons n'auraient rien à faire. */
+    /** Below one page, the buttons would have nothing to do. */
     needed: items.length > perPage,
   }
 }
@@ -41,7 +41,7 @@ type Props = {
   from: number
   shown: number
   setPage: (page: number) => void
-  /** Ce qu'on compte, pour que le décompte se lise : « 132 élèves ». */
+  /** What is being counted, so the tally reads: « 132 élèves ». */
   noun?: string
   className?: string
 }
@@ -61,8 +61,8 @@ export function Pagination({
     <div
       className={`text-muted-foreground flex flex-wrap items-center justify-between gap-2 pt-3 text-sm ${className}`}
     >
-      {/* Dire où l'on est dans quoi : « 26–50 sur 132 » vaut mieux
-          qu'un numéro de page seul. */}
+      {/* Say where you are within what: « 26–50 sur 132 » beats a page
+          number on its own. */}
       <span>
         {from + 1}–{from + shown} sur {total} {noun}
       </span>

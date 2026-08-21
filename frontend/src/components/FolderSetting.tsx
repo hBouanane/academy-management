@@ -10,21 +10,21 @@ type Props = {
   label: string
   explanation: string
   path: string | null
-  /** Ce que le dossier contiendra, dit par le serveur — l'interface ne
-      devine pas les noms de sous-dossiers. */
+  /** What the folder will contain, told by the server -- the interface
+      does not guess subfolder names. */
   example?: string | null
-  /** Quand aucun dossier n'est choisi : dire ce qui se passe alors. */
+  /** When no folder is chosen: say what happens then. */
   fallback?: string
   onChanged: () => void
   onError: (message: string) => void
 }
 
 /**
- * Désigner un dossier sur le disque.
+ * Naming a folder on disk.
  *
- * Personne ne connaît par cœur l'adresse de sa clé USB : on ouvre le
- * sélecteur de Windows, comme n'importe quel logiciel. Une fois choisi,
- * le chemin s'affiche — il n'y a plus rien à taper ni à valider.
+ * Nobody knows their USB stick's address by heart: we open the Windows
+ * picker, like any other software. Once chosen, the path is displayed --
+ * there is nothing left to type or confirm.
  */
 export function FolderSetting({
   kind,
