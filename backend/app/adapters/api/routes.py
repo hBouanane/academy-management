@@ -1425,9 +1425,22 @@ def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
 
 @router.delete("/payouts/{payout_id}")
 def delete_payout(payout_id: int, conn: Conn) -> dict:
-    """Correction d'une saisie — le versement n'a jamais eu lieu."""
+    """Correction d'une saisie — le versement n'a jamais eu lieu.
+
+    The receipt is renamed, never removed: the professor may already hold
+    the signed sheet, and deleting our copy does not retrieve his. A file
+    marked « annule » makes the mismatch visible instead of silent.
+
+    Renaming must not be able to fail the cancellation itself -- that is
+    the owner's decision about money, and our filing comes second.
+    """
+    renamed = None
+    try:
+        renamed = documents.cancel_receipt(conn, payout_id)
+    except Exception:  # noqa: BLE001, S110 - filing never blocks a correction
+        pass
     crud.delete_payout(conn, payout_id)
-    return {"deleted": payout_id}
+    return {"deleted": payout_id, "receipt": renamed}
 
 
 class OverpaidChargeBody(BaseModel):
@@ -2434,6 +2447,15 @@ def file_document(body: FileDocumentBody, conn: Conn) -> dict:
             status_code=409,
             detail="Choisissez d'abord un dossier de sauvegarde dans la page Academie.",
         )
+    # A receipt is not regenerated. It was produced at the moment of paying
+    # and signed; asking for it again must return THAT paper, not a fresh
+    # one describing a month that has moved on since -- another student may
+    # have enrolled, and the professor was never handed money for him.
+    if body.payout_id is not None:
+        already = documents.receipt_path(conn, body.payout_id)
+        if already is not None and FsPathlib(already).exists():
+            return {"path": already, "reused": True}
+
     drawer = FsPathlib(root) / _month_folder(body.month) / documents.DRAWERS[body.kind]
     drawer.mkdir(parents=True, exist_ok=True)
     content, name = _render_document(
@@ -2441,8 +2463,25 @@ def file_document(body: FileDocumentBody, conn: Conn) -> dict:
     )
     target = drawer / name
     target.write_bytes(content)
-    documents.record_export(conn, body.kind, body.month, body.ref_id, str(target))
+    documents.record_export(
+        conn, body.kind, body.month, body.ref_id, str(target), body.payout_id
+    )
     return {"path": str(target)}
+
+
+def _payout_rank(conn: sqlite3.Connection, teacher_id: int, payout_id: int) -> int:
+    """Which payout this is FOR HIM: his first reads 01, his fourth 04.
+
+    Counted by creation order, so cancelling a later one never renumbers a
+    receipt already signed.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) AS rank FROM payout"
+        " WHERE beneficiary_kind = 'teacher' AND beneficiary_id = ?"
+        " AND id <= ?",
+        (teacher_id, payout_id),
+    ).fetchone()
+    return row["rank"] or 1
 
 
 def _render_document(
@@ -2462,9 +2501,14 @@ def _render_document(
             raise HTTPException(status_code=404, detail="Professeur inconnu.")
         # A receipt carries the payout number: two payouts in one month
         # make two sheets, and the second does not overwrite the first.
+        #
+        # The number counts HIS payouts, not the database's. « versement-16 »
+        # told the owner how many payouts the academy had ever made, which is
+        # not a fact about the man holding the paper -- and it made his fourth
+        # receipt look like his sixteenth.
         name = f"paie-{_slug(row['name'])}"
         if payout_id:
-            name += f"-versement-{payout_id}"
+            name += f"-versement-{_payout_rank(conn, ref_id, payout_id):02d}"
         return teacher_invoice(conn, ref_id, month, payout_id), f"{name}.docx"
     if kind == "absence":
         from app.adapters.docx.absence_sheet import absence_sheet
