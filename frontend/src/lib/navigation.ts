@@ -29,3 +29,19 @@ export function useTeacherRoute() {
 
   return { teacherId, close: () => setTeacherId(null) }
 }
+
+const VIEW_EVENT = "academy-open-view"
+
+/** Jump to a section from anywhere -- same reasoning as openTeacher: the
+    button that wants it sits four components away from the state. */
+export function openView(view: string) {
+  window.dispatchEvent(new CustomEvent(VIEW_EVENT, { detail: view }))
+}
+
+export function useViewRoute(setView: (view: string) => void) {
+  useEffect(() => {
+    const listen = (event: Event) => setView((event as CustomEvent<string>).detail)
+    window.addEventListener(VIEW_EVENT, listen)
+    return () => window.removeEventListener(VIEW_EVENT, listen)
+  }, [setView])
+}

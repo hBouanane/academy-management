@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table"
 import { CompleteDialog } from "@/components/CompleteDialog"
 import { Field, FieldGrid } from "@/components/Field"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { MessageCircle } from "lucide-react"
 import { monthLabel } from "@/components/MonthNav"
 import { WhatsAppDialog } from "@/components/WhatsAppDialog"
@@ -49,6 +50,8 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
     remaining: number
   } | null>(null)
   const [refresh, setRefresh] = useState(0)
+  // Twelve rows a year, for as long as the student stays.
+  const monthsPage = usePagination(profile?.months ?? [], 12)
 
   useEffect(() => {
     setError(null)
@@ -158,7 +161,7 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {profile.months.map((month) => (
+                    {monthsPage.visible.map((month) => (
                       <TableRow
                         key={month.enrollment_id}
                         className={month.paid ? "" : "row-unpaid"}
@@ -236,6 +239,11 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
                   </TableBody>
                 </Table>
               )}
+              <Pagination
+                {...monthsPage}
+                shown={monthsPage.visible.length}
+                noun="mois"
+              />
             </div>
 
           </div>

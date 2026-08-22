@@ -197,6 +197,8 @@ export type OverviewEnrollment = {
 export type OverviewRow = {
   student_id: number
   student_name: string
+  /** Older records have none; the screen falls back to the family name. */
+  first_name: string | null
   level_id: number
   level_name: string
   annee: number | null

@@ -16,6 +16,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ConfirmButton } from "@/components/Confirm"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { Notice } from "@/components/Notice"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassRow, Level, Subject } from "@/lib/api"
@@ -95,7 +103,19 @@ export function Subjects() {
 
   const sections = levels.map((level) => {
     const entries = rows.filter((row) => row.level_id === level.id)
-    return { level, entries, lines: anneeLines(level, entries) }
+    const lines = anneeLines(level, entries)
+    // Same lines, read the other way round: the matière is the row, and the
+    // années where it lives are one of its columns.
+    const anneesOf = new Map<number, string[]>()
+    for (const line of lines) {
+      for (const subject of line.subjects) {
+        anneesOf.set(subject.id, [
+          ...(anneesOf.get(subject.id) ?? []),
+          line.label,
+        ])
+      }
+    }
+    return { level, entries, lines, anneesOf }
   })
 
   return (
@@ -110,59 +130,34 @@ export function Subjects() {
 
       <Notice alert={error} />
 
-      {sections.map(({ level, entries, lines }) => {
-        const taught = new Set(
-          lines.flatMap((line) => line.subjects.map((row) => row.id)),
-        )
-        const idle = entries.filter((row) => !taught.has(row.id))
+      {sections.map(({ level, entries, anneesOf }) => {
         return (
           <div key={level.id} className="surface-card p-5">
             <h3 className="mb-3 font-medium">{level.name}</h3>
 
-            {lines.length > 0 && (
-              <div className="mb-2 space-y-1.5">
-                {lines.map((line) => (
-                  <div
-                    key={line.label}
-                    className="flex flex-wrap items-baseline gap-1.5 text-sm"
-                  >
-                    <span className="text-muted-foreground w-44 shrink-0">
-                      {line.label}
-                    </span>
-                    <span className="flex flex-wrap gap-1">
-                      {line.subjects.map((row) => (
-                        <SubjectChip
-                          key={row.id}
-                          row={row}
-                          flash={justAdded === row.id}
-                          taught
-                          onRename={() => setEditing(row)}
-                          onDelete={() => deleteSubject(row)}
-                        />
-                      ))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {idle.length > 0 && (
-              <div className="mb-2 flex flex-wrap items-baseline gap-1.5 text-sm">
-                <span className="text-muted-foreground w-44 shrink-0">
-                  Pas encore de classe
-                </span>
-                <span className="flex flex-wrap gap-1">
-                  {idle.map((row) => (
-                    <SubjectChip
+            {entries.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Matière</TableHead>
+                    <TableHead>Années</TableHead>
+                    <TableHead className="text-right">Classes</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {entries.map((row) => (
+                    <SubjectRow
                       key={row.id}
                       row={row}
+                      annees={anneesOf.get(row.id) ?? []}
                       flash={justAdded === row.id}
-                      taught={false}
                       onRename={() => setEditing(row)}
                       onDelete={() => deleteSubject(row)}
                     />
                   ))}
-                </span>
-              </div>
+                </TableBody>
+              </Table>
             )}
             {/* Primaire is a single group where the student is helped with
                 everything: one honest matière is enough, offered here in
@@ -172,7 +167,7 @@ export function Subjects() {
               !entries.some((row) => row.name === ACCOMPAGNEMENT) && (
                 <button
                   type="button"
-                  className="border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground mb-2 rounded-full border border-dashed px-3 py-1 text-sm"
+                  className="border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground mt-2 mb-2 rounded-md border border-dashed px-3 py-1 text-sm"
                   onClick={() =>
                     apiSend("POST", "/api/subjects", {
                       name: ACCOMPAGNEMENT,
@@ -219,73 +214,85 @@ export function Subjects() {
   )
 }
 
-// The chip IS the matière: rename anywhere; delete only where it can
+// The row IS the matière: rename anywhere; delete only where it can
 // succeed (no class uses it). Archived leftovers are named, not hidden.
-function SubjectChip({
+function SubjectRow({
   row,
-  taught,
+  annees,
+  flash,
   onRename,
   onDelete,
-  flash = false,
 }: {
   row: Row
-  taught: boolean
+  /** Where this matière actually lives -- read from its open classes. */
+  annees: string[]
   onRename: () => void
   onDelete: () => void
   /** Just created: it pulses once so it can be found. */
   flash?: boolean
 }) {
+  const taught = annees.length > 0
   const blocked = row.archived_class_count > 0
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-        taught
-          ? "bg-secondary text-secondary-foreground"
-          : "border-border text-muted-foreground border border-dashed"
-      } ${flash ? "chip-added" : ""}`}
-    >
-      {row.name}
-      {!taught && blocked && (
-        <span className="opacity-70">
-          · {row.archived_class_count} archivée(s)
+    <TableRow className={flash ? "chip-added" : ""}>
+      <TableCell className={taught ? "font-medium" : ""}>
+        {row.name}
+        {!taught && blocked && (
+          <span className="text-muted-foreground text-xs">
+            {" "}
+            · {row.archived_class_count} archivée(s)
+          </span>
+        )}
+      </TableCell>
+      {/* Plain text, not chips: the années are an attribute of the matière,
+          nothing here is clickable, and a sentence reads faster than a row
+          of look-alike boxes. */}
+      <TableCell className="text-muted-foreground">
+        {taught ? annees.join(", ") : "Pas encore de classe"}
+      </TableCell>
+      <TableCell className="text-right">{row.class_count}</TableCell>
+      <TableCell className="text-right">
+        <span className="inline-flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground h-7 w-7 p-0"
+            title="Renommer"
+            onClick={onRename}
+          >
+            <Pencil className="size-4" />
+          </Button>
+          {/* The bin is ALWAYS there -- otherwise one thinks it has been lost.
+              It is simply disabled while the matière is taught, with the
+              reason on hover. */}
+          {taught ? (
+            <span
+              className="text-muted-foreground inline-flex h-7 w-7 cursor-not-allowed items-center justify-center opacity-30"
+              title={`Enseignée dans ${row.class_count} classe(s) — gérez-les d'abord pour pouvoir la supprimer`}
+            >
+              <Trash2 className="size-4" />
+            </span>
+          ) : (
+            <ConfirmButton
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive h-7 w-7 p-0"
+              title={
+                blocked
+                  ? "Ses classes archivées sans historique partiront avec elle ;" +
+                    " un historique d'inscriptions la garde consultable"
+                  : "Supprimer cette matière"
+              }
+              confirmLabel={`Supprimer ${row.name} ?`}
+              description="Définitif — ses compétences et ses classes archivées jamais utilisées disparaissent aussi. Refusé si un historique d'inscriptions existe."
+              onConfirm={onDelete}
+            >
+              <Trash2 className="size-4" />
+            </ConfirmButton>
+          )}
         </span>
-      )}
-      <button
-        type="button"
-        className="hover:text-foreground opacity-60 hover:opacity-100"
-        title="Renommer"
-        onClick={onRename}
-      >
-        <Pencil className="size-3" />
-      </button>
-      {/* The bin is ALWAYS there -- otherwise one thinks it has been lost.
-          It is simply disabled while the matière is taught, with the reason
-          on hover. */}
-      {taught ? (
-        <span
-          className="cursor-not-allowed opacity-30"
-          title={`Enseignée dans ${row.class_count} classe(s) — gérez-les d'abord pour pouvoir la supprimer`}
-        >
-          <Trash2 className="size-3" />
-        </span>
-      ) : (
-        <ConfirmButton
-          variant="ghost"
-          className="text-muted-foreground hover:text-destructive h-4 w-4 rounded-full p-0 opacity-60 hover:bg-transparent hover:opacity-100"
-          title={
-            blocked
-              ? "Ses classes archivées sans historique partiront avec elle ;" +
-                " un historique d'inscriptions la garde consultable"
-              : "Supprimer cette matière"
-          }
-          confirmLabel={`Supprimer ${row.name} ?`}
-          description="Définitif — ses compétences et ses classes archivées jamais utilisées disparaissent aussi. Refusé si un historique d'inscriptions existe."
-          onConfirm={onDelete}
-        >
-          <Trash2 className="size-3" />
-        </ConfirmButton>
-      )}
-    </span>
+      </TableCell>
+    </TableRow>
   )
 }
 

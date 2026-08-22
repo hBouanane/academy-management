@@ -43,7 +43,9 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   initial?: Teacher | null
-  onSaved: () => void
+  /** The id when a teacher was just created, so a caller that needs to
+      carry on with him does not have to hunt for him in the list. */
+  onSaved: (createdId?: number) => void
 }
 
 export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
@@ -152,7 +154,7 @@ export function TeacherDialog({ open, onOpenChange, initial, onSaved }: Props) {
         }
       }
       onOpenChange(false)
-      onSaved()
+      onSaved(initial ? undefined : teacherId)
     } catch (err) {
       setNote((err as Error).message)
       setBusy(false)

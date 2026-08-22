@@ -11,7 +11,6 @@
 // percentage, and all the rest goes to the academie that had fronted it.
 
 import { useCallback, useEffect, useState } from "react"
-import { FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -26,6 +25,8 @@ import { ConfirmButton } from "@/components/Confirm"
 import { GuaranteeDialog } from "@/components/GuaranteeDialog"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
+import { PayoutHistory } from "@/components/PayoutHistory"
 import { PayDialog } from "@/components/PayDialog"
 import { StudentProfile } from "@/components/StudentProfile"
 import { useToast } from "@/components/Toast"
@@ -175,6 +176,9 @@ export function Payroll() {
       .catch((err: Error) => setError(err.message))
 
   const lines = caisse?.lines ?? []
+  // Beneficiaries grow with the staff, unpaid months grow on their
+  // own: two flat lists with nothing to bound them.
+  const linesPage = usePagination(lines, 25)
   const stillOwed = lines.reduce(
     (sum, line) => sum + line.remaining_centimes,
     0,
@@ -182,6 +186,10 @@ export function Payroll() {
   const unpaid = overview.filter(
     (row) => row.enrollment !== null && !row.enrollment.paid,
   )
+  const unpaidPage = usePagination(unpaid, 15)
+  // The payouts of one beneficiary, opened on demand: three of them
+  // never fitted in a cell.
+  const [history, setHistory] = useState<CaisseLine | null>(null)
 
   return (
     <div className="view-enter space-y-6">
@@ -261,7 +269,7 @@ export function Payroll() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lines.map((line, index) => (
+              {linesPage.visible.map((line, index) => (
                 <TableRow
                   key={`${line.kind}-${line.ref_id}`}
                   className={`stagger-row ${
@@ -370,37 +378,24 @@ export function Payroll() {
                       </p>
                     )}
                   </TableCell>
+                  {/* One line, one summary, and the detail on demand. Three
+                      payouts in a cell were three pills carrying an amount, a
+                      date, a receipt icon and a cancel action all at once. */}
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {line.payouts.map((payout) => (
-                        <span key={payout.id} className="inline-flex items-center">
-                          {line.kind === "teacher" && (
-                            <button
-                              type="button"
-                              title="Reçu de ce versement, à faire signer"
-                              className="text-muted-foreground hover:text-foreground mr-1"
-                              onClick={() => receipt(line.ref_id, payout.id)}
-                            >
-                              <FileText className="size-3.5" />
-                            </button>
-                          )}
-                        <ConfirmButton
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-xs"
-                          title="Annuler ce versement (erreur de saisie)"
-                          confirmLabel="Annuler ce versement ?"
-                          description="L'argent revient dans la caisse et le reste à sortir remonte d'autant."
-                          onConfirm={() => cancelPayout(payout.id)}
-                        >
-                          {formatDH(payout.amount_centimes)} · {payout.paid_on}
-                        </ConfirmButton>
-                        </span>
-                      ))}
-                      {line.payouts.length === 0 && (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </div>
+                    {line.payouts.length === 0 ? (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setHistory(line)}
+                      >
+                        {line.payouts.length}
+                        {line.payouts.length > 1 ? " versements" : " versement"}
+                        {" · voir"}
+                      </Button>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {line.remaining_centimes > 0 ? (
@@ -428,6 +423,11 @@ export function Payroll() {
               )}
             </TableBody>
           </Table>
+          <Pagination
+            {...linesPage}
+            shown={linesPage.visible.length}
+            noun="bénéficiaires"
+          />
         </div>
       </div>
 
@@ -472,7 +472,7 @@ export function Payroll() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {unpaid.map((row, index) => {
+                {unpaidPage.visible.map((row, index) => {
                   const enrollment = row.enrollment!
                   const teacherPart = enrollment.split
                     .filter((chip) => chip.kind === "teacher")
@@ -547,6 +547,11 @@ export function Payroll() {
                 })}
               </TableBody>
             </Table>
+            <Pagination
+              {...unpaidPage}
+              shown={unpaidPage.visible.length}
+              noun="impayés"
+            />
           </div>
         )}
       </div>
@@ -584,6 +589,20 @@ export function Payroll() {
         onClose={() => setStudentProfile(null)}
         onChanged={reload}
       />
+
+      {history && (
+        <PayoutHistory
+          name={history.name}
+          payouts={history.payouts}
+          canPrint={history.kind === "teacher"}
+          onPrint={(payoutId) => receipt(history.ref_id, payoutId)}
+          onCancel={(payoutId) => {
+            cancelPayout(payoutId)
+            setHistory(null)
+          }}
+          onClose={() => setHistory(null)}
+        />
+      )}
     </div>
   )
 }

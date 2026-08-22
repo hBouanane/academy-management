@@ -1403,7 +1403,8 @@ def month_overview(
     students = _rows(
         conn,
         f"""
-        SELECT s.id AS student_id, s.name AS student_name, s.level_id,
+        SELECT s.id AS student_id, s.name AS student_name, s.first_name,
+               s.level_id,
                s.annee, s.parcours, s.filiere, sl.name AS level_name,
                e.id AS enrollment_id, e.price_centimes, e.arrival_date,
                e.stopped, p.id AS payment_id,
@@ -1980,6 +1981,10 @@ def _overview_row(conn, store, row) -> dict:
     base = {
         "student_id": row["student_id"],
         "student_name": row["student_name"],
+        # The dashboard names him in full. With the family name alone, two
+        # brothers were one indistinguishable row -- and picking the wrong
+        # one takes the wrong family's money.
+        "first_name": row["first_name"],
         "level_id": row["level_id"],
         "level_name": row["level_name"],
         "annee": row["annee"],
