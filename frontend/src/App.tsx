@@ -163,6 +163,7 @@ function App() {
           <TeacherPage
             teacherId={teacher.teacherId}
             month={month}
+            setMonth={setMonth}
             onClose={teacher.close}
           />
         )}
