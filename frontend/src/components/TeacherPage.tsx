@@ -29,6 +29,7 @@ import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
 import { FileDocument } from "@/components/FileDocument"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, Teacher, TeacherProfile as Profile } from "@/lib/api"
@@ -202,6 +203,11 @@ export function TeacherPage({
     )
   }, [profile])
 
+  // Totals below are computed on the full lists, never on the visible page:
+  // a total that counted one page would simply be wrong.
+  const classesPage = usePagination(classes, 25)
+  const capabilitiesPage = usePagination(capabilities, 25)
+
   const peak = Math.max(...(profile?.history ?? []).map((e) => e.earned), 1)
   const isOwner = profile?.is_owner === 1
   const nothingAtAll =
@@ -340,7 +346,7 @@ export function TeacherPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {classes.map((row) => {
+                  {classesPage.visible.map((row) => {
                     const quiet =
                       row.enrolled_count === 0 && row.earned_centimes === 0
                     return (
@@ -386,6 +392,11 @@ export function TeacherPage({
                   </TableRow>
                 </TableBody>
               </Table>
+              <Pagination
+                {...classesPage}
+                shown={classesPage.visible.length}
+                noun="classes"
+              />
               {unattached !== 0 && (
                 <p className="text-muted-foreground mt-1.5 text-xs">
                   {formatDH(Math.abs(unattached))}{" "}
@@ -470,7 +481,7 @@ export function TeacherPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {capabilities.map(({ capability, open }) => (
+                  {capabilitiesPage.visible.map(({ capability, open }) => (
                     <TableRow
                       key={capability.id}
                       className={open ? "text-muted-foreground" : ""}
@@ -504,6 +515,11 @@ export function TeacherPage({
                   ))}
                 </TableBody>
               </Table>
+              <Pagination
+                {...capabilitiesPage}
+                shown={capabilitiesPage.visible.length}
+                noun="compétences"
+              />
               {openable.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   <label className="text-muted-foreground flex items-center gap-1.5 text-xs">

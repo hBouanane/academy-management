@@ -26,6 +26,7 @@ import { ConfirmButton } from "@/components/Confirm"
 import { GuaranteeDialog } from "@/components/GuaranteeDialog"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { PayDialog } from "@/components/PayDialog"
 import { StudentProfile } from "@/components/StudentProfile"
 import { useToast } from "@/components/Toast"
@@ -175,6 +176,9 @@ export function Payroll() {
       .catch((err: Error) => setError(err.message))
 
   const lines = caisse?.lines ?? []
+  // Beneficiaries grow with the staff, unpaid months grow on their
+  // own: two flat lists with nothing to bound them.
+  const linesPage = usePagination(lines, 25)
   const stillOwed = lines.reduce(
     (sum, line) => sum + line.remaining_centimes,
     0,
@@ -182,6 +186,7 @@ export function Payroll() {
   const unpaid = overview.filter(
     (row) => row.enrollment !== null && !row.enrollment.paid,
   )
+  const unpaidPage = usePagination(unpaid, 15)
 
   return (
     <div className="view-enter space-y-6">
@@ -261,7 +266,7 @@ export function Payroll() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lines.map((line, index) => (
+              {linesPage.visible.map((line, index) => (
                 <TableRow
                   key={`${line.kind}-${line.ref_id}`}
                   className={`stagger-row ${
@@ -428,6 +433,11 @@ export function Payroll() {
               )}
             </TableBody>
           </Table>
+          <Pagination
+            {...linesPage}
+            shown={linesPage.visible.length}
+            noun="bénéficiaires"
+          />
         </div>
       </div>
 
@@ -472,7 +482,7 @@ export function Payroll() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {unpaid.map((row, index) => {
+                {unpaidPage.visible.map((row, index) => {
                   const enrollment = row.enrollment!
                   const teacherPart = enrollment.split
                     .filter((chip) => chip.kind === "teacher")
@@ -547,6 +557,11 @@ export function Payroll() {
                 })}
               </TableBody>
             </Table>
+            <Pagination
+              {...unpaidPage}
+              shown={unpaidPage.visible.length}
+              noun="impayés"
+            />
           </div>
         )}
       </div>

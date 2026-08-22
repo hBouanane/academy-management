@@ -16,6 +16,16 @@ import { useToast } from "@/components/Toast"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Level, SplitRule, Teacher } from "@/lib/api"
 
+/** Naming the kind alongside the target: a rule on « Moulay Idris » and one
+    on « 3ème année » are read the same way otherwise, yet they sit at
+    different levels of the precedence chain. */
+const SCOPE_LABELS: Record<string, string> = {
+  class: "Classe",
+  teacher: "Professeur",
+  filiere: "Filière",
+  level: "Niveau",
+}
+
 /**
  * The named splits, and who they apply to.
  *
@@ -144,24 +154,33 @@ export function SplitRules({ onError }: { onError: (message: string) => void }) 
             </ConfirmButton>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* One target per line, with its kind named. As a chip cloud, « 3ème
+              année » and « Moulay Idris » looked alike, so a rule applying to
+              a level and one applying to a teacher were indistinguishable --
+              which is precisely what decides who wins the precedence. */}
+          <div className="space-y-1">
             {rule.applies_to.map((target) => (
-              <span
+              <div
                 key={`${target.scope}-${target.ref_id}-${target.ref_text}`}
-                className="bg-secondary text-secondary-foreground inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs"
+                className="flex items-center gap-2 text-sm"
               >
-                {nameOf(target.scope, target.ref_id, target.ref_text)}
+                <span className="text-muted-foreground w-20 shrink-0 text-xs">
+                  {SCOPE_LABELS[target.scope] ?? target.scope}
+                </span>
+                <span>
+                  {nameOf(target.scope, target.ref_id, target.ref_text)}
+                </span>
                 <button
                   type="button"
                   title="Ne plus appliquer ici"
-                  className="opacity-60 hover:opacity-100"
+                  className="text-muted-foreground hover:text-foreground"
                   onClick={() =>
                     unapply(target.scope, target.ref_id, target.ref_text)
                   }
                 >
                   <X className="size-3" />
                 </button>
-              </span>
+              </div>
             ))}
             {rule.applies_to.length === 0 && (
               <span className="text-muted-foreground text-xs">
