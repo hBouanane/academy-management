@@ -410,9 +410,11 @@ def _class_table(cell, classes: list[dict], usable: int) -> None:
 
     table = cell.add_table(rows=MAX_ROWS + 1, cols=4)
     _widths(table, columns)
-    # Ruled, frame included: the empty rows must read as room reserved for
-    # classes, not as a gap where something failed to print.
-    _table_borders(table, top=8, bottom=8, inside=4, frame=4)
+    # Three lines and no more: one above the headings, one under them, and
+    # one closing the table. A rule between every class turned a short list
+    # into a grid to decipher, and boxed the reserved empty rows as though
+    # they were missing data.
+    _table_borders(table, top=8, bottom=8)
     _cell_margins(table, left=50, right=50)
 
     header = table.rows[0]
