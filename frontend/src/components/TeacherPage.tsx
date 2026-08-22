@@ -13,7 +13,7 @@
 // question that a filled-versus-dashed pill only hinted at.
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Pencil, UserMinus } from "lucide-react"
+import { ArrowLeft, Pencil, UserMinus, Wallet } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -26,7 +26,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
-import { FileDocument } from "@/components/FileDocument"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
 import { Pagination, usePagination } from "@/components/Pagination"
@@ -34,6 +33,7 @@ import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type { Capability, Teacher, TeacherProfile as Profile } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
+import { openView } from "@/lib/navigation"
 import { formatDH } from "@/lib/money"
 import { useAlert } from "@/lib/alert"
 
@@ -244,16 +244,24 @@ export function TeacherPage({
               <Pencil className="size-4" />
               Modifier
             </Button>
-            <FileDocument
-              kind="payslip"
-              month={month}
-              refId={teacherId}
+            {/* The payslip is a receipt for money leaving the till, so
+                it belongs where the money leaves. Producing one here made a
+                signed paper for a payment that had not happened. */}
+            <Button
               size="sm"
               variant="outline"
-              downloadHref={`/api/teachers/${teacherId}/invoice.docx?month=${month}`}
+              onClick={() => {
+                // The profile stays mounted whatever the section is, so it
+                // has to step aside as well -- otherwise the till loads
+                // behind a page that hides it.
+                openView("payroll")
+                onClose()
+              }}
+              title="Le versement se fait à la caisse"
             >
-              Facture
-            </FileDocument>
+              <Wallet className="size-4" />
+              Payer le professeur
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -468,8 +476,8 @@ export function TeacherPage({
           {capabilities.length > 0 && (
             <section>
               <h3 className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
-                Compétences — {capabilities.length}, dont {openable.length} sans
-                classe ouverte
+                Compétences — {capabilities.length}, dont{" "}
+                {capabilities.length - openable.length} déjà ouvertes
               </h3>
               <Table>
                 <TableHeader>

@@ -112,7 +112,9 @@ export function Dashboard({ month, setMonth }: Props) {
   const paidCount = enrolled.filter((row) => row.enrollment?.paid).length
   const filtered = rows.filter(
     (row) =>
-      row.student_name.toLowerCase().includes(search.trim().toLowerCase()) &&
+      `${row.first_name ?? ""} ${row.student_name}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()) &&
       (!enrolledOnly || row.enrollment !== null) &&
       matchesLevelFilter(filter, row),
   )
@@ -396,7 +398,12 @@ function StudentRow({
       }}
     >
       <TableCell>
-        <p className="font-medium">{row.student_name}</p>
+        {/* His whole name. With the family name alone, two brothers
+            were one indistinguishable row -- and collecting from the
+            wrong one is not a mistake the screen can catch. */}
+        <p className="font-medium">
+          {[row.first_name, row.student_name].filter(Boolean).join(" ")}
+        </p>
         <p className="text-muted-foreground text-xs">{row.level_name}</p>
         {row.has_arrears && (
           <Badge variant="destructive" className="mt-1 gap-1">

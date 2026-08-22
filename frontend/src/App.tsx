@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { AcademyMark } from "@/components/AcademyMark"
 import { LockScreen } from "@/components/LockScreen"
 import { useLock } from "@/lib/useLock"
-import { useTeacherRoute } from "@/lib/navigation"
+import { useTeacherRoute, useViewRoute } from "@/lib/navigation"
 import { TeacherPage } from "@/components/TeacherPage"
 import { currentMonth } from "@/lib/money"
 import { Academy } from "@/views/Academy"
@@ -82,6 +82,8 @@ function useTheme() {
 
 function App() {
   const [view, setView] = useState("dashboard")
+  // A button four components away can ask for a section.
+  useViewRoute(setView)
   const [month, setMonth] = useState(currentMonth())
   const { dark, toggle } = useTheme()
   const lock = useLock()
