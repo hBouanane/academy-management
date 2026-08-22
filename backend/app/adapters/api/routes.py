@@ -1419,8 +1419,109 @@ def _record_payout(
 def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
     """Take a beneficiary's share out of the till -- teacher, salle, or the
     owner himself: he pays himself the way he pays the others.
+
+    A teacher's receipt is filed here, at the moment the money moves. It
+    is the paper he signs for what he has just been handed, so it should
+    exist without being asked for -- and printing it later must send THAT
+    file, not produce a second one.
+
+    Filing can never fail the payout: the money moved, and our paperwork
+    comes second.
     """
-    return _record_payout(conn, body.kind, body.ref_id, body)
+    made = _record_payout(conn, body.kind, body.ref_id, body)
+    if body.kind == "teacher" and _backup_root(conn) is not None:
+        try:
+            file_document(
+                FileDocumentBody(
+                    kind="payslip",
+                    month=body.month,
+                    ref_id=body.ref_id,
+                    payout_id=made["id"],
+                ),
+                conn,
+            )
+        except Exception:  # noqa: BLE001, S110 - filing never blocks a payout
+            pass
+    return made
+
+
+def _default_printer() -> str | None:
+    """The printer Windows will send it to, by name.
+
+    Worth saying out loud: on a machine whose default is « Microsoft Print
+    to PDF », the document goes to a FILE and a dialog asks where to put
+    it. That looks like a fault in the application, when it is the printer
+    doing exactly its job. Naming it turns a mystery into a fact the owner
+    can act on.
+    """
+    try:
+        import winreg
+    except ImportError:  # not Windows
+        return None
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows NT\CurrentVersion\Windows",
+        )
+        device = winreg.QueryValueEx(key, "Device")[0]
+    except OSError:
+        return None
+    # « Nom,pilote,port » -- only the name means anything to him.
+    return device.split(",")[0] or None
+
+
+def _print_file(path: str) -> None:
+    """Send a file to the default printer, the way Windows does it.
+
+    os.startfile with the « print » verb hands it to whatever program owns
+    the extension -- Word for a .docx -- and lets that program print it. If
+    the machine has no printer or no Word, opening it is still better than
+    a button that appears to do nothing.
+    """
+    import os
+
+    opener = getattr(os, "startfile", None)
+    if opener is None:
+        return
+    try:
+        opener(path, "print")
+    except OSError:
+        opener(path)
+
+
+@router.post("/payouts/{payout_id}/print")
+def print_receipt(payout_id: int, conn: Conn) -> dict:
+    """Print the receipt that was filed when the money moved.
+
+    Not a download: it was already filed at the payout, and handing him a
+    second copy in his Downloads folder is how two versions of one signed
+    paper start existing.
+    """
+    path = documents.receipt_path(conn, payout_id)
+    if path is None or not FsPathlib(path).exists():
+        # Payouts made before receipts were filed automatically -- or while
+        # no folder was chosen -- have no paper at all. A receipt that does
+        # not exist cannot be frozen, so producing it now beats a button
+        # that answers « not found »; it is frozen from then on.
+        row = conn.execute(
+            "SELECT month, beneficiary_id FROM payout"
+            " WHERE id = ? AND beneficiary_kind = 'teacher'",
+            (payout_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Versement inconnu.")
+        filed = file_document(
+            FileDocumentBody(
+                kind="payslip",
+                month=row["month"],
+                ref_id=row["beneficiary_id"],
+                payout_id=payout_id,
+            ),
+            conn,
+        )
+        path = filed["path"]
+    _print_file(path)
+    return {"path": path, "printer": _default_printer()}
 
 
 @router.delete("/payouts/{payout_id}")
@@ -2469,8 +2570,15 @@ def file_document(body: FileDocumentBody, conn: Conn) -> dict:
     return {"path": str(target)}
 
 
-def _payout_rank(conn: sqlite3.Connection, teacher_id: int, payout_id: int) -> int:
-    """Which payout this is FOR HIM: his first reads 01, his fourth 04.
+def _payout_rank(
+    conn: sqlite3.Connection, teacher_id: int, month: str, payout_id: int
+) -> int:
+    """Which receipt this is for him THIS MONTH: his first reads 01.
+
+    Counting since the beginning made the number climb forever -- by March
+    a teacher paid twice a month is on his fourteenth, and the figure says
+    nothing he can check against the month in his hand. It restarts with
+    the month, so 02 always means the second of that month.
 
     Counted by creation order, so cancelling a later one never renumbers a
     receipt already signed.
@@ -2478,8 +2586,8 @@ def _payout_rank(conn: sqlite3.Connection, teacher_id: int, payout_id: int) -> i
     row = conn.execute(
         "SELECT COUNT(*) AS rank FROM payout"
         " WHERE beneficiary_kind = 'teacher' AND beneficiary_id = ?"
-        " AND id <= ?",
-        (teacher_id, payout_id),
+        " AND month = ? AND id <= ?",
+        (teacher_id, month, payout_id),
     ).fetchone()
     return row["rank"] or 1
 
@@ -2508,7 +2616,7 @@ def _render_document(
         # receipt look like his sixteenth.
         name = f"paie-{_slug(row['name'])}"
         if payout_id:
-            name += f"-versement-{_payout_rank(conn, ref_id, payout_id):02d}"
+            name += f"-versement-{_payout_rank(conn, ref_id, month, payout_id):02d}"
         return teacher_invoice(conn, ref_id, month, payout_id), f"{name}.docx"
     if kind == "absence":
         from app.adapters.docx.absence_sheet import absence_sheet

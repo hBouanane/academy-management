@@ -37,11 +37,9 @@ import {
   currentMonth,
   dhToCentimes,
   formatDH,
-  previousMonth,
 } from "@/lib/money"
 import { useAlert } from "@/lib/alert"
 import { openTeacher } from "@/lib/navigation"
-import type { Folders } from "@/lib/api"
 
 const KIND_LABEL: Record<CaisseLine["kind"], string> = {
   venue: "Salle",
@@ -50,10 +48,15 @@ const KIND_LABEL: Record<CaisseLine["kind"], string> = {
 }
 
 export function Payroll() {
-  // The till is settled on the ELAPSED month: the current one is not over,
-  // whereas students pay at the start of theirs. This page therefore has
-  // its own month, independent of the rest of the application.
-  const [month, setMonth] = useState(() => previousMonth(currentMonth()))
+  // Opens on the CURRENT month, like every other screen.
+  //
+  // It used to open on the elapsed one, reasoning that a running month is
+  // not yet settled. But that is not how the day goes: money comes in
+  // during the month and teachers get paid during the month, so arriving
+  // on a finished month meant stepping forward before doing anything.
+  // The page keeps its own month -- he can still walk back to close a
+  // month that is over.
+  const [month, setMonth] = useState(() => currentMonth())
   const [caisse, setCaisse] = useState<Caisse | null>(null)
   const [overview, setOverview] = useState<OverviewRow[]>([])
   const [error, setError] = useAlert()
@@ -69,16 +72,6 @@ export function Payroll() {
   } | null>(null)
   const [studentProfile, setStudentProfile] = useState<number | null>(null)
   const toast = useToast()
-  // Null while we do not know: the receipt is then downloaded, for lack of
-  // knowing where to file it.
-  const [documentsFolder, setDocumentsFolder] = useState<string | null>(null)
-
-  useEffect(() => {
-    apiGet<Folders>("/api/settings/folders")
-      .then((settings) => setDocumentsFolder(settings.documents.path))
-      .catch(() => setDocumentsFolder(null))
-  }, [])
-
   const reload = useCallback(() => {
     setError(null)
     apiGet<Caisse>(`/api/caisse?month=${month}`)
@@ -105,9 +98,9 @@ export function Payroll() {
           `Versé ${formatDH(done.amount_centimes)} — ${line.name}`,
           "success",
           line.kind === "teacher"
-            ? () => receipt(line.ref_id, done.id)
+            ? () => printReceipt(done.id)
             : undefined,
-          "Fiche de paie à signer",
+          "Imprimer le reçu",
         )
         reload()
       })
@@ -144,27 +137,30 @@ export function Payroll() {
       })
       .catch((err: Error) => setError(err.message))
 
-  /** A payout's receipt: filed if a folder is set, otherwise saved like
-      any other download. */
-  const receipt = (teacherId: number, payoutId: number) => {
-    const href =
-      `/api/teachers/${teacherId}/invoice.docx?month=${month}&payout=${payoutId}`
-    if (documentsFolder === null) {
-      const link = document.createElement("a")
-      link.href = href
-      link.download = ""
-      link.click()
-      return
-    }
-    apiSend<{ path: string }>("POST", "/api/documents/file", {
-      kind: "payslip",
-      month,
-      ref_id: teacherId,
-      payout_id: payoutId,
-    })
-      .then((filed) => toast(`Reçu rangé : ${filed.path.split(/[\\/]/).pop()}`))
+  /** Print the receipt that was filed when the money moved.
+   *
+   * It used to download the file. But it is filed at the moment of paying,
+   * so downloading handed him a second copy in his Downloads folder -- two
+   * versions of one signed paper, and neither obviously the real one. This
+   * sends the filed file to the printer instead.
+   */
+  const printReceipt = (payoutId: number) =>
+    apiSend<{ path: string; printer: string | null }>(
+      "POST",
+      `/api/payouts/${payoutId}/print`,
+    )
+      .then((sent) =>
+        // Named, not just « sent to the printer ». On a machine whose
+        // default is « Microsoft Print to PDF » the document goes to a
+        // file and a dialog asks where -- which reads as a fault in the
+        // application unless the printer says its own name.
+        toast(
+          sent.printer
+            ? `Envoyé à « ${sent.printer} »`
+            : "Envoyé à l'imprimante par défaut",
+        ),
+      )
       .catch((err: Error) => toast(err.message, "error"))
-  }
 
   const cancelPayout = (payoutId: number) =>
     apiSend("DELETE", `/api/payouts/${payoutId}`)
@@ -214,13 +210,6 @@ export function Payroll() {
           <MonthNav month={month} setMonth={setMonth} />
         </div>
       </header>
-
-      {month === previousMonth(currentMonth()) && (
-        <p className="text-muted-foreground text-xs">
-          Mois écoulé par défaut : on solde un mois terminé, alors que les
-          étudiants paient au début du leur.
-        </p>
-      )}
 
       <Notice alert={error} />
 
@@ -595,7 +584,7 @@ export function Payroll() {
           name={history.name}
           payouts={history.payouts}
           canPrint={history.kind === "teacher"}
-          onPrint={(payoutId) => receipt(history.ref_id, payoutId)}
+          onPrint={(payoutId) => printReceipt(payoutId)}
           onCancel={(payoutId) => {
             cancelPayout(payoutId)
             setHistory(null)

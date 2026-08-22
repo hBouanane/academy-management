@@ -182,3 +182,52 @@ class TestCancellingLeavesATrace:
         _, _, teacher, _ = paid_month(client)
         made = payout(client, teacher)
         assert client.delete(f"/api/payouts/{made['id']}").status_code == 200
+
+
+class TestTheCounterRestartsEachMonth:
+    """« versement-04 » should mean his fourth receipt THIS month.
+
+    Counting his payouts since the beginning made the number climb
+    forever: by March a teacher paid twice a month is on his fourteenth,
+    and the figure says nothing he can check against the month in his
+    hand.
+    """
+
+    def test_the_first_of_a_new_month_reads_01_again(self, client, tmp_path):
+        level, class_id, teacher, package = paid_month(client)
+        root = with_folder(client, tmp_path)
+        file_receipt(client, teacher, payout(client, teacher)["id"])
+
+        # He has to be owed something in October before he can be paid.
+        _, october = enroll(
+            client, level, package, class_id, name="Octobre", month="2026-10"
+        )
+        client.post(
+            "/api/payments",
+            json={"enrollment_id": october, "paid_on": "2026-10-02"},
+        )
+
+        # October: he is paid again, and it is his FIRST of that month.
+        made = client.post(
+            "/api/payouts",
+            json={
+                "kind": "teacher",
+                "ref_id": teacher,
+                "month": "2026-10",
+                "amount_centimes": 20 * DH,
+            },
+        )
+        assert made.status_code == 201, made.text
+        client.post(
+            "/api/documents/file",
+            json={
+                "kind": "payslip",
+                "month": "2026-10",
+                "ref_id": teacher,
+                "payout_id": made.json()["id"],
+            },
+        )
+
+        place = root / "2026-10 Octobre" / "fiches-de-paie"
+        listed = sorted(item.name for item in place.iterdir())
+        assert any(name.endswith("-versement-01.docx") for name in listed)

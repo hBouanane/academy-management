@@ -74,9 +74,20 @@ const sameSlot = (a: ClassRow, b: ClassRow) =>
   a.parcours === b.parcours &&
   a.filiere === b.filiere
 
-type Props = { month: string; setMonth: (month: string) => void }
+type Props = {
+  month: string
+  setMonth: (month: string) => void
+  /** Narrow to one teacher's classes, set when arriving from his page. */
+  teacherFilter?: { id: number; name: string } | null
+  onClearTeacherFilter?: () => void
+}
 
-export function Classes({ month, setMonth }: Props) {
+export function Classes({
+  month,
+  setMonth,
+  teacherFilter,
+  onClearTeacherFilter,
+}: Props) {
   const [rows, setRows] = useState<ClassRow[]>([])
   const [levels, setLevels] = useState<Level[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
@@ -127,10 +138,17 @@ export function Classes({ month, setMonth }: Props) {
       .then(reload)
       .catch((err: Error) => setError(err.message))
 
+  // Narrowing happens before grouping, so a level whose only classes
+  // belong to somebody else disappears entirely rather than showing an
+  // empty heading.
+  const visible = teacherFilter
+    ? rows.filter((row) => row.teacher_id === teacherFilter.id)
+    : rows
+
   const byLevel = levels
     .map((level) => ({
       level,
-      classes: rows.filter((row) => row.level_id === level.id),
+      classes: visible.filter((row) => row.level_id === level.id),
     }))
     .filter((group) => group.classes.length > 0)
 
@@ -191,6 +209,27 @@ export function Classes({ month, setMonth }: Props) {
       </header>
 
       <Notice alert={error} />
+
+      {/* A filtered list that does not say so is a list with rows missing.
+          The way out sits next to the statement, not in a menu. */}
+      {teacherFilter && (
+        <div className="border-border flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
+          <span>
+            Classes de <strong>{teacherFilter.name}</strong>
+          </span>
+          <span className="text-muted-foreground">
+            · {visible.length} sur {rows.length}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onClick={onClearTeacherFilter}
+          >
+            Voir toutes les classes
+          </Button>
+        </div>
+      )}
 
       <label className="text-muted-foreground flex items-center gap-2 text-sm">
         <Checkbox
