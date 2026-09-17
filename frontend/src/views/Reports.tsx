@@ -17,6 +17,7 @@ import { Pagination, usePagination } from "@/components/Pagination"
 import { FileDocument } from "@/components/FileDocument"
 import { SeasonReport } from "@/components/SeasonReport"
 import { StaleDocuments } from "@/components/StaleDocuments"
+import { Journal } from "@/components/Journal"
 import { PayDialog } from "@/components/PayDialog"
 import { apiGet, apiSend } from "@/lib/api"
 import type {
@@ -358,6 +359,10 @@ export function Reports({ month, setMonth }: Props) {
           </div>
         </div>
       )}
+
+      {/* Le journal ferme la page : Rapports dit deja « ce qui s est
+          passe », et la barre laterale reste a trois ecrans. */}
+      <Journal month={month} />
 
       {payTarget && (
         <PayDialog

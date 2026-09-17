@@ -12,6 +12,7 @@ only the affected documents surface.
 
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path as FsPath
 
 # datetime('now') stops at the second: two actions within the same
 # second would compare equal, and a sheet made stale immediately after
@@ -87,16 +88,93 @@ def scopes_of_enrollment(
 
 
 def record_export(
-    conn: sqlite3.Connection, kind: str, month: str, ref_id: int, path: str
+    conn: sqlite3.Connection,
+    kind: str,
+    month: str,
+    ref_id: int,
+    path: str,
+    payout_id: int | None = None,
 ) -> None:
-    conn.execute(
-        "INSERT INTO exported_document (kind, month, scope, ref_id, path,"
-        f" generated_at) VALUES (?, ?, ?, ?, ?, {_NOW})"
-        " ON CONFLICT(kind, month, scope, ref_id) DO UPDATE SET"
-        " path = excluded.path, generated_at = excluded.generated_at",
-        (kind, month, SCOPES[kind], ref_id, path),
-    )
+    """Remember where a document was filed.
+
+    A receipt is keyed by its payout: two payouts to the same teacher in
+    one month are two papers, and the second does not replace the first.
+    Everything else keeps one row per month and scope.
+    """
+    if payout_id is not None:
+        conn.execute(
+            "INSERT INTO exported_document (kind, month, scope, ref_id,"
+            f" payout_id, path, generated_at) VALUES (?, ?, ?, ?, ?, ?, {_NOW})"
+            # A PARTIAL index only matches an upsert whose conflict target
+            # repeats its predicate.
+            " ON CONFLICT(payout_id) WHERE payout_id IS NOT NULL DO UPDATE SET"
+            " path = excluded.path, generated_at = excluded.generated_at",
+            (kind, month, SCOPES[kind], ref_id, payout_id, path),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO exported_document (kind, month, scope, ref_id, path,"
+            f" generated_at) VALUES (?, ?, ?, ?, ?, {_NOW})"
+            " ON CONFLICT(kind, month, scope, ref_id) WHERE payout_id IS NULL"
+            " DO UPDATE SET"
+            " path = excluded.path, generated_at = excluded.generated_at",
+            (kind, month, SCOPES[kind], ref_id, path),
+        )
     conn.commit()
+
+
+def receipt_path(conn: sqlite3.Connection, payout_id: int) -> str | None:
+    """The file already filed for this payout, if there is one.
+
+    This is what makes a receipt a receipt: asked for a second time, the
+    paper that was signed comes back -- not a fresh one describing a month
+    that has moved on since.
+    """
+    row = conn.execute(
+        "SELECT path FROM exported_document WHERE payout_id = ?", (payout_id,)
+    ).fetchone()
+    return row["path"] if row else None
+
+
+def set_aside(path: "FsPath") -> str | None:
+    """Move a receipt out of the way under a « annule » name.
+
+    Renaming is not politeness, it is the only safe move: the professor
+    may already hold that signed sheet, and writing over our copy does not
+    retrieve his. What was on paper stays on disk, marked.
+
+    A second cancellation in the same month would land on the same name,
+    so the free one is found rather than assumed -- « - annule-2 » is
+    ugly, and still better than one file quietly replacing another.
+    """
+    if not path.exists():
+        return None
+    target = path.with_name(f"{path.stem} - annule{path.suffix}")
+    attempt = 2
+    while target.exists():
+        target = path.with_name(f"{path.stem} - annule-{attempt}{path.suffix}")
+        attempt += 1
+    try:
+        path.rename(target)
+    except OSError:
+        return None
+    return str(target)
+
+
+def cancel_receipt(conn: sqlite3.Connection, payout_id: int) -> str | None:
+    """Rename a cancelled payout's receipt, and say where it went.
+
+    Not deleted: the professor may already hold the signed sheet, and
+    removing our copy does not retrieve his. A file marked « annule »
+    makes the mismatch visible instead of silent.
+    """
+    path = receipt_path(conn, payout_id)
+    if path is None:
+        return None
+    source = FsPath(path)
+    conn.execute("DELETE FROM exported_document WHERE payout_id = ?", (payout_id,))
+    conn.commit()
+    return set_aside(source)
 
 
 def stale_documents(

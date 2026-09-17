@@ -227,7 +227,7 @@ function AddLevel({
 
   if (!open)
     return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button size="sm" onClick={() => setOpen(true)}>
         <Plus className="size-4" /> Ajouter un niveau
       </Button>
     )

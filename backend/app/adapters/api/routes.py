@@ -19,7 +19,7 @@ from app.domain.adjustments import AdjustmentSpec
 from app.domain.contact import whatsapp_number
 from app.domain.splitting import Beneficiary
 from app.ports.payments import ConfiguredAdjustment, UnknownEnrollmentError
-from app.services import clock, documents
+from app.services import clock, documents, journal
 from app.services.payments import (
     complete_payment,
     guarantee_unpaid,
@@ -32,6 +32,39 @@ from app.services.payments import (
 from app.services.proration import prorated_price
 
 router = APIRouter()
+
+
+def _noted(conn: sqlite3.Connection, action: str, **facts) -> None:
+    """Write one journal line for an action that has just succeeded.
+
+    After, never before: a line that exists is a thing that happened, so
+    the journal can be read without suspicion -- and a journal read with
+    suspicion answers nothing on the day it is needed.
+    """
+    journal.note(conn, default_academy_id(conn), action, **facts)
+
+
+def _noted_for(
+    conn: sqlite3.Connection, action: str, enrollment_id: int, **facts
+) -> None:
+    """Same, for an action that concerns the student behind an enrollment.
+
+    Read the row BEFORE the action when the action removes it -- an
+    enrollment that no longer exists cannot say whose month it was.
+    """
+    row = conn.execute(
+        "SELECT month, student_id FROM enrollment WHERE id = ?", (enrollment_id,)
+    ).fetchone()
+    if row is None:
+        return
+    _noted(
+        conn,
+        action,
+        month=row["month"],
+        subject=("student", row["student_id"]),
+        **facts,
+    )
+
 
 MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
 DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
@@ -621,7 +654,46 @@ def archive_class(class_id: int, body: ArchiveClassBody, conn: Conn) -> dict:
         [choice.model_dump() for choice in body.refunds],
         clock.current_month(),
     )
+    _noted(
+        conn,
+        "class_archived",
+        month=clock.current_month(),
+        subject=("class", class_id),
+        detail=f"{len(refund_ids)} remboursement(s) promis",
+    )
     return {"id": class_id, "refund_ids": refund_ids}
+
+
+@router.get("/journal")
+def read_journal(
+    conn: Conn,
+    month: Annotated[str | None, Query(pattern=MONTH_PATTERN)] = None,
+    subject_kind: str | None = None,
+    subject_id: int | None = None,
+    limit: int = journal.PAGE,
+    before_id: int | None = None,
+) -> dict:
+    """Ce qui a bougé, le plus récent en premier.
+
+    Paged by id, not by offset: the journal grows while it is being read,
+    and an offset would then show one line twice or skip one entirely --
+    which would be the line being looked for, on the day it matters.
+    """
+    found = journal.entries(
+        conn,
+        default_academy_id(conn),
+        month=month,
+        subject_kind=subject_kind,
+        subject_id=subject_id,
+        limit=limit,
+        before_id=before_id,
+    )
+    return {
+        "entries": found,
+        # Ou reprendre. Absent quand la page est la derniere, ce qui evite
+        # a l ecran d avoir a deviner s il reste quelque chose.
+        "next_before_id": found[-1]["id"] if len(found) == limit else None,
+    }
 
 
 @router.get("/refunds")
@@ -638,6 +710,12 @@ def settle_refund(refund_id: int, conn: Conn) -> dict:
     if refund["status"] == "settled":
         raise HTTPException(status_code=409, detail="Déjà remboursé.")
     crud.settle_refund(conn, refund, clock.current_month())
+    _noted_for(
+        conn,
+        "refund_settled",
+        refund["enrollment_id"],
+        amount_centimes=refund["amount_centimes"],
+    )
     return {"id": refund_id, "status": "settled"}
 
 
@@ -1093,6 +1171,7 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
         arrival_date=body.arrival_date,
     )
     _touched(conn, enrollment_id)
+    _noted_for(conn, "enrollment", enrollment_id)
     return {"id": enrollment_id}
 
 
@@ -1110,7 +1189,20 @@ def delete_enrollment(enrollment_id: int, conn: Conn) -> dict:
             detail="Cette inscription a un historique de paiement — elle ne"
             " peut plus être supprimée (contre-passez plutôt le paiement).",
         )
+    # Lu avant, note apres. Le journal a besoin de savoir de quel eleve ce
+    # mois etait -- et la ligne ne doit paraitre que si la suppression a
+    # bien eu lieu : une ligne qui existe est une chose qui s est passee.
+    gone = conn.execute(
+        "SELECT month, student_id FROM enrollment WHERE id = ?", (enrollment_id,)
+    ).fetchone()
     crud.delete_enrollment(conn, enrollment_id)
+    if gone is not None:
+        _noted(
+            conn,
+            "enrollment_deleted",
+            month=gone["month"],
+            subject=("student", gone["student_id"]),
+        )
     return {"deleted": enrollment_id}
 
 
@@ -1135,6 +1227,7 @@ def create_adjustment(enrollment_id: int, body: AdjustmentCreate, conn: Conn) ->
     _require_unique_bearers(body.bearers)
     _check_adjustment_is_postable(conn, enrollment_id, body)
     adjustment_id = crud.add_adjustment(conn, enrollment_id, body.model_dump())
+    _noted_for(conn, "adjustment", enrollment_id, detail=body.reason)
     return {"id": adjustment_id}
 
 
@@ -1176,6 +1269,7 @@ def delete_adjustment(adjustment_id: int, conn: Conn) -> dict:
         raise LookupError(f"no adjustment {adjustment_id}")
     _require_unpaid_enrollment(conn, row["enrollment_id"])
     crud.delete_adjustment(conn, adjustment_id)
+    _noted_for(conn, "adjustment_deleted", row["enrollment_id"])
     return {"deleted": adjustment_id}
 
 
@@ -1211,6 +1305,7 @@ def patch_adjustment(adjustment_id: int, body: AdjustmentPatch, conn: Conn) -> d
         else None
     )
     crud.update_adjustment(conn, adjustment_id, fields, bearers)
+    _noted_for(conn, "adjustment_changed", row["enrollment_id"])
     return {"id": adjustment_id}
 
 
@@ -1296,11 +1391,13 @@ def guarantee_proposal(
     enrollment_id: int,
     conn: Conn,
     present_until: Annotated[str | None, Query(pattern=DATE_PATTERN)] = None,
+    amount_centimes: int | None = None,
 ) -> dict:
-    """What we suggest giving the teacher, and the ceiling.
+    """What we suggest giving the professors, the ceiling, and who gets what.
 
-    The suggestion follows the days taught; the ceiling is the month's
-    price -- beyond it, this is a typo, not generosity.
+    Every professor who taught him is settled, not just one. Passing the
+    amount back returns the breakdown for THAT amount, so the screen can
+    only ever show the split that will actually be posted.
     """
     store = SqlitePaymentStore(conn)
     context = store.enrollment_context(enrollment_id)
@@ -1308,7 +1405,19 @@ def guarantee_proposal(
         raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
     from app.services.payments import guarantee_proposal as proposed
 
-    return proposed(context, present_until)
+    proposal = proposed(context, present_until, amount_centimes)
+    # « 7 » ne se reconnait pas, « Prof Arabe » si -- et sans les noms
+    # l ecran retomberait sur « le professeur », au singulier.
+    for line in proposal["teachers"]:
+        line["name"] = _teacher_name(conn, line["teacher_id"])
+    return proposal
+
+
+def _teacher_name(conn: sqlite3.Connection, teacher_id: int) -> str | None:
+    row = conn.execute(
+        "SELECT name FROM teacher WHERE id = ?", (teacher_id,)
+    ).fetchone()
+    return row["name"] if row else None
 
 
 def _check_guarantee_amount(
@@ -1366,6 +1475,21 @@ def guarantee(enrollment_id: int, body: GuaranteeBody, conn: Conn) -> dict:
     if body.stop:
         crud.stop_enrollment(conn, enrollment_id)
     _touched(conn, enrollment_id)
+    _noted_for(
+        conn,
+        "guarantee",
+        enrollment_id,
+        amount_centimes=posted.amount,
+        # La decision du proprietaire sur ce qui a ete enseigne : c est
+        # elle qui explique le montant, pas le calcul.
+        detail=(
+            "jamais venu"
+            if body.never_came
+            else f"présent jusqu'au {body.present_until}"
+            if body.present_until
+            else None
+        ),
+    )
     return {
         "enrollment_id": enrollment_id,
         "amount_centimes": posted.amount,
@@ -1419,15 +1543,156 @@ def _record_payout(
 def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
     """Take a beneficiary's share out of the till -- teacher, salle, or the
     owner himself: he pays himself the way he pays the others.
+
+    A teacher's receipt is filed here, at the moment the money moves. It
+    is the paper he signs for what he has just been handed, so it should
+    exist without being asked for -- and printing it later must send THAT
+    file, not produce a second one.
+
+    Filing can never fail the payout: the money moved, and our paperwork
+    comes second. But it is not swallowed either -- a receipt that was not
+    filed is said out loud, because the alternative is discovering it at
+    the printer, weeks later, in front of the professor.
     """
-    return _record_payout(conn, body.kind, body.ref_id, body)
+    made = _record_payout(conn, body.kind, body.ref_id, body)
+    if body.kind == "teacher" and _backup_root(conn) is not None:
+        try:
+            file_document(
+                FileDocumentBody(
+                    kind="payslip",
+                    month=body.month,
+                    ref_id=body.ref_id,
+                    payout_id=made["id"],
+                ),
+                conn,
+            )
+        except HTTPException as refusal:
+            made["receipt_error"] = str(refusal.detail)
+        except Exception as error:  # noqa: BLE001 - filing never blocks a payout
+            made["receipt_error"] = f"Reçu non rangé : {error}"
+    _noted(
+        conn,
+        "payout",
+        month=body.month,
+        subject=(body.kind, body.ref_id),
+        amount_centimes=made["amount_centimes"],
+        detail=body.note,
+    )
+    return made
+
+
+def _default_printer() -> str | None:
+    """The printer Windows will send it to, by name.
+
+    Worth saying out loud: on a machine whose default is « Microsoft Print
+    to PDF », the document goes to a FILE and a dialog asks where to put
+    it. That looks like a fault in the application, when it is the printer
+    doing exactly its job. Naming it turns a mystery into a fact the owner
+    can act on.
+    """
+    try:
+        import winreg
+    except ImportError:  # not Windows
+        return None
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows NT\CurrentVersion\Windows",
+        )
+        device = winreg.QueryValueEx(key, "Device")[0]
+    except OSError:
+        return None
+    # « Nom,pilote,port » -- only the name means anything to him.
+    return device.split(",")[0] or None
+
+
+def _print_file(path: str) -> None:
+    """Send a file to the default printer, the way Windows does it.
+
+    os.startfile with the « print » verb hands it to whatever program owns
+    the extension -- Word for a .docx -- and lets that program print it. If
+    the machine has no printer or no Word, opening it is still better than
+    a button that appears to do nothing.
+    """
+    import os
+
+    opener = getattr(os, "startfile", None)
+    if opener is None:
+        return
+    try:
+        opener(path, "print")
+    except OSError:
+        opener(path)
+
+
+@router.post("/payouts/{payout_id}/print")
+def print_receipt(payout_id: int, conn: Conn) -> dict:
+    """Print the receipt that was filed when the money moved.
+
+    Not a download: it was already filed at the payout, and handing him a
+    second copy in his Downloads folder is how two versions of one signed
+    paper start existing.
+    """
+    path = documents.receipt_path(conn, payout_id)
+    if path is None or not FsPathlib(path).exists():
+        # Payouts made before receipts were filed automatically -- or while
+        # no folder was chosen -- have no paper at all. A receipt that does
+        # not exist cannot be frozen, so producing it now beats a button
+        # that answers « not found »; it is frozen from then on.
+        row = conn.execute(
+            "SELECT month, beneficiary_id FROM payout"
+            " WHERE id = ? AND beneficiary_kind = 'teacher'",
+            (payout_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Versement inconnu.")
+        filed = file_document(
+            FileDocumentBody(
+                kind="payslip",
+                month=row["month"],
+                ref_id=row["beneficiary_id"],
+                payout_id=payout_id,
+            ),
+            conn,
+        )
+        path = filed["path"]
+    _print_file(path)
+    return {"path": path, "printer": _default_printer()}
 
 
 @router.delete("/payouts/{payout_id}")
 def delete_payout(payout_id: int, conn: Conn) -> dict:
-    """Correction d'une saisie — le versement n'a jamais eu lieu."""
+    """Correction d'une saisie — le versement n'a jamais eu lieu.
+
+    The receipt is renamed, never removed: the professor may already hold
+    the signed sheet, and deleting our copy does not retrieve his. A file
+    marked « annule » makes the mismatch visible instead of silent.
+
+    Renaming must not be able to fail the cancellation itself -- that is
+    the owner's decision about money, and our filing comes second.
+    """
+    # Lu avant la suppression : ensuite, ni le beneficiaire ni le montant
+    # ne sont plus la pour etre notes.
+    gone = conn.execute(
+        "SELECT beneficiary_kind, beneficiary_id, month, amount_centimes"
+        " FROM payout WHERE id = ?",
+        (payout_id,),
+    ).fetchone()
+    renamed = None
+    try:
+        renamed = documents.cancel_receipt(conn, payout_id)
+    except Exception:  # noqa: BLE001, S110 - filing never blocks a correction
+        pass
     crud.delete_payout(conn, payout_id)
-    return {"deleted": payout_id}
+    if gone is not None:
+        _noted(
+            conn,
+            "payout_cancelled",
+            month=gone["month"],
+            subject=(gone["beneficiary_kind"], gone["beneficiary_id"]),
+            amount_centimes=gone["amount_centimes"],
+        )
+    return {"deleted": payout_id, "receipt": renamed}
 
 
 class OverpaidChargeBody(BaseModel):
@@ -1457,13 +1722,34 @@ def take_overpaid_charge(body: OverpaidChargeBody, conn: Conn) -> dict:
     charge_id = crud.add_overpaid_charge(
         conn, academy_id, body.kind, body.ref_id, body.month, amount, body.note
     )
+    _noted(
+        conn,
+        "overpaid_charge",
+        month=body.month,
+        subject=(body.kind, body.ref_id),
+        amount_centimes=amount,
+        detail=body.note,
+    )
     return {"id": charge_id, "amount_centimes": amount}
 
 
 @router.delete("/overpaid-charges/{charge_id}")
 def cancel_overpaid_charge(charge_id: int, conn: Conn) -> dict:
     """L'académie ne l'assume plus : le rappel de déduction revient."""
+    gone = conn.execute(
+        "SELECT beneficiary_kind, beneficiary_id, month, amount_centimes"
+        " FROM overpaid_charge WHERE id = ?",
+        (charge_id,),
+    ).fetchone()
     crud.delete_overpaid_charge(conn, charge_id)
+    if gone is not None:
+        _noted(
+            conn,
+            "overpaid_charge_cancelled",
+            month=gone["month"],
+            subject=(gone["beneficiary_kind"], gone["beneficiary_id"]),
+            amount_centimes=gone["amount_centimes"],
+        )
     return {"deleted": charge_id}
 
 
@@ -1544,6 +1830,16 @@ def ensure_month(month: MonthPath, conn: Conn) -> dict:
     if source is None:
         return {"extended": 0, "from_month": None}
     extended = crud.copy_month(conn, academy_id, source, month)
+    # Seulement quand il s est passe quelque chose : le tableau de bord
+    # appelle ceci a chaque ouverture, et une ligne « 0 eleve reconduit »
+    # par visite noierait le journal en une semaine.
+    if extended:
+        _noted(
+            conn,
+            "month_prepared",
+            month=month,
+            detail=f"{extended} élève(s) reconduits depuis {source}",
+        )
     return {"extended": extended, "from_month": source}
 
 
@@ -1575,6 +1871,10 @@ def create_payment(body: PaymentCreate, conn: Conn) -> dict:
         amount=body.amount_centimes,
     )
     _touched(conn, body.enrollment_id)
+    # Ce qui a ete remis, pas ce qui etait du : une avance de 200 sur 300
+    # est une ligne de 200.
+    cash = posted.net_amount if body.amount_centimes is None else body.amount_centimes
+    _noted_for(conn, "payment_in", body.enrollment_id, amount_centimes=cash)
     return {"payment_id": posted.payment_id, "net_centimes": posted.net_amount}
 
 
@@ -1585,16 +1885,31 @@ def complete(payment_id: int, body: CompleteBody, conn: Conn) -> dict:
     posted = complete_payment(
         SqlitePaymentStore(conn), payment_id, body.amount_centimes
     )
-    _touched(conn, crud.payment_enrollment(conn, payment_id))
+    enrollment_id = crud.payment_enrollment(conn, payment_id)
+    _touched(conn, enrollment_id)
+    _noted_for(conn, "payment_completed", enrollment_id, amount_centimes=posted)
     return {"payment_id": payment_id, "posted_centimes": posted}
 
 
 @router.post("/payments/{payment_id}/reverse")
 def reverse(payment_id: int, body: ReverseBody, conn: Conn) -> dict:
+    # Lu avant : apres la contre-passation, le montant rendu se
+    # reconstituerait en sommant des lignes miroir.
+    cash = conn.execute(
+        "SELECT amount_centimes FROM payment WHERE id = ?", (payment_id,)
+    ).fetchone()
     reversed_payment = reverse_payment(
         SqlitePaymentStore(conn), payment_id, body.reason
     )
-    _touched(conn, crud.payment_enrollment(conn, payment_id))
+    enrollment_id = crud.payment_enrollment(conn, payment_id)
+    _touched(conn, enrollment_id)
+    _noted_for(
+        conn,
+        "payment_reversed",
+        enrollment_id,
+        amount_centimes=cash[0] if cash else None,
+        detail=body.reason,
+    )
     return {"payment_id": reversed_payment.payment_id}
 
 
@@ -2434,15 +2749,66 @@ def file_document(body: FileDocumentBody, conn: Conn) -> dict:
             status_code=409,
             detail="Choisissez d'abord un dossier de sauvegarde dans la page Academie.",
         )
+    # A receipt is not regenerated. It was produced at the moment of paying
+    # and signed; asking for it again must return THAT paper, not a fresh
+    # one describing a month that has moved on since -- another student may
+    # have enrolled, and the professor was never handed money for him.
+    if body.payout_id is not None:
+        already = documents.receipt_path(conn, body.payout_id)
+        if already is not None and FsPathlib(already).exists():
+            return {"path": already, "reused": True}
+
     drawer = FsPathlib(root) / _month_folder(body.month) / documents.DRAWERS[body.kind]
     drawer.mkdir(parents=True, exist_ok=True)
     content, name = _render_document(
         conn, body.kind, body.month, body.ref_id, body.payout_id
     )
     target = drawer / name
-    target.write_bytes(content)
-    documents.record_export(conn, body.kind, body.month, body.ref_id, str(target))
-    return {"path": str(target)}
+    # A receipt bearing this name that belongs to NO payout is the paper of
+    # a payout that no longer exists -- cancelled, or filed before a crash.
+    # Its figures are not this payout's, and the professor may hold it
+    # signed. It moves aside; it is not written over.
+    aside = None
+    if body.payout_id is not None and target.exists():
+        aside = documents.set_aside(target)
+    try:
+        target.write_bytes(content)
+    except PermissionError:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"« {name} » est ouvert dans Word. Fermez-le, puis réessayez."),
+        ) from None
+    except OSError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Impossible d'écrire « {name} » : {error.strerror or error}.",
+        ) from None
+    documents.record_export(
+        conn, body.kind, body.month, body.ref_id, str(target), body.payout_id
+    )
+    return {"path": str(target), "set_aside": aside}
+
+
+def _payout_rank(
+    conn: sqlite3.Connection, teacher_id: int, month: str, payout_id: int
+) -> int:
+    """Which receipt this is for him THIS MONTH: his first reads 01.
+
+    Counting since the beginning made the number climb forever -- by March
+    a teacher paid twice a month is on his fourteenth, and the figure says
+    nothing he can check against the month in his hand. It restarts with
+    the month, so 02 always means the second of that month.
+
+    Counted by creation order, so cancelling a later one never renumbers a
+    receipt already signed.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) AS rank FROM payout"
+        " WHERE beneficiary_kind = 'teacher' AND beneficiary_id = ?"
+        " AND month = ? AND id <= ?",
+        (teacher_id, month, payout_id),
+    ).fetchone()
+    return row["rank"] or 1
 
 
 def _render_document(
@@ -2462,9 +2828,14 @@ def _render_document(
             raise HTTPException(status_code=404, detail="Professeur inconnu.")
         # A receipt carries the payout number: two payouts in one month
         # make two sheets, and the second does not overwrite the first.
+        #
+        # The number counts HIS payouts, not the database's. « versement-16 »
+        # told the owner how many payouts the academy had ever made, which is
+        # not a fact about the man holding the paper -- and it made his fourth
+        # receipt look like his sixteenth.
         name = f"paie-{_slug(row['name'])}"
         if payout_id:
-            name += f"-versement-{payout_id}"
+            name += f"-versement-{_payout_rank(conn, ref_id, month, payout_id):02d}"
         return teacher_invoice(conn, ref_id, month, payout_id), f"{name}.docx"
     if kind == "absence":
         from app.adapters.docx.absence_sheet import absence_sheet

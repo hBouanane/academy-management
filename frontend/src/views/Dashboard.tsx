@@ -112,7 +112,9 @@ export function Dashboard({ month, setMonth }: Props) {
   const paidCount = enrolled.filter((row) => row.enrollment?.paid).length
   const filtered = rows.filter(
     (row) =>
-      row.student_name.toLowerCase().includes(search.trim().toLowerCase()) &&
+      `${row.first_name ?? ""} ${row.student_name}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()) &&
       (!enrolledOnly || row.enrollment !== null) &&
       matchesLevelFilter(filter, row),
   )
@@ -396,7 +398,12 @@ function StudentRow({
       }}
     >
       <TableCell>
-        <p className="font-medium">{row.student_name}</p>
+        {/* His whole name. With the family name alone, two brothers
+            were one indistinguishable row -- and collecting from the
+            wrong one is not a mistake the screen can catch. */}
+        <p className="font-medium">
+          {[row.first_name, row.student_name].filter(Boolean).join(" ")}
+        </p>
         <p className="text-muted-foreground text-xs">{row.level_name}</p>
         {row.has_arrears && (
           <Badge variant="destructive" className="mt-1 gap-1">
@@ -410,19 +417,29 @@ function StudentRow({
           : "—"}
       </TableCell>
       <TableCell>
-        <div className="flex max-w-72 flex-wrap gap-1">
+        {/* One beneficiary per line, name left and amount right. As wrapped
+            pills these were amounts flowing like keywords: five chips on one
+            row, three on the next, and no column to compare down. Money is
+            read by scanning a column, which a tag cloud makes impossible. */}
+        <div className="max-w-72 space-y-0.5">
           {(enrollment?.split ?? []).map((chip) => (
-            <span
+            <div
               key={`${chip.kind}-${chip.ref_id}`}
-              className={`rounded-full px-2 py-0.5 text-xs ${
-                chip.final_centimes < 0
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-secondary text-secondary-foreground"
-              }`}
-              title={`${chip.name} reçoit ${formatDH(chip.final_centimes)}`}
+              className="flex items-baseline justify-between gap-3 text-xs"
             >
-              {chip.name} · {formatDH(chip.final_centimes)}
-            </span>
+              <span className="text-muted-foreground truncate">
+                {chip.name}
+              </span>
+              <span
+                className={
+                  chip.final_centimes < 0
+                    ? "text-destructive shrink-0 tabular-nums"
+                    : "shrink-0 tabular-nums"
+                }
+              >
+                {formatDH(chip.final_centimes)}
+              </span>
+            </div>
           ))}
           {!enrollment && <span className="text-muted-foreground text-xs">—</span>}
         </div>

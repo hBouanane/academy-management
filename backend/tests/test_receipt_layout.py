@@ -80,8 +80,10 @@ class TestTwoHalvesOnOnePage:
                 f"?month=2026-09&payout={payouts[0]}"
             ).content
         )
-        assert "Exemplaire académie" in text
-        assert "Exemplaire professeur" in text
+        # Cased however the layout likes -- what matters is that each half
+        # names its owner, so the two are never handed over the wrong way.
+        assert "exemplaire académie" in text.lower()
+        assert "exemplaire professeur" in text.lower()
 
     def test_there_is_a_line_to_cut_along(self, client):
         teacher, payouts = paid_teacher(client, [120 * DH])

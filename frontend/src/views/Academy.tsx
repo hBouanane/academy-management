@@ -454,7 +454,6 @@ function Security({ onError }: { onError: (message: string) => void }) {
           </div>
         </div>
         <Button
-          variant="outline"
           onClick={() =>
             apiSend("PATCH", "/api/lock", {
               auto_lock_minutes: lock.auto_lock_minutes,

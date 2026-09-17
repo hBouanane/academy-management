@@ -24,6 +24,7 @@ import { Field, FieldGrid } from "@/components/Field"
 import { monthLabel } from "@/components/MonthNav"
 import { ClassSplit } from "@/components/ClassSplit"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
 import { apiGet, apiSend } from "@/lib/api"
 import type { ClassProfile as Profile, ClassShare } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
@@ -39,6 +40,8 @@ type Props = {
 export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [error, setError] = useAlert()
+  // A class can hold thirty students; the dialog cannot.
+  const studentsPage = usePagination(profile?.students ?? [], 15)
 
   useEffect(() => {
     setError(null)
@@ -133,7 +136,7 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {profile.students.map((student) => (
+                    {studentsPage.visible.map((student) => (
                       <TableRow
                         key={student.student_id}
                         className={onShowStudent ? "cursor-pointer" : ""}
@@ -164,6 +167,11 @@ export function ClassProfile({ classId, month, onClose, onShowStudent }: Props) 
                   </TableBody>
                 </Table>
               )}
+              <Pagination
+                {...studentsPage}
+                shown={studentsPage.visible.length}
+                noun="élèves"
+              />
             </div>
           </div>
         )}

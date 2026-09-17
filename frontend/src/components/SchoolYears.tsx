@@ -239,7 +239,6 @@ export function SchoolYears({ onError }: { onError: (message: string) => void })
         </div>
         <Button
           size="sm"
-          variant="outline"
           onClick={add}
           disabled={!shownName.trim() || !start || !end}
         >

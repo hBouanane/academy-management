@@ -1,17 +1,20 @@
-// One professor, whole story: classes with student counts and what each one
-// actually paid him, capabilities, six-month history, assignment periods.
+// One professor, one page: what he earned this month, where it came from,
+// what he could teach, and when he taught it.
 //
-// A PAGE, not a window. Six sections stacked in a modal made a wall: you no
-// longer knew where to look, and half of it sat below the fold. At full
-// width, everything has its place and its air.
+// Everything the page holds is visible on arrival. The previous version hid
+// eleven dormant classes and ten open capabilities behind « Afficher … »
+// toggles, which meant the page lied about its own size: "12 classes" was
+// really "1 class and a button". A long list is sorted so the important rows
+// come first, and muted so the eye skips the rest -- it is never removed.
 //
-// Second pass: room is not enough if everything weighs the same. A teacher
-// with twelve classes showed eleven of them at « 0 · 0,00 DH »; the only one
-// that earned anything was lost in the middle. What earns comes first, the
-// rest folds away, and repeated lines are counted instead of listed.
+// Every collection is a table with headers. Pills read as decoration and
+// force the reader to infer the columns; a header states them. That matters
+// most for the capabilities, where « Oui / Non » in a column answers a
+// question that a filled-versus-dashed pill only hinted at.
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Pencil, UserMinus, Wallet } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -22,54 +25,79 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Field, FieldGrid } from "@/components/Field"
-import { monthLabel } from "@/components/MonthNav"
+import { ArchiveTeacherDialog } from "@/components/ArchiveTeacherDialog"
+import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { Pagination, usePagination } from "@/components/Pagination"
+import { TeacherDialog } from "@/components/TeacherDialog"
 import { apiGet, apiSend } from "@/lib/api"
-import type { TeacherProfile as Profile } from "@/lib/api"
+import type { Capability, Teacher, TeacherProfile as Profile } from "@/lib/api"
 import { segmentLabel } from "@/lib/levels"
+import { openView } from "@/lib/navigation"
 import { formatDH } from "@/lib/money"
 import { useAlert } from "@/lib/alert"
 
-const capabilityLabel = (capability: Profile["capabilities"][number]) =>
-  `${capability.subject_name} · ${capability.level_name}${
-    capability.annee ? ` ${capability.annee}` : ""
-  }${capability.parcours ? ` ${capability.parcours}` : ""}`
+/** A capability names a teachable slot, not a class: level, year, and the
+    3ème-collège fork. The class may or may not exist yet. */
+const capabilityLevel = (capability: Capability) =>
+  segmentLabel({
+    level_name: capability.level_name,
+    annee: capability.annee,
+    parcours: capability.parcours,
+    filiere: null,
+  })
 
-/** A section title, always the same way. */
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
-      {children}
-    </p>
-  )
+/** Every case gets its own phrasing. A single template produced « depuis le
+    début au 2026-08-01 », which is not a sentence anyone would write. */
+function periodWording(from: string | null, to: string | null): string {
+  if (from && to) return `du ${from} au ${to}`
+  if (from) return `depuis le ${from}`
+  if (to) return `jusqu'au ${to}`
+  return "depuis le début"
 }
 
 type Props = {
   teacherId: number
   month: string
+  setMonth: (month: string) => void
   onClose: () => void
   onChanged?: () => void
 }
 
-export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
+export function TeacherPage({
+  teacherId,
+  month,
+  setMonth,
+  onClose,
+  onChanged,
+}: Props) {
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useAlert()
   const [refresh, setRefresh] = useState(0)
-  // Batch class creation: check several capabilities, one « Créer » click.
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [busy, setBusy] = useState(false)
-  const [showDormant, setShowDormant] = useState(false)
-  const [showTaught, setShowTaught] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [departing, setDeparting] = useState(false)
+  // Archiving asks who takes over, so it needs the other teachers.
+  const [colleagues, setColleagues] = useState<Teacher[]>([])
 
   useEffect(() => {
     setError(null)
+    setLoading(true)
     apiGet<Profile>(`/api/teachers/${teacherId}/profile?month=${month}`)
       .then(setProfile)
       .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false))
   }, [teacherId, month, refresh, setError])
 
-  const alreadyTeaches = (capability: Profile["capabilities"][number]) =>
+  useEffect(() => {
+    apiGet<Teacher[]>("/api/teachers")
+      .then(setColleagues)
+      .catch(() => setColleagues([]))
+  }, [refresh])
+
+  const alreadyTeaches = (capability: Capability) =>
     (profile?.classes ?? []).some(
       (row) =>
         row.is_active === 1 &&
@@ -80,14 +108,27 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
         row.parcours === capability.parcours,
     )
 
-  const openable = (profile?.capabilities ?? []).filter(
-    (capability) => !alreadyTeaches(capability),
-  )
-  const taught = (profile?.capabilities ?? []).filter(alreadyTeaches)
+  // Not-yet-open first: those are the only rows he can act on, and a
+  // checkbox column that starts with ten disabled boxes looks broken.
+  const capabilities = useMemo(() => {
+    const rows = (profile?.capabilities ?? []).map((capability) => ({
+      capability,
+      open: alreadyTeaches(capability),
+    }))
+    return rows.sort(
+      (a, b) =>
+        Number(a.open) - Number(b.open) ||
+        a.capability.subject_name.localeCompare(b.capability.subject_name),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, teacherId])
+
+  const openable = capabilities.filter((row) => !row.open)
 
   const createSelected = async () => {
     setBusy(true)
-    for (const capability of openable.filter((c) => selected.has(c.id))) {
+    for (const { capability } of openable) {
+      if (!selected.has(capability.id)) continue
       await apiSend("POST", "/api/classes", {
         level_id: capability.level_id,
         subject_id: capability.subject_id,
@@ -105,124 +146,201 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
   const monthTotal =
     profile?.history.find((entry) => entry.month === month)?.earned ?? 0
 
-  // A class with neither an enrolled student nor any takings teaches
-  // nothing about this month: it exists, that is all. We keep it -- he must
-  // be able to find it again -- but behind one line, not in front of the
-  // one that earns.
-  const { active, dormant } = useMemo(() => {
-    const rows = profile?.classes ?? []
-    return {
-      active: rows.filter(
-        (row) => row.enrolled_count > 0 || row.earned_centimes > 0,
+  // Sorted, never filtered: what earns leads, then what has students, then
+  // the rest. The zero rows stay on the page because he opened it to see
+  // his classes -- all of them.
+  const classes = useMemo(
+    () =>
+      [...(profile?.classes ?? [])].sort(
+        (a, b) =>
+          b.earned_centimes - a.earned_centimes ||
+          b.enrolled_count - a.enrolled_count ||
+          a.subject_name.localeCompare(b.subject_name),
       ),
-      dormant: rows.filter(
-        (row) => row.enrolled_count === 0 && row.earned_centimes === 0,
-      ),
-    }
-  }, [profile])
+    [profile],
+  )
 
-  // « francais · Collège — depuis le début (en cours) », thirteen times in
-  // a row, does not read: identical lines are counted.
+  const withStudents = classes.filter((row) => row.enrolled_count > 0).length
+  const classesSum = classes.reduce((sum, row) => sum + row.earned_centimes, 0)
+  const enrolledSum = classes.reduce((sum, row) => sum + row.enrolled_count, 0)
+  // An advance paid on an enrollment passes through no payment, so no class
+  // can claim it. The gap is real; leaving it unexplained makes both figures
+  // look wrong.
+  const unattached = monthTotal - classesSum
+
+  // Identical periods are counted, not repeated: thirteen consecutive
+  // « francais · Collège — depuis le début » lines cannot be read.
   const periods = useMemo(() => {
     const grouped = new Map<
       string,
-      { label: string; span: string; ended: boolean; count: number }
+      {
+        subject: string
+        level: string
+        wording: string
+        ended: boolean
+        count: number
+      }
     >()
     for (const item of profile?.assignments ?? []) {
-      const label = `${item.subject_name} · ${item.level_name}`
-      // « depuis le début au 2026-08-01 » is not something one says: each
-      // case has its own phrasing, otherwise you read a broken sentence.
-      const span = item.from_date
-        ? item.to_date
-          ? `du ${item.from_date} au ${item.to_date}`
-          : `depuis le ${item.from_date}`
-        : item.to_date
-          ? `jusqu'au ${item.to_date}`
-          : "depuis le début"
-      const key = `${label}|${span}`
+      const wording = periodWording(item.from_date, item.to_date)
+      const key = `${item.subject_name}|${item.level_name}|${wording}`
       const seen = grouped.get(key)
-      if (seen) seen.count += 1
-      else
-        grouped.set(key, { label, span, ended: Boolean(item.to_date), count: 1 })
+      if (seen) {
+        seen.count += 1
+        continue
+      }
+      grouped.set(key, {
+        subject: item.subject_name,
+        level: item.level_name,
+        wording,
+        ended: Boolean(item.to_date),
+        count: 1,
+      })
     }
-    const all = [...grouped.values()]
-    return { current: all.filter((p) => !p.ended), past: all.filter((p) => p.ended) }
+    return [...grouped.values()].sort(
+      (a, b) =>
+        Number(a.ended) - Number(b.ended) || a.subject.localeCompare(b.subject),
+    )
   }, [profile])
 
-  const peak = Math.max(...(profile?.history ?? []).map((e) => e.earned), 1)
+  // Totals below are computed on the full lists, never on the visible page:
+  // a total that counted one page would simply be wrong.
+  const classesPage = usePagination(classes, 25)
+  const capabilitiesPage = usePagination(capabilities, 25)
 
-  // The classes total and the month total can differ: an advance paid on
-  // an enrollment goes through no payment, and therefore through no class.
-  // The gap already existed -- it was merely invisible. A figure that
-  // contradicts the one above without a word makes the whole page
-  // doubtful; so we name it.
-  const classesSum = active.reduce((sum, row) => sum + row.earned_centimes, 0)
-  const unattached = monthTotal - classesSum
+  const peak = Math.max(...(profile?.history ?? []).map((e) => e.earned), 1)
+  const isOwner = profile?.is_owner === 1
+  const nothingAtAll =
+    profile !== null &&
+    profile.classes.length === 0 &&
+    profile.capabilities.length === 0 &&
+    profile.assignments.length === 0
 
   return (
-    <div className="view-enter space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            <ArrowLeft className="size-4" />
-            Retour
-          </Button>
-          <div>
-            <h2 className="text-2xl font-medium tracking-tight">
-              {profile?.name ?? "Professeur"}
-            </h2>
-            <p className="text-muted-foreground text-sm">
-              {profile?.is_owner ? "Propriétaire + professeur" : "Professeur"}
-              {" · "}
-              {monthLabel(month)}
-            </p>
+    <div className="view-enter space-y-8">
+      <header className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              <ArrowLeft className="size-4" />
+              Retour
+            </Button>
+            <div>
+              <h2 className="text-2xl font-medium tracking-tight">
+                {profile?.name ?? "Professeur"}
+              </h2>
+              <p className="text-muted-foreground text-sm">
+                {isOwner ? "Propriétaire + professeur" : "Professeur"}
+              </p>
+            </div>
+          </div>
+
+          {/* The month belongs in the header because every figure below is
+              scoped to it. Reading « Gagné » without seeing which month is
+              how a number gets trusted for the wrong period. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <MonthNav month={month} setMonth={setMonth} />
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              <Pencil className="size-4" />
+              Modifier
+            </Button>
+            {/* The payslip is a receipt for money leaving the till, so
+                it belongs where the money leaves. Producing one here made a
+                signed paper for a payment that had not happened. */}
+            <Button
+              size="sm"
+              onClick={() => {
+                // The profile stays mounted whatever the section is, so it
+                // has to step aside as well -- otherwise the till loads
+                // behind a page that hides it.
+                openView("payroll")
+                onClose()
+              }}
+              title="Le versement se fait à la caisse"
+            >
+              <Wallet className="size-4" />
+              Payer le professeur
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setDeparting(true)}
+              disabled={profile === null}
+            >
+              <UserMinus className="size-4" />
+              Archiver
+            </Button>
           </div>
         </div>
-      </header>
-      <Notice alert={error} />
-      {profile && (
-        <div className="space-y-6">
-          {/* The role is already written under his name: repeating it here
-              stole a slot from what one actually comes to read, the money. */}
-          <FieldGrid>
-            <Field label="Téléphone">{profile.phone ?? "—"}</Field>
-            <Field label="Depuis le">
-              {profile.created_at?.slice(0, 10) ?? "—"}
-            </Field>
-            <Field label={`Gagné comme professeur — ${monthLabel(month)}`}>
-              <span className={monthTotal > 0 ? "text-success" : ""}>
-                {formatDH(monthTotal)}
-              </span>
-            </Field>
-            {profile.is_owner === 1 && (
-              <Field label="Gagné comme propriétaire">
-                <span className={profile.owner_earned > 0 ? "text-success" : ""}>
-                  {formatDH(profile.owner_earned)}
-                </span>
-              </Field>
-            )}
-            {profile.is_owner === 1 && (
-              <Field label="Total du mois">
-                <span className="text-success font-semibold">
-                  {formatDH(monthTotal + profile.owner_earned)}
-                </span>
-              </Field>
-            )}
-          </FieldGrid>
 
-          {/* The table no longer spans the full width: between the class
-              name and its takings, the eye had a metre to travel. */}
-          <div className="max-w-4xl">
-            <SectionTitle>Classes qui ont rapporté ce mois-ci</SectionTitle>
-            {profile.classes.length === 0 && (
-              <p className="text-muted-foreground text-sm">Aucune classe.</p>
-            )}
-            {profile.classes.length > 0 && active.length === 0 && (
-              <p className="text-muted-foreground text-sm">
-                Aucun inscrit en {monthLabel(month).toLowerCase()}.
-              </p>
-            )}
-            {active.length > 0 && (
+        {/* Reference data, not results: it answers "who is this", never
+            "how much". Kept small so it never competes with the money. */}
+        <p className="text-muted-foreground text-xs">
+          {profile?.phone ?? "Pas de téléphone"}
+          {" · depuis le "}
+          {profile?.created_at?.slice(0, 10) ?? "—"}
+        </p>
+      </header>
+
+      <Notice alert={error} />
+
+      {loading && (
+        <p className="text-muted-foreground text-sm">Chargement du profil…</p>
+      )}
+
+      {!loading && profile && (
+        <div className="space-y-8">
+          {/* One decomposition, read downwards as a sum. Three side-by-side
+              cells made the reader add 60,00 and 73,54 himself before he
+              could trust the 133,54 sitting next to them. */}
+          <section className="max-w-xl">
+            <h3 className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
+              Ce qu'il gagne en {monthLabel(month).toLowerCase()}
+            </h3>
+            <Table>
+              <TableBody>
+                <TableRow>
+                  <TableCell>Comme professeur</TableCell>
+                  <TableCell className="text-right">
+                    {formatDH(monthTotal)}
+                  </TableCell>
+                </TableRow>
+                {isOwner && (
+                  <TableRow>
+                    <TableCell>Comme propriétaire</TableCell>
+                    <TableCell className="text-right">
+                      {formatDH(profile.owner_earned)}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {isOwner && (
+                  <TableRow>
+                    <TableCell className="font-medium">
+                      Total du mois
+                    </TableCell>
+                    <TableCell className="text-success text-right font-semibold">
+                      {formatDH(monthTotal + profile.owner_earned)}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </section>
+
+          {nothingAtAll && (
+            <p className="text-muted-foreground text-sm">
+              Ce professeur n'a encore ni classe, ni compétence déclarée, ni
+              période d'enseignement. Modifiez sa fiche pour cocher ce qu'il
+              peut enseigner.
+            </p>
+          )}
+
+          {classes.length > 0 && (
+            <section>
+              <h3 className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
+                Classes — {classes.length}, dont {withStudents} avec inscrit en{" "}
+                {monthLabel(month).toLowerCase()}
+              </h3>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -230,136 +348,159 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
                     <TableHead>Segment</TableHead>
                     <TableHead className="text-right">Inscrits</TableHead>
                     <TableHead className="text-right">
-                      Gagné ({monthLabel(month)})
+                      Gagné ({monthLabel(month).toLowerCase()})
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {active.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="font-medium">
-                        {row.subject_name}
-                        {row.teacher_id !== profile.id && (
+                  {classesPage.visible.map((row) => {
+                    const quiet =
+                      row.enrolled_count === 0 && row.earned_centimes === 0
+                    return (
+                      <TableRow
+                        key={row.id}
+                        className={quiet ? "text-muted-foreground" : ""}
+                      >
+                        <TableCell className={quiet ? "" : "font-medium"}>
+                          {row.subject_name}
+                          {row.teacher_id !== profile.id && (
+                            <span className="text-muted-foreground text-xs">
+                              {" "}
+                              (ancien)
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {segmentLabel(row)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {row.enrolled_count}
+                        </TableCell>
+                        <TableCell
+                          className={
+                            quiet ? "text-right" : "text-right font-medium"
+                          }
+                        >
+                          {formatDH(row.earned_centimes)}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                  <TableRow>
+                    <TableCell colSpan={2} className="font-medium">
+                      Total des classes
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {enrolledSum}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {formatDH(classesSum)}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+              <Pagination
+                {...classesPage}
+                shown={classesPage.visible.length}
+                noun="classes"
+              />
+              {unattached !== 0 && (
+                <p className="text-muted-foreground mt-1.5 text-xs">
+                  {formatDH(Math.abs(unattached))}{" "}
+                  {unattached > 0 ? "de plus" : "de moins"} sur son total du
+                  mois — une avance versée sur une inscription ne passe par
+                  aucune classe.
+                </p>
+              )}
+            </section>
+          )}
+
+          {profile.history.length > 0 && (
+            <section className="max-w-xl">
+              <h3 className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
+                Historique — 6 derniers mois
+              </h3>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Mois</TableHead>
+                    <TableHead className="text-right">Gagné</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {profile.history.map((entry) => (
+                    <TableRow
+                      key={entry.month}
+                      className={entry.month === month ? "bg-muted/50" : ""}
+                    >
+                      <TableCell className="capitalize">
+                        {monthLabel(entry.month)}
+                        {entry.month === month && (
                           <span className="text-muted-foreground text-xs">
                             {" "}
-                            (ancien)
+                            · affiché
                           </span>
                         )}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {segmentLabel(row)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {row.enrolled_count}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatDH(row.earned_centimes)}
+                      {/* The figure is the content; the bar only ranks it at a
+                          glance. Bars alone read as missing data -- five grey
+                          rails looked like months that failed to load, when
+                          they were months worth zero. */}
+                      <TableCell>
+                        <span className="flex items-center justify-end gap-2">
+                          <span className="bg-muted hidden h-1 w-24 overflow-hidden rounded-full sm:block">
+                            <span
+                              className="bg-success block h-full rounded-full"
+                              style={{ width: `${(entry.earned / peak) * 100}%` }}
+                            />
+                          </span>
+                          <span
+                            className={
+                              entry.earned > 0
+                                ? "w-24 text-right font-medium"
+                                : "text-muted-foreground w-24 text-right"
+                            }
+                          >
+                            {formatDH(entry.earned)}
+                          </span>
+                        </span>
                       </TableCell>
                     </TableRow>
                   ))}
-                  {active.length > 1 && (
-                    <TableRow>
-                      <TableCell colSpan={2} className="text-muted-foreground">
-                        Total des classes
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {active.reduce((sum, r) => sum + r.enrolled_count, 0)}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {formatDH(classesSum)}
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
-            )}
+            </section>
+          )}
 
-            {active.length > 0 && unattached !== 0 && (
-              <p className="text-muted-foreground mt-1.5 text-xs">
-                {formatDH(Math.abs(unattached))}{" "}
-                {unattached > 0 ? "de plus" : "de moins"} sur son total du mois
-                — une avance versée sur une inscription ne passe par aucune
-                classe.
-              </p>
-            )}
-
-            {dormant.length > 0 && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowDormant((open) => !open)}
-                  className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
-                >
-                  {showDormant ? "Masquer" : "Afficher"} les {dormant.length}{" "}
-                  classes sans inscrit ce mois-ci
-                </button>
-                {showDormant && (
-                  <div className="text-muted-foreground mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                    {dormant.map((row) => (
-                      <span key={row.id}>
-                        {row.subject_name}
-                        <span className="text-xs"> · {segmentLabel(row)}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="grid max-w-5xl gap-6 sm:grid-cols-2">
-            <div>
-              <SectionTitle>6 derniers mois</SectionTitle>
-              {/* Six aligned amounts all looked alike. A bar shows at once
-                  the month that stands out. */}
-              <div className="space-y-1">
-                {profile.history.map((entry) => (
-                  <div key={entry.month} className="flex items-center gap-2">
-                    <span className="text-muted-foreground w-24 shrink-0 text-sm capitalize">
-                      {monthLabel(entry.month)}
-                    </span>
-                    <span className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
-                      <span
-                        className="bg-success block h-full rounded-full"
-                        style={{ width: `${(entry.earned / peak) * 100}%` }}
-                      />
-                    </span>
-                    <span
-                      className={`w-24 shrink-0 text-right text-sm ${
-                        entry.earned > 0
-                          ? "font-medium"
-                          : "text-muted-foreground"
-                      }`}
+          {capabilities.length > 0 && (
+            <section>
+              <h3 className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
+                Compétences — {capabilities.length}, dont{" "}
+                {capabilities.length - openable.length} déjà ouvertes
+              </h3>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10" />
+                    <TableHead>Matière</TableHead>
+                    <TableHead>Niveau</TableHead>
+                    <TableHead>Classe ouverte&nbsp;?</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {capabilitiesPage.visible.map(({ capability, open }) => (
+                    <TableRow
+                      key={capability.id}
+                      className={open ? "text-muted-foreground" : ""}
                     >
-                      {entry.earned > 0 ? formatDH(entry.earned) : "—"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <SectionTitle>Compétences</SectionTitle>
-              {/* Two states readable without a pictogram: an open class is
-                    a full, quiet pill, while a missing one keeps its
-                    checkbox. */}
-              {openable.length > 0 && (
-                <>
-                  <p className="text-muted-foreground mb-1.5 text-xs">
-                    Il peut les enseigner, la classe n'existe pas encore —
-                    cochez pour l'ouvrir
-                  </p>
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {openable.map((capability) => (
-                      <label
-                        key={capability.id}
-                        className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
-                          selected.has(capability.id)
-                            ? "border-primary text-foreground"
-                            : "border-border border-dashed"
-                        }`}
-                      >
+                      <TableCell>
+                        {/* An open class has nothing to create, so its box is
+                            disabled rather than absent: a ragged column is
+                            harder to scan than a greyed one. */}
                         <Checkbox
+                          disabled={open}
                           checked={selected.has(capability.id)}
+                          aria-label={`Ouvrir ${capability.subject_name}`}
                           onCheckedChange={(state) =>
                             setSelected((current) => {
                               const next = new Set(current)
@@ -369,106 +510,118 @@ export function TeacherPage({ teacherId, month, onClose, onChanged }: Props) {
                             })
                           }
                         />
-                        {capabilityLabel(capability)}
-                      </label>
-                    ))}
-                  </div>
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                      <Checkbox
-                        checked={openable.every((c) => selected.has(c.id))}
-                        onCheckedChange={(state) =>
-                          setSelected(
-                            state === true
-                              ? new Set(openable.map((c) => c.id))
-                              : new Set(),
-                          )
-                        }
-                      />
-                      Tout sélectionner
-                    </label>
-                    <Button
-                      size="sm"
-                      disabled={selected.size === 0 || busy}
-                      onClick={createSelected}
-                    >
-                      {busy ? "…" : `Créer les classes (${selected.size})`}
-                    </Button>
-                  </div>
-                </>
-              )}
-              {/* Those capabilities already have their class: they all
-                  appear in the table above. Repeating them as pills meant
-                  reading the same thing twelve times over. */}
-              {taught.length > 0 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowTaught((open) => !open)}
-                    className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
-                  >
-                    {taught.length} déjà ouverte{taught.length > 1 ? "s" : ""} —{" "}
-                    {showTaught ? "masquer" : "afficher"}
-                  </button>
-                  {showTaught && (
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {taught.map((cap) => (
-                        <span
-                          key={cap.id}
-                          className="bg-secondary text-secondary-foreground rounded-full px-2.5 py-0.5 text-xs"
-                        >
-                          {capabilityLabel(cap)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-              {profile.capabilities.length === 0 && (
-                <p className="text-muted-foreground text-sm">
-                  Aucune — modifiez le professeur pour cocher son arbre.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {profile.assignments.length > 0 && (
-            <div className="max-w-4xl">
-              <SectionTitle>Périodes d'enseignement</SectionTitle>
-              {periods.current.length > 0 && (
-                <div className="text-muted-foreground flex flex-wrap gap-x-5 gap-y-1 text-sm">
-                  {periods.current.map((p) => (
-                    <span key={`${p.label}|${p.span}`}>
-                      {p.label}
-                      {p.count > 1 && (
-                        <span className="text-xs"> ×{p.count}</span>
-                      )}
-                      <span className="text-xs"> — {p.span}</span>
-                    </span>
+                      </TableCell>
+                      <TableCell className={open ? "" : "font-medium"}>
+                        {capability.subject_name}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {capabilityLevel(capability)}
+                      </TableCell>
+                      <TableCell>{open ? "Oui" : "Non"}</TableCell>
+                    </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+              <Pagination
+                {...capabilitiesPage}
+                shown={capabilitiesPage.visible.length}
+                noun="compétences"
+              />
+              {openable.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                    <Checkbox
+                      checked={
+                        openable.length > 0 &&
+                        openable.every((row) => selected.has(row.capability.id))
+                      }
+                      onCheckedChange={(state) =>
+                        setSelected(
+                          state === true
+                            ? new Set(openable.map((row) => row.capability.id))
+                            : new Set(),
+                        )
+                      }
+                    />
+                    Tout sélectionner
+                  </label>
+                  <Button
+                    size="sm"
+                    disabled={selected.size === 0 || busy}
+                    onClick={createSelected}
+                  >
+                    {busy ? "…" : `Créer les classes (${selected.size})`}
+                  </Button>
                 </div>
               )}
-              {/* A finished period says something: it explains why a month
-                  stops. It no longer drowns among those still running. */}
-              {periods.past.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-muted-foreground text-xs">Terminées</p>
-                  <div className="text-muted-foreground flex flex-wrap gap-x-5 gap-y-1 text-sm">
-                    {periods.past.map((p) => (
-                      <span key={`${p.label}|${p.span}`}>
-                        {p.label}
-                        {p.count > 1 && (
-                          <span className="text-xs"> ×{p.count}</span>
-                        )}
-                        <span className="text-xs"> — {p.span}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            </section>
+          )}
+
+          {periods.length > 0 && (
+            <section>
+              <h3 className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
+                Périodes d'enseignement
+              </h3>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Matière</TableHead>
+                    <TableHead>Niveau</TableHead>
+                    <TableHead>Période</TableHead>
+                    <TableHead className="text-right">Nombre</TableHead>
+                    <TableHead>Statut</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {periods.map((period) => (
+                    <TableRow
+                      key={`${period.subject}|${period.level}|${period.wording}`}
+                      className={period.ended ? "text-muted-foreground" : ""}
+                    >
+                      <TableCell className={period.ended ? "" : "font-medium"}>
+                        {period.subject}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {period.level}
+                      </TableCell>
+                      <TableCell>{period.wording}</TableCell>
+                      <TableCell className="text-right">
+                        {period.count}
+                      </TableCell>
+                      <TableCell>
+                        {period.ended ? "Terminée" : "En cours"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </section>
           )}
         </div>
+      )}
+
+      <TeacherDialog
+        open={editing}
+        onOpenChange={(open) => !open && setEditing(false)}
+        initial={profile}
+        onSaved={() => {
+          setEditing(false)
+          setRefresh((count) => count + 1)
+          onChanged?.()
+        }}
+      />
+
+      {departing && profile && (
+        <ArchiveTeacherDialog
+          teacher={profile}
+          teachers={colleagues.filter((row) => row.id !== teacherId)}
+          onClose={() => setDeparting(false)}
+          onDone={() => {
+            setDeparting(false)
+            onChanged?.()
+            onClose()
+          }}
+        />
       )}
     </div>
   )

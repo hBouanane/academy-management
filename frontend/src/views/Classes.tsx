@@ -44,6 +44,7 @@ import { ConfirmButton } from "@/components/Confirm"
 import { StudentProfile } from "@/components/StudentProfile"
 import { MonthNav, monthLabel } from "@/components/MonthNav"
 import { Notice } from "@/components/Notice"
+import { TeacherDialog } from "@/components/TeacherDialog"
 import { FileDocument } from "@/components/FileDocument"
 import { SplitAtCreation } from "@/components/SplitAtCreation"
 import { subjectsOfLevel } from "@/components/ProgramTree"
@@ -73,9 +74,20 @@ const sameSlot = (a: ClassRow, b: ClassRow) =>
   a.parcours === b.parcours &&
   a.filiere === b.filiere
 
-type Props = { month: string; setMonth: (month: string) => void }
+type Props = {
+  month: string
+  setMonth: (month: string) => void
+  /** Narrow to one teacher's classes, set when arriving from his page. */
+  teacherFilter?: { id: number; name: string } | null
+  onClearTeacherFilter?: () => void
+}
 
-export function Classes({ month, setMonth }: Props) {
+export function Classes({
+  month,
+  setMonth,
+  teacherFilter,
+  onClearTeacherFilter,
+}: Props) {
   const [rows, setRows] = useState<ClassRow[]>([])
   const [levels, setLevels] = useState<Level[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
@@ -126,10 +138,17 @@ export function Classes({ month, setMonth }: Props) {
       .then(reload)
       .catch((err: Error) => setError(err.message))
 
+  // Narrowing happens before grouping, so a level whose only classes
+  // belong to somebody else disappears entirely rather than showing an
+  // empty heading.
+  const visible = teacherFilter
+    ? rows.filter((row) => row.teacher_id === teacherFilter.id)
+    : rows
+
   const byLevel = levels
     .map((level) => ({
       level,
-      classes: rows.filter((row) => row.level_id === level.id),
+      classes: visible.filter((row) => row.level_id === level.id),
     }))
     .filter((group) => group.classes.length > 0)
 
@@ -190,6 +209,27 @@ export function Classes({ month, setMonth }: Props) {
       </header>
 
       <Notice alert={error} />
+
+      {/* A filtered list that does not say so is a list with rows missing.
+          The way out sits next to the statement, not in a menu. */}
+      {teacherFilter && (
+        <div className="border-border flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
+          <span>
+            Classes de <strong>{teacherFilter.name}</strong>
+          </span>
+          <span className="text-muted-foreground">
+            · {visible.length} sur {rows.length}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onClick={onClearTeacherFilter}
+          >
+            Voir toutes les classes
+          </Button>
+        </div>
+      )}
 
       <label className="text-muted-foreground flex items-center gap-2 text-sm">
         <Checkbox
@@ -284,14 +324,20 @@ export function Classes({ month, setMonth }: Props) {
                         </TableCell>
                         <TableCell>{row.enrolled_count ?? 0}</TableCell>
                         <TableCell className="space-x-1 text-right whitespace-nowrap">
-                          <FileDocument
-                            kind="absence"
-                            month={month}
-                            refId={row.id}
-                            variant="ghost"
-                            downloadHref={`/api/classes/${row.id}/absence.docx?month=${month}`}
-                            title="Feuille d'absence du mois"
-                          />
+                          {/* An absence sheet lists the students to tick
+                              off. With nobody enrolled this month it would
+                              print an empty page, so the button stays away
+                              rather than producing one. */}
+                          {(row.enrolled_count ?? 0) > 0 && (
+                            <FileDocument
+                              kind="absence"
+                              month={month}
+                              refId={row.id}
+                              variant="ghost"
+                              downloadHref={`/api/classes/${row.id}/absence.docx?month=${month}`}
+                              title="Feuille d'absence du mois"
+                            />
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -363,6 +409,11 @@ export function Classes({ month, setMonth }: Props) {
         capabilities={capabilities}
         knownFilieres={filieres}
         onDone={reload}
+        onTeacherCreated={() =>
+          apiGet<Teacher[]>("/api/teachers")
+            .then(setTeachers)
+            .catch(() => {})
+        }
       />
 
       {replaceTarget && (
@@ -475,6 +526,7 @@ function NewClassDialog({
   capabilities,
   knownFilieres,
   onDone,
+  onTeacherCreated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -484,6 +536,9 @@ function NewClassDialog({
   capabilities: Capability[]
   knownFilieres: string[]
   onDone: () => void
+  /** A teacher was created from inside this form: the page owns the list,
+      so the page reloads it. */
+  onTeacherCreated: () => void
 }) {
   const [levelId, setLevelId] = useState<number | null>(null)
   const [annee, setAnnee] = useState<number | null>(null)
@@ -503,6 +558,9 @@ function NewClassDialog({
   const toast = useToast()
   const [teacherId, setTeacherId] = useState<number | null>(null)
   const [teacherDraft, setTeacherDraft] = useState("")
+  // Creating a teacher from here opens the real form: a name alone
+  // leaves a record he has to go back and complete.
+  const [newTeacher, setNewTeacher] = useState(false)
   const [note, setNote] = useAlert()
   const [busy, setBusy] = useState(false)
 
@@ -879,25 +937,18 @@ function NewClassDialog({
                     {isCapable(teacher) ? " ★" : ""}
                   </StepChip>
                 ))}
-                <Input
-                  list="class-teacher-options"
-                  value={teacherDraft}
-                  onChange={(event) => {
-                    setTeacherDraft(event.target.value)
-                    if (event.target.value) setTeacherId(null)
-                  }}
-                  placeholder="＋ professeur…"
-                  className="h-8 w-40 text-sm"
-                />
-                <datalist id="class-teacher-options">
-                  {teachers.map((teacher) => (
-                    <option key={teacher.id} value={teacher.name} />
-                  ))}
-                </datalist>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setNewTeacher(true)}
+                >
+                  ＋ Nouveau professeur
+                </Button>
               </div>
               <p className="text-muted-foreground mt-1.5 text-xs">
-                ★ = compétent pour ce créneau. Un nom nouveau crée le professeur
-                ; sa compétence s'enregistre toute seule.
+                ★ = compétent pour ce créneau. Un professeur créé ici rejoint
+                la liste aussitôt ; sa compétence s'enregistre toute seule.
               </p>
             </Step>
           )}
@@ -922,6 +973,24 @@ function NewClassDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* The same form as the Professeurs page -- name, phone, what he can
+          teach. Once saved he is selected straight away: the point of the
+          button was to carry on opening this class, not to send the owner
+          off to another screen to finish the job. */}
+      <TeacherDialog
+        open={newTeacher}
+        onOpenChange={(open) => !open && setNewTeacher(false)}
+        initial={null}
+        onSaved={(created) => {
+          setNewTeacher(false)
+          onTeacherCreated()
+          if (created) {
+            setTeacherId(created)
+            setTeacherDraft("")
+          }
+        }}
+      />
     </Dialog>
   )
 }

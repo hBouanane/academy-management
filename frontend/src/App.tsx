@@ -15,12 +15,13 @@ import {
   Tags,
   Users,
   Wallet,
+  ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AcademyMark } from "@/components/AcademyMark"
 import { LockScreen } from "@/components/LockScreen"
 import { useLock } from "@/lib/useLock"
-import { useTeacherRoute } from "@/lib/navigation"
+import { useTeacherRoute, useViewRoute } from "@/lib/navigation"
 import { TeacherPage } from "@/components/TeacherPage"
 import { currentMonth } from "@/lib/money"
 import { Academy } from "@/views/Academy"
@@ -40,17 +41,23 @@ type IconType = ComponentType<{ className?: string }>
 const SECTIONS: {
   label: string
   items: { key: string; label: string; icon: IconType }[]
+  collapsible?: boolean
 }[] = [
   {
-    label: "Pilotage",
+    // The three questions an academy owner actually has: what came in,
+    // what goes out, and what it adds up to.
+    label: "Au quotidien",
     items: [
       { key: "dashboard", label: "Tableau de bord", icon: LayoutDashboard },
-      { key: "reports", label: "Rapports", icon: BarChart3 },
       { key: "payroll", label: "Caisse", icon: Wallet },
+      { key: "reports", label: "Rapports", icon: BarChart3 },
     ],
   },
   {
-    label: "Gestion",
+    // Touched on a Tuesday in September, then rarely again. Folded away
+    // so the sidebar stops implying eleven equal jobs.
+    label: "Configuration",
+    collapsible: true,
     items: [
       { key: "students", label: "Étudiants", icon: Users },
       { key: "teachers", label: "Professeurs", icon: GraduationCap },
@@ -58,11 +65,6 @@ const SECTIONS: {
       { key: "classes", label: "Classes", icon: School },
       { key: "packages", label: "Forfaits", icon: Package },
       { key: "motifs", label: "Motifs", icon: Tags },
-    ],
-  },
-  {
-    label: "Configuration",
-    items: [
       { key: "messages", label: "Messages", icon: MessageCircle },
       { key: "academy", label: "Académie", icon: Building2 },
     ],
@@ -82,6 +84,11 @@ function useTheme() {
 
 function App() {
   const [view, setView] = useState("dashboard")
+  // Closed on arrival: he opens the application to work, not to
+  // configure it.
+  const [setupOpen, setSetupOpen] = useState(false)
+  // A button four components away can ask for a section.
+  useViewRoute(setView)
   const [month, setMonth] = useState(currentMonth())
   const { dark, toggle } = useTheme()
   const lock = useLock()
@@ -99,12 +106,30 @@ function App() {
       <aside className="border-sidebar-border bg-sidebar sticky top-0 flex h-svh w-60 shrink-0 flex-col self-start overflow-y-auto border-r px-3 py-5">
         <AcademyMark />
         <nav className="flex-1 space-y-6">
-          {SECTIONS.map((section) => (
+          {SECTIONS.map((section) => {
+            const holdsCurrent = section.items.some((item) => item.key === view)
+            // Open when he is already inside it: a collapsed group hiding the
+            // screen he is looking at would lose him.
+            const shown = !section.collapsible || setupOpen || holdsCurrent
+            return (
             <div key={section.label}>
-              <p className="text-muted-foreground/70 mb-1.5 px-3 text-[11px] font-medium tracking-widest uppercase">
-                {section.label}
-              </p>
-              <div className="space-y-0.5">
+              {section.collapsible ? (
+                <button
+                  type="button"
+                  onClick={() => setSetupOpen((open) => !open)}
+                  className="text-muted-foreground/70 hover:text-foreground mb-1.5 flex w-full items-center gap-1 px-3 text-[11px] font-medium tracking-widest uppercase"
+                >
+                  <ChevronRight
+                    className={`size-3 transition-transform ${shown ? "rotate-90" : ""}`}
+                  />
+                  {section.label}
+                </button>
+              ) : (
+                <p className="text-muted-foreground/70 mb-1.5 px-3 text-[11px] font-medium tracking-widest uppercase">
+                  {section.label}
+                </p>
+              )}
+              <div className={shown ? "space-y-0.5" : "hidden"}>
                 {section.items.map((item) => {
                   const active = view === item.key
                   const Icon = item.icon
@@ -128,7 +153,8 @@ function App() {
                 })}
               </div>
             </div>
-          ))}
+            )
+          })}
         </nav>
         <Button
           variant="ghost"
@@ -163,6 +189,7 @@ function App() {
           <TeacherPage
             teacherId={teacher.teacherId}
             month={month}
+            setMonth={setMonth}
             onClose={teacher.close}
           />
         )}

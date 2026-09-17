@@ -248,9 +248,7 @@ export function EnrollDialog({
     >
       {controlledOpen === undefined && (
         <DialogTrigger asChild>
-          <Button size="sm" variant="outline">
-            Inscrire
-          </Button>
+          <Button size="sm">Inscrire</Button>
         </DialogTrigger>
       )}
       <DialogContent>
