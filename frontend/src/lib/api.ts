@@ -461,6 +461,26 @@ export type StudentMessages = {
   messages: { kind: string; label: string; text: string }[]
 }
 
+export type JournalEntry = {
+  id: number
+  /** UTC, au format de SQLite : « 2026-09-17 14:32:05.123 ». */
+  happened_at: string
+  action: string
+  month: string | null
+  subject_kind: string | null
+  subject_id: number | null
+  /** Le nom AU MOMENT de l'action : le journal ne se réécrit pas. */
+  subject_label: string | null
+  amount_centimes: number | null
+  detail: string | null
+}
+
+export type JournalPage = {
+  entries: JournalEntry[]
+  /** Où reprendre ; absent quand c'est la dernière page. */
+  next_before_id: number | null
+}
+
 export type BackupState = {
   count: number
   newest: string | null

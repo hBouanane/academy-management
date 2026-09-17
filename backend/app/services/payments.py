@@ -149,20 +149,34 @@ def guarantee_unpaid(
 
 
 def guarantee_proposal(
-    context: EnrollmentContext, present_until: str | None = None
+    context: EnrollmentContext,
+    present_until: str | None = None,
+    amount: Centimes | None = None,
 ) -> dict:
-    """What we suggest advancing, and the reasonable ceiling.
+    """What we suggest advancing, the ceiling, and who gets what.
 
-    The suggestion follows the days taught -- that is what the teacher
+    The suggestion follows the days taught -- that is what the teachers
     earned. The ceiling is the month's price: beyond it, this is a typo,
-    not generosity."""
+    not generosity.
+
+    A student with three subjects usually has three professors, and all
+    three are settled. Returning the breakdown is what lets the screen say
+    so; with only a total to show, it could only speak of « le professeur »
+    in the singular, and the owner would read that he was settling one man
+    while settling three.
+
+    When he chooses another amount, the breakdown returned is the SCALED
+    one -- the same call guarantee_unpaid will make. Displayed and posted
+    therefore cannot disagree.
+    """
     shares = _guaranteed_shares(context, present_until)
+    shown = shares if amount is None else _scaled_to(shares, amount, context)
     return {
-        "suggested_centimes": sum(amount for _, amount in shares),
+        "suggested_centimes": sum(part for _, part in shares),
         "max_centimes": net_price(context),
         "teachers": [
-            {"teacher_id": teacher_id, "amount_centimes": amount}
-            for teacher_id, amount in shares
+            {"teacher_id": teacher_id, "amount_centimes": part}
+            for teacher_id, part in shown
         ],
     }
 
