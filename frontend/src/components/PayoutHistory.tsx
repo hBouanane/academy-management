@@ -28,6 +28,11 @@ import { formatDH } from "@/lib/money"
  * As a table each payout is a line with its two actions written out. The
  * amount and the date are read, not decoded, and « Annuler » says what it
  * does instead of being the pill itself.
+ *
+ * There is no « Note » column. The payout carries a note field, but
+ * nothing in the application ever writes one, so the column showed « - »
+ * on every line of every month -- width spent on a promise never kept. It
+ * comes back the day something fills it.
  */
 export function PayoutHistory({
   name,
@@ -64,7 +69,6 @@ export function PayoutHistory({
               <TableRow>
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Montant</TableHead>
-                <TableHead>Note</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -74,9 +78,6 @@ export function PayoutHistory({
                   <TableCell>{payout.paid_on}</TableCell>
                   <TableCell className="text-right font-medium">
                     {formatDH(payout.amount_centimes)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {payout.note ?? "—"}
                   </TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     {canPrint && (

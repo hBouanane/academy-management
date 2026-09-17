@@ -12,6 +12,7 @@ only the affected documents surface.
 
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path as FsPath
 
 # datetime('now') stops at the second: two actions within the same
 # second would compare equal, and a sheet made stale immediately after
@@ -135,6 +136,31 @@ def receipt_path(conn: sqlite3.Connection, payout_id: int) -> str | None:
     return row["path"] if row else None
 
 
+def set_aside(path: "FsPath") -> str | None:
+    """Move a receipt out of the way under a « annule » name.
+
+    Renaming is not politeness, it is the only safe move: the professor
+    may already hold that signed sheet, and writing over our copy does not
+    retrieve his. What was on paper stays on disk, marked.
+
+    A second cancellation in the same month would land on the same name,
+    so the free one is found rather than assumed -- « - annule-2 » is
+    ugly, and still better than one file quietly replacing another.
+    """
+    if not path.exists():
+        return None
+    target = path.with_name(f"{path.stem} - annule{path.suffix}")
+    attempt = 2
+    while target.exists():
+        target = path.with_name(f"{path.stem} - annule-{attempt}{path.suffix}")
+        attempt += 1
+    try:
+        path.rename(target)
+    except OSError:
+        return None
+    return str(target)
+
+
 def cancel_receipt(conn: sqlite3.Connection, payout_id: int) -> str | None:
     """Rename a cancelled payout's receipt, and say where it went.
 
@@ -142,22 +168,13 @@ def cancel_receipt(conn: sqlite3.Connection, payout_id: int) -> str | None:
     removing our copy does not retrieve his. A file marked « annule »
     makes the mismatch visible instead of silent.
     """
-    from pathlib import Path as FsPath
-
     path = receipt_path(conn, payout_id)
     if path is None:
         return None
     source = FsPath(path)
     conn.execute("DELETE FROM exported_document WHERE payout_id = ?", (payout_id,))
     conn.commit()
-    if not source.exists():
-        return None
-    target = source.with_name(f"{source.stem} - annule{source.suffix}")
-    try:
-        source.replace(target)
-    except OSError:
-        return None
-    return str(target)
+    return set_aside(source)
 
 
 def stale_documents(

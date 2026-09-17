@@ -45,6 +45,16 @@ function DialogOverlay({
   )
 }
 
+/**
+ * `*:min-w-0` is not a detail: a grid item defaults to `min-width: auto`,
+ * which is its MIN-CONTENT width -- it refuses to become narrower than the
+ * widest thing inside it. A table of six columns therefore pushed the
+ * column wider than the dialog, and `overflow-x-hidden` cut the last two
+ * off: not merely off-screen, unreachable, with no scrollbar to say so.
+ *
+ * Allowed to shrink, the item stays inside the dialog and the table's own
+ * scroll container takes over.
+ */
 function DialogContent({
   className,
   children,
@@ -59,7 +69,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] *:min-w-0 -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

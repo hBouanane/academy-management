@@ -249,7 +249,6 @@ export function TeacherPage({
                 signed paper for a payment that had not happened. */}
             <Button
               size="sm"
-              variant="outline"
               onClick={() => {
                 // The profile stays mounted whatever the section is, so it
                 // has to step aside as well -- otherwise the till loads

@@ -1426,7 +1426,9 @@ def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
     file, not produce a second one.
 
     Filing can never fail the payout: the money moved, and our paperwork
-    comes second.
+    comes second. But it is not swallowed either -- a receipt that was not
+    filed is said out loud, because the alternative is discovering it at
+    the printer, weeks later, in front of the professor.
     """
     made = _record_payout(conn, body.kind, body.ref_id, body)
     if body.kind == "teacher" and _backup_root(conn) is not None:
@@ -1440,8 +1442,10 @@ def create_caisse_payout(body: CaissePayoutBody, conn: Conn) -> dict:
                 ),
                 conn,
             )
-        except Exception:  # noqa: BLE001, S110 - filing never blocks a payout
-            pass
+        except HTTPException as refusal:
+            made["receipt_error"] = str(refusal.detail)
+        except Exception as error:  # noqa: BLE001 - filing never blocks a payout
+            made["receipt_error"] = f"Reçu non rangé : {error}"
     return made
 
 
@@ -2563,11 +2567,29 @@ def file_document(body: FileDocumentBody, conn: Conn) -> dict:
         conn, body.kind, body.month, body.ref_id, body.payout_id
     )
     target = drawer / name
-    target.write_bytes(content)
+    # A receipt bearing this name that belongs to NO payout is the paper of
+    # a payout that no longer exists -- cancelled, or filed before a crash.
+    # Its figures are not this payout's, and the professor may hold it
+    # signed. It moves aside; it is not written over.
+    aside = None
+    if body.payout_id is not None and target.exists():
+        aside = documents.set_aside(target)
+    try:
+        target.write_bytes(content)
+    except PermissionError:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"« {name} » est ouvert dans Word. Fermez-le, puis réessayez."),
+        ) from None
+    except OSError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Impossible d'écrire « {name} » : {error.strerror or error}.",
+        ) from None
     documents.record_export(
         conn, body.kind, body.month, body.ref_id, str(target), body.payout_id
     )
-    return {"path": str(target)}
+    return {"path": str(target), "set_aside": aside}
 
 
 def _payout_rank(

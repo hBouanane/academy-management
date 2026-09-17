@@ -348,7 +348,7 @@ function AddSubject({
           <option key={name} value={name} />
         ))}
       </datalist>
-      <Button size="sm" variant="outline" onClick={submit} disabled={!draft.trim()}>
+      <Button size="sm" onClick={submit} disabled={!draft.trim()}>
         Ajouter
       </Button>
     </div>

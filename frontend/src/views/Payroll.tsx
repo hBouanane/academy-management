@@ -84,14 +84,25 @@ export function Payroll() {
   useEffect(reload, [reload])
 
   const payOut = (line: CaisseLine, amount?: number) =>
-    apiSend<{ id: number; amount_centimes: number }>("POST", "/api/payouts", {
-      kind: line.kind,
-      ref_id: line.ref_id,
-      month,
-      ...(amount === undefined ? {} : { amount_centimes: amount }),
-    })
+    apiSend<{ id: number; amount_centimes: number; receipt_error?: string }>(
+      "POST",
+      "/api/payouts",
+      {
+        kind: line.kind,
+        ref_id: line.ref_id,
+        month,
+        ...(amount === undefined ? {} : { amount_centimes: amount }),
+      },
+    )
       .then((done) => {
         setError(null)
+        // The money moved whatever happened to the paper, so this is not
+        // an error -- but a receipt that was not filed has to be said now.
+        // Left silent, it turns up at the printer weeks later, with the
+        // professor standing there.
+        if (done.receipt_error) {
+          toast(done.receipt_error, "error")
+        }
         // The paper to be signed is offered HERE: this is the moment the
         // teacher is standing in front of you, money in hand.
         toast(

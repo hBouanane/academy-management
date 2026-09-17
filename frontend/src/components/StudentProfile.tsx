@@ -73,7 +73,7 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
   return (
     <>
     <Dialog open={studentId !== null} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90svh] overflow-x-hidden overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-3">
             {fullName || "Profil étudiant"}

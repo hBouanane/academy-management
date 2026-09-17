@@ -4,6 +4,20 @@ import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Which variant, and when.
+ *
+ * `default` (filled) is the action the surface exists for -- one per page
+ * or per dialog: « Verser », « Enregistrer », « Ajouter » the thing being
+ * listed. `outline` is everything else that acts. `ghost` is a retreat --
+ * archiver, annuler, fermer.
+ *
+ * The rule is not decoration. Disabled buttons are drawn at half opacity,
+ * which needs something to be half OF: an outline « Ajouter », greyed
+ * inside a grey border, looks the same waiting for a name as it does
+ * refusing to be pressed. Filled, the difference is obvious across the
+ * room -- which is where the owner reads this screen from.
+ */
 const buttonVariants = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
