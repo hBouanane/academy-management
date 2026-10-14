@@ -234,6 +234,7 @@ export function Dashboard({ month, setMonth }: Props) {
                     })
                   }
                   onShowProfile={setProfileId}
+                  onRefused={setError}
                   onWhatsApp={(studentId, studentName) =>
                     setWriting({ studentId, studentName })
                   }
@@ -356,6 +357,7 @@ function StudentRow({
   onGuarantee,
   onShowProfile,
   onWhatsApp,
+  onRefused,
 }: {
   row: OverviewRow
   index: number
@@ -367,6 +369,8 @@ function StudentRow({
   onGuarantee: (enrollmentId: number) => void
   onShowProfile: (studentId: number) => void
   onWhatsApp: (studentId: number, studentName: string) => void
+  /** Un refus se lit. Avalé, le bouton a simplement l'air de ne rien faire. */
+  onRefused: (message: string) => void
 }) {
   const enrollment = row.enrollment
   const reduced =
@@ -557,17 +561,24 @@ function StudentRow({
                 Solder le prof
               </Button>
             )}
-            {!locked && (
+            {/* Rayer une saisie qui ne décrit rien. Après contre-passation
+                chaque ligne a sa jumelle négative, donc il ne reste qu'une
+                frappe à effacer -- mais un professeur soldé est une décision
+                sur ce qui a été enseigné, et le serveur refuserait. */}
+            {!locked && enrollment.guaranteed_centimes === 0 && (
               <ConfirmButton
                 size="sm"
                 variant="ghost"
-                title="Désinscrire ce mois (aucun paiement enregistré)"
-                confirmLabel="Désinscrire ce mois ?"
-                description="Aucun paiement n'a été enregistré — la ligne de ce mois sera retirée."
+                title="Retirer ce mois — saisie erronée"
+                confirmLabel="Retirer ce mois ?"
+                description="À utiliser quand ce mois n'aurait jamais dû être saisi : la ligne disparaît entièrement. Si l'élève a bien étudié mais sur un autre mois, déplacez-la plutôt depuis sa fiche."
                 onConfirm={() =>
                   apiSend("DELETE", `/api/enrollments/${enrollment.id}`)
                     .then(onDone)
-                    .catch(() => onDone())
+                    .catch((err: Error) => {
+                      onRefused(err.message)
+                      onDone()
+                    })
                 }
               >
                 <UserRoundX className="size-4" />

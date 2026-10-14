@@ -1177,18 +1177,24 @@ def create_enrollment(body: EnrollmentCreate, conn: Conn) -> dict:
 
 @router.delete("/enrollments/{enrollment_id}")
 def delete_enrollment(enrollment_id: int, conn: Conn) -> dict:
-    """Un-enroll a student from an open month — the escape hatch for a
-    browsed-ahead future month or a cancellation before any money moved."""
+    """Rayer une saisie qui ne décrit rien qui a eu lieu.
+
+    Not the same verb as reversing. Reversing undoes a REAL event -- he
+    paid, he is being repaid -- and both movements are true, so both stay.
+    A mis-keyed entry never happened; keeping it asserts a falsehood, that
+    a student was enrolled in a month he did not study.
+
+    It used to be refused for any payment that had ever existed, reversed
+    ones included. But a reversal mirrors every line, so a reversed
+    enrollment's footprint is exactly zero: the rule was not protecting
+    money, it was protecting a keystroke -- and the month it pinned went
+    on claiming an impayé for ever.
+    """
     month = crud.enrollment_month(conn, enrollment_id)
     if month is None:
         raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
     _require_open_month(month)
-    if crud.enrollment_has_payment_history(conn, enrollment_id):
-        raise HTTPException(
-            status_code=409,
-            detail="Cette inscription a un historique de paiement — elle ne"
-            " peut plus être supprimée (contre-passez plutôt le paiement).",
-        )
+    _require_a_keystroke_only(conn, enrollment_id)
     # Lu avant, note apres. Le journal a besoin de savoir de quel eleve ce
     # mois etait -- et la ligne ne doit paraitre que si la suppression a
     # bien eu lieu : une ligne qui existe est une chose qui s est passee.
@@ -1204,6 +1210,87 @@ def delete_enrollment(enrollment_id: int, conn: Conn) -> dict:
             subject=("student", gone["student_id"]),
         )
     return {"deleted": enrollment_id}
+
+
+def _require_a_keystroke_only(conn: sqlite3.Connection, enrollment_id: int) -> None:
+    """Refuse to correct anything but a keystroke, and say what is in the way."""
+    decided = crud.enrollment_decided_money(conn, enrollment_id)
+    if decided is not None:
+        raise HTTPException(status_code=409, detail=decided)
+    if crud.enrollment_is_paid(conn, enrollment_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Cette inscription est encaissée — contre-passez d'abord le"
+            " paiement, puis recommencez.",
+        )
+
+
+class MoveEnrollmentBody(BaseModel):
+    month: Month
+
+
+@router.post("/enrollments/{enrollment_id}/move")
+def move_enrollment(enrollment_id: int, body: MoveEnrollmentBody, conn: Conn) -> dict:
+    """Déplacer une inscription — et son argent — vers le bon mois.
+
+    The real correction, and it is not a cancellation: nothing here is
+    undone. He enrolled, he paid, both are true. The entry is simply in
+    the wrong drawer.
+
+    One action rather than four, because the reason he is here is a
+    mis-key -- and reverse, delete, re-enroll, re-pay by hand would be
+    four fresh chances to mis-key again.
+    """
+    row = conn.execute(
+        "SELECT month, student_id FROM enrollment WHERE id = ?", (enrollment_id,)
+    ).fetchone()
+    if row is None:
+        raise UnknownEnrollmentError(f"no enrollment {enrollment_id}")
+    if row["month"] == body.month:
+        raise HTTPException(
+            status_code=409, detail="L'inscription est déjà sur ce mois."
+        )
+    # Le verrou des mois passes ne s applique PAS ici, et c est delibere.
+    #
+    # On s apercoit d un mois saisi de travers apres coup -- souvent une
+    # fois le mois tourne. Exiger deux mois ouverts rendrait la correction
+    # impossible precisement quand on en a besoin, et le registre
+    # continuerait d affirmer qu un eleve etait inscrit un mois ou il n a
+    # pas etudie.
+    #
+    # Et l application admet deja qu un mois clos recoive de l argent :
+    # encaisser un impaye de septembre en octobre fait exactement cela.
+    # Un deplacement est de la meme forme. Ce qui le rend acceptable, ce
+    # sont les garde-fous ci-dessous et la ligne de journal : la figure
+    # d un mois clos peut bouger, mais jamais sans trace.
+    # Deux inscriptions pour un mois n ont pas de sens, et ecraser celle
+    # qui existe serait une deuxieme erreur, pas une correction.
+    if crud.enrolled_in(conn, row["student_id"], body.month) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Cet élève a déjà une inscription sur ce mois — supprimez"
+            " d'abord celle qui est en trop.",
+        )
+    decided = crud.enrollment_decided_money(conn, enrollment_id)
+    if decided is not None:
+        raise HTTPException(status_code=409, detail=decided)
+
+    crud.move_enrollment(conn, enrollment_id, body.month)
+    # Les deux mois changent de visage : celui qu on quitte comme celui
+    # qu on rejoint.
+    _touched(conn, enrollment_id)
+    documents.touch(
+        conn, row["month"], documents.scopes_of_enrollment(conn, enrollment_id)
+    )
+    conn.commit()
+    _noted(
+        conn,
+        "enrollment_moved",
+        month=body.month,
+        subject=("student", row["student_id"]),
+        detail=f"déplacée depuis {row['month']}",
+    )
+    return {"id": enrollment_id, "from_month": row["month"], "month": body.month}
 
 
 def _require_unpaid_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:

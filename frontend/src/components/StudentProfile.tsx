@@ -26,6 +26,7 @@ import { monthLabel } from "@/components/MonthNav"
 import { WhatsAppDialog } from "@/components/WhatsAppDialog"
 import { Notice } from "@/components/Notice"
 import { PayDialog } from "@/components/PayDialog"
+import { MoveMonthDialog } from "@/components/MoveMonthDialog"
 import { apiGet } from "@/lib/api"
 import type { StudentProfile as Profile } from "@/lib/api"
 import { anneeLabel } from "@/lib/levels"
@@ -45,6 +46,10 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
   // Any unpaid month is payable right here, no month navigation needed.
   const [payId, setPayId] = useState<number | null>(null)
   // Completing an avance, likewise.
+  const [moveTarget, setMoveTarget] = useState<{
+    id: number
+    month: string
+  } | null>(null)
   const [completeTarget, setCompleteTarget] = useState<{
     paymentId: number
     remaining: number
@@ -158,6 +163,7 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
                       <TableHead>Matières</TableHead>
                       <TableHead className="text-right">Net</TableHead>
                       <TableHead>Statut</TableHead>
+                      <TableHead className="text-right">Corriger</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -234,6 +240,24 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
                             </span>
                           )}
                         </TableCell>
+                        {/* Le mois saisi de travers se corrige ici, à côté
+                            du bon : c'est en les voyant l'un sous l'autre
+                            qu'on s'aperçoit de l'erreur. */}
+                        <TableCell className="text-right whitespace-nowrap">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Déplacer cette inscription vers un autre mois"
+                            onClick={() =>
+                              setMoveTarget({
+                                id: month.enrollment_id,
+                                month: month.month,
+                              })
+                            }
+                          >
+                            Déplacer
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -249,6 +273,20 @@ export function StudentProfile({ studentId, onClose, onChanged }: Props) {
           </div>
         )}
       </DialogContent>
+
+      {moveTarget && (
+        <MoveMonthDialog
+          enrollmentId={moveTarget.id}
+          studentName={fullName}
+          month={moveTarget.month}
+          onClose={() => setMoveTarget(null)}
+          onDone={() => {
+            setMoveTarget(null)
+            setRefresh((count) => count + 1)
+            onChanged?.()
+          }}
+        />
+      )}
 
       {payId !== null && (
         <PayDialog

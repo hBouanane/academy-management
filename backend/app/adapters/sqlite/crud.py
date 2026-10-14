@@ -1852,10 +1852,48 @@ def enrollment_has_payment_history(
     return row is not None
 
 
+def enrollment_decided_money(
+    conn: sqlite3.Connection, enrollment_id: int
+) -> str | None:
+    """A deliberate DECISION taken about this month, if there is one.
+
+    Not the same thing as a keystroke. « Solder le prof » states what was
+    taught; a refund states what is owed back. Neither is undone by
+    deciding the month was typed wrong -- so neither lets the row be
+    struck or moved, and the refusal says which one is in the way.
+    """
+    if conn.execute(
+        "SELECT 1 FROM guarantee WHERE enrollment_id = ?", (enrollment_id,)
+    ).fetchone():
+        return (
+            "Le professeur a déjà été soldé sur ce mois — c'est une décision"
+            " sur ce qui a été enseigné, pas une faute de frappe."
+        )
+    if conn.execute(
+        "SELECT 1 FROM refund WHERE enrollment_id = ?", (enrollment_id,)
+    ).fetchone():
+        return "Un remboursement a été promis sur ce mois."
+    return None
+
+
 def delete_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:
-    """Un-enroll: only for enrollments with NO payment history at all —
-    anything the ledger has ever referenced stays forever."""
+    """Strike an entry that describes nothing that happened.
+
+    The reversed payment and its mirror lines go WITH it. Left behind they
+    would point at a row that no longer exists -- and they sum to zero
+    anyway: a reversal mirrors every line, so what is removed here changes
+    no total anywhere.
+
+    Callers must have checked enrollment_decided_money and that no live
+    payment remains; this one only carries the decision out.
+    """
     with _transaction(conn):
+        conn.execute(
+            "DELETE FROM ledger_entry WHERE enrollment_id = ?"
+            " OR payment_id IN (SELECT id FROM payment WHERE enrollment_id = ?)",
+            (enrollment_id, enrollment_id),
+        )
+        conn.execute("DELETE FROM payment WHERE enrollment_id = ?", (enrollment_id,))
         conn.execute(
             "DELETE FROM adjustment_bearer WHERE adjustment_id IN"
             " (SELECT id FROM adjustment WHERE enrollment_id = ?)",
@@ -1866,6 +1904,44 @@ def delete_enrollment(conn: sqlite3.Connection, enrollment_id: int) -> None:
             "DELETE FROM enrollment_class WHERE enrollment_id = ?", (enrollment_id,)
         )
         conn.execute("DELETE FROM enrollment WHERE id = ?", (enrollment_id,))
+
+
+def enrolled_in(conn: sqlite3.Connection, student_id: int, month: str) -> int | None:
+    """His enrollment for that month, if he already has one."""
+    row = conn.execute(
+        "SELECT id FROM enrollment WHERE student_id = ? AND month = ?",
+        (student_id, month),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def move_enrollment(
+    conn: sqlite3.Connection, enrollment_id: int, to_month: str
+) -> None:
+    """The same money, in the right drawer.
+
+    Nothing is reversed and nothing is reposted: no amount, beneficiary or
+    ledger line changes. Only the month they were filed under, which is
+    the single thing that was mis-keyed. Reversing and reposting would
+    have recomputed the split against the new month's teacher assignments
+    -- a different division from the one the owner saw and the professor
+    may already have been paid on.
+
+    An arrival date belonged to the month it opened, so it only survives a
+    move into its own month.
+    """
+    with _transaction(conn):
+        conn.execute(
+            "UPDATE ledger_entry SET month = ? WHERE enrollment_id = ?"
+            " OR payment_id IN (SELECT id FROM payment WHERE enrollment_id = ?)",
+            (to_month, enrollment_id, enrollment_id),
+        )
+        conn.execute(
+            "UPDATE enrollment SET month = ?, arrival_date ="
+            " CASE WHEN substr(arrival_date, 1, 7) = ? THEN arrival_date END"
+            " WHERE id = ?",
+            (to_month, to_month, enrollment_id),
+        )
 
 
 def _copy_recurring_adjustments(
