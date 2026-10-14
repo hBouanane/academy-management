@@ -31,6 +31,7 @@ ACTIONS = frozenset(
         # Ce qu'un mois affirme d'un eleve
         "enrollment",
         "enrollment_deleted",
+        "enrollment_moved",
         "adjustment",
         "adjustment_changed",
         "adjustment_deleted",

@@ -173,15 +173,29 @@ class TestAgendaMonths:
         (row,) = client.get("/api/months/2026-09/overview").json()
         assert row["enrollment"] is None
 
-    def test_enrollment_with_payment_history_cannot_be_deleted(self, client):
+    def test_a_live_payment_blocks_the_deletion(self, client):
+        level, class_id, _ = setup_level_class(client)
+        _, _, enrollment = enroll_student(client, level, [class_id])
+        client.post("/api/payments", json={"enrollment_id": enrollment})
+        assert client.delete(f"/api/enrollments/{enrollment}").status_code == 409
+
+    def test_a_reversed_payment_no_longer_pins_it(self, client):
+        """La regle d avant disait « even reversed history pins the
+        enrollment forever ». Elle a saute en round 37.
+
+        Une contre-passation reflete chaque ligne en negatif : l empreinte
+        de l inscription est alors exactement nulle. La regle ne protegeait
+        pas de l argent, elle protegeait une frappe -- et le mois qu elle
+        epinglait continuait de reclamer un impaye pour un mois jamais
+        etudie. Voir test_correcting_a_month.py.
+        """
         level, class_id, _ = setup_level_class(client)
         _, _, enrollment = enroll_student(client, level, [class_id])
         payment = client.post(
             "/api/payments", json={"enrollment_id": enrollment}
         ).json()["payment_id"]
         client.post(f"/api/payments/{payment}/reverse", json={})
-        # Even reversed history pins the enrollment forever.
-        assert client.delete(f"/api/enrollments/{enrollment}").status_code == 409
+        assert client.delete(f"/api/enrollments/{enrollment}").status_code == 200
 
 
 class TestAdjustmentEdit:

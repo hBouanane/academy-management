@@ -133,13 +133,17 @@ class TestTheJournalDoesNotRewriteItself:
 
     def test_a_refused_deletion_leaves_no_line(self, client):
         """La ligne s'écrit APRES : une inscription qu'on n'a pas pu
-        supprimer ne doit pas figurer au journal comme supprimée."""
+        supprimer ne doit pas figurer au journal comme supprimée.
+
+        Le bloqueur est ici un professeur soldé — une décision sur ce qui a
+        été enseigné. Un paiement contre-passé ne bloque plus : son
+        empreinte est nulle, il ne reste qu'une frappe à effacer."""
         level, class_id, _, package = setup_base(client)
         _, enrollment = enroll(client, level, package, class_id)
-        payment = client.post(
-            "/api/payments", json={"enrollment_id": enrollment}
-        ).json()["payment_id"]
-        client.post(f"/api/payments/{payment}/reverse", json={})
+        client.post(
+            f"/api/enrollments/{enrollment}/guarantee",
+            json={"amount_centimes": 50 * DH},
+        )
 
         refused = client.delete(f"/api/enrollments/{enrollment}")
 
